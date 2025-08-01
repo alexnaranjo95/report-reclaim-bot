@@ -7,7 +7,7 @@ import { UploadZone } from './UploadZone';
 import { RoundTracker } from './RoundTracker';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
-import { FileText, TrendingUp, Shield, Clock } from 'lucide-react';
+import { FileText, TrendingUp, Shield, Clock, Trash2, Bug } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { useToast } from '@/hooks/use-toast';
@@ -36,7 +36,7 @@ export const Dashboard = () => {
       
       toast({
         title: "Analysis Complete",
-        description: `Found ${results.summary.totalNegativeItems} negative items to dispute.`,
+        description: `Found ${results.summary.totalNegativeItems} negative items and ${results.summary.totalPositiveAccounts} positive accounts.`,
       });
     } catch (error) {
       console.error('Analysis failed:', error);
@@ -48,6 +48,26 @@ export const Dashboard = () => {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const handleDeleteFile = () => {
+    setUploadedFile(null);
+    setAnalysisComplete(false);
+    setAnalysisResults(null);
+    setIsAnalyzing(false);
+    toast({
+      title: "File Removed",
+      description: "Upload a new credit report to begin analysis.",
+    });
+  };
+
+  const handleTroubleshoot = () => {
+    toast({
+      title: "Troubleshooting",
+      description: "Check edge function logs for detailed error information.",
+    });
+    // Open edge function logs in new tab
+    window.open('https://supabase.com/dashboard/project/rcrpqdhfawtpjicttgvx/functions/openai-analysis/logs', '_blank');
   };
 
   return (
@@ -138,13 +158,37 @@ export const Dashboard = () => {
               <div className="space-y-6 animate-fade-in">
                 <Card className="bg-gradient-card shadow-card">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-primary" />
-                      Round {currentRound} Analysis
-                    </CardTitle>
-                    <CardDescription>
-                      AI analysis of {uploadedFile.name}
-                    </CardDescription>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <FileText className="h-5 w-5 text-primary" />
+                          Round {currentRound} Analysis
+                        </CardTitle>
+                        <CardDescription>
+                          AI analysis of {uploadedFile.name}
+                        </CardDescription>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleTroubleshoot}
+                          className="flex items-center gap-1"
+                        >
+                          <Bug className="h-4 w-4" />
+                          Debug
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleDeleteFile}
+                          className="flex items-center gap-1 text-danger hover:text-danger"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {isAnalyzing ? (

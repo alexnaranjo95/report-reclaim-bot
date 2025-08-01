@@ -17,6 +17,7 @@ export interface CreditAnalysisResult {
   items: CreditItem[];
   summary: {
     totalNegativeItems: number;
+    totalPositiveAccounts: number;
     estimatedScoreImpact: number;
     bureausAffected: string[];
     highImpactItems: number;

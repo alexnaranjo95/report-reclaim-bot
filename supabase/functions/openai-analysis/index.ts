@@ -80,7 +80,8 @@ Analyze this credit report text and extract negative items. Return a JSON object
     "experian": 0,
     "equifax": 0,
     "transunion": 0
-  }
+  },
+  "totalPositiveAccounts": 0
 }
 
 Focus on identifying NEGATIVE ITEMS ONLY:
@@ -93,6 +94,9 @@ Focus on identifying NEGATIVE ITEMS ONLY:
 - High credit utilization (>30%) - calculate utilization ratios
 - Incorrect information - wrong dates, amounts, or account details
 - Fraudulent accounts - accounts not opened by consumer
+
+ALSO COUNT POSITIVE ACCOUNTS:
+Count the total number of accounts with positive payment history (marked as "PAYS AS AGREED", "CURRENT", "NEVER LATE", or similar positive indicators) and include this in the "totalPositiveAccounts" field.
 
 Rate impact as:
 - high: Collections, charge-offs, bankruptcies, foreclosures, repossessions, 90+ day lates

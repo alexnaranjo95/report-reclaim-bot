@@ -40,6 +40,7 @@ export class CreditAnalysisService {
       // Calculate summary
       const summary = {
         totalNegativeItems: items.length,
+        totalPositiveAccounts: data.totalPositiveAccounts || 0,
         estimatedScoreImpact: this.calculateScoreImpact(items),
         bureausAffected: [...new Set(items.flatMap(item => item.bureau))],
         highImpactItems: items.filter(item => item.impact === 'high').length,

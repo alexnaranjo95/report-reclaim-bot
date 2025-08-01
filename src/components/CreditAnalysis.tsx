@@ -127,7 +127,19 @@ export const CreditAnalysis = ({ analysisResults }: CreditAnalysisProps) => {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Analysis Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="bg-success/5 border-success/20">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-success" />
+              <div>
+                <div className="text-2xl font-bold text-success">{summary.totalPositiveAccounts}</div>
+                <div className="text-sm text-muted-foreground">Positive Accounts</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="bg-danger/5 border-danger/20">
           <CardContent className="p-4">
             <div className="flex items-center gap-2">

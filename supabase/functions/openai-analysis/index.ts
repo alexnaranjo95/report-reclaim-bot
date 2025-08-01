@@ -5,6 +5,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
+console.log('OpenAI API Key configured:', !!openAIApiKey);
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -101,6 +103,12 @@ Credit Report Text:
 ${reportText}
 `;
 
+  console.log('Making OpenAI request...');
+  
+  if (!openAIApiKey) {
+    throw new Error('OpenAI API key not configured');
+  }
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -112,7 +120,7 @@ ${reportText}
       messages: [
         {
           role: 'system',
-          content: 'You are a credit repair expert. Analyze credit reports and identify negative items that can be disputed.'
+          content: 'You are a credit repair expert. Analyze credit reports and identify negative items that can be disputed. ALWAYS return valid JSON without markdown code blocks.'
         },
         {
           role: 'user',
@@ -124,21 +132,39 @@ ${reportText}
     }),
   });
 
+  console.log('OpenAI response status:', response.status);
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OpenAI API error:', errorText);
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+  }
+
   const data = await response.json();
+  console.log('OpenAI response received');
   
   if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+    console.error('Invalid OpenAI response structure:', data);
     throw new Error('No response from OpenAI');
   }
 
   const content = data.choices[0].message.content;
+  console.log('Raw OpenAI content:', content.substring(0, 200));
   
   // Clean the content to remove markdown code blocks if present
   const cleanedContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const analysisResult = JSON.parse(cleanedContent);
-
-  return new Response(JSON.stringify(analysisResult), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+  
+  try {
+    const analysisResult = JSON.parse(cleanedContent);
+    console.log('Successfully parsed JSON result');
+    return new Response(JSON.stringify(analysisResult), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (parseError) {
+    console.error('JSON parse error:', parseError);
+    console.error('Cleaned content:', cleanedContent);
+    throw new Error(`Failed to parse OpenAI response as JSON: ${parseError.message}`);
+  }
 }
 
 async function generateDisputeLetter(creditor: string, items: string[], type: string) {

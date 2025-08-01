@@ -66,19 +66,21 @@ Analyze this credit report text and extract negative items. Return a JSON object
   }
 }
 
-Focus on identifying:
-- Late payments (30, 60, 90+ days)
-- Collections accounts
-- Charge-offs
-- Bankruptcies
-- High credit utilization
-- Incorrect information
-- Fraudulent accounts
+Focus on identifying NEGATIVE ITEMS ONLY:
+- Late payments (30, 60, 90+ days late) - look for "LATE", "30 DAYS", "60 DAYS", "90 DAYS", payment history codes
+- Collections accounts - look for "COLLECTION", "PLACED FOR COLLECTION", collection agencies
+- Charge-offs - look for "CHARGE OFF", "CHARGED OFF", "PROFIT AND LOSS"
+- Bankruptcies - look for "BANKRUPTCY", "CHAPTER 7", "CHAPTER 13", "BK"
+- Repossessions - look for "REPOSSESSION", "REPO", "VOLUNTARY SURRENDER"
+- Foreclosures - look for "FORECLOSURE", "REAL ESTATE OWNED"
+- High credit utilization (>30%) - calculate utilization ratios
+- Incorrect information - wrong dates, amounts, or account details
+- Fraudulent accounts - accounts not opened by consumer
 
 Rate impact as:
-- high: Collections, charge-offs, bankruptcies, 90+ day lates
-- medium: 60-day lates, high utilization
-- low: 30-day lates, minor errors
+- high: Collections, charge-offs, bankruptcies, foreclosures, repossessions, 90+ day lates
+- medium: 60-day lates, high utilization (>50%), multiple 30-day lates
+- low: Single 30-day lates, minor errors, high utilization (30-50%)
 
 Credit Report Text:
 ${reportText}

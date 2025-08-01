@@ -2,47 +2,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { AlertTriangle, TrendingDown, Eye, CheckCircle } from 'lucide-react';
+import { CreditAnalysisResult } from '../types/CreditTypes';
 
-interface CreditItem {
-  id: string;
-  creditor: string;
-  account: string;
-  issue: string;
-  impact: 'high' | 'medium' | 'low';
-  status: 'negative' | 'disputed' | 'resolved';
-  bureau: string[];
+interface CreditAnalysisProps {
+  analysisResults: CreditAnalysisResult;
 }
 
-export const CreditAnalysis = () => {
-  const creditItems: CreditItem[] = [
-    {
-      id: '1',
-      creditor: 'Capital One',
-      account: '****4567',
-      issue: 'Late payment (30 days)',
-      impact: 'high',
-      status: 'negative',
-      bureau: ['Experian', 'Equifax']
-    },
-    {
-      id: '2',
-      creditor: 'Chase Bank',
-      account: '****8901',
-      issue: 'Incorrect balance reporting',
-      impact: 'medium',
-      status: 'negative',
-      bureau: ['TransUnion', 'Experian']
-    },
-    {
-      id: '3',
-      creditor: 'Discover',
-      account: '****2345',
-      issue: 'Account not mine',
-      impact: 'high',
-      status: 'negative',
-      bureau: ['Equifax']
-    }
-  ];
+export const CreditAnalysis = ({ analysisResults }: CreditAnalysisProps) => {
+  const { items: creditItems, summary } = analysisResults;
 
   const getImpactColor = (impact: string) => {
     switch (impact) {
@@ -71,7 +38,7 @@ export const CreditAnalysis = () => {
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-danger" />
               <div>
-                <div className="text-2xl font-bold text-danger">{creditItems.length}</div>
+                <div className="text-2xl font-bold text-danger">{summary.totalNegativeItems}</div>
                 <div className="text-sm text-muted-foreground">Negative Items</div>
               </div>
             </div>
@@ -83,7 +50,7 @@ export const CreditAnalysis = () => {
             <div className="flex items-center gap-2">
               <TrendingDown className="h-5 w-5 text-warning" />
               <div>
-                <div className="text-2xl font-bold text-warning">-45</div>
+                <div className="text-2xl font-bold text-warning">-{summary.estimatedScoreImpact}</div>
                 <div className="text-sm text-muted-foreground">Score Impact</div>
               </div>
             </div>
@@ -95,7 +62,7 @@ export const CreditAnalysis = () => {
             <div className="flex items-center gap-2">
               <Eye className="h-5 w-5 text-primary" />
               <div>
-                <div className="text-2xl font-bold text-primary">3</div>
+                <div className="text-2xl font-bold text-primary">{summary.bureausAffected.length}</div>
                 <div className="text-sm text-muted-foreground">Bureaus Affected</div>
               </div>
             </div>

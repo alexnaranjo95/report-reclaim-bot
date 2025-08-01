@@ -8,16 +8,49 @@ import { RoundTracker } from './RoundTracker';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
 import { FileText, TrendingUp, Shield, Clock } from 'lucide-react';
+import { CreditAnalysisService } from '../services/CreditAnalysisService';
+import { CreditAnalysisResult } from '../types/CreditTypes';
+import { useToast } from '@/hooks/use-toast';
 
 export const Dashboard = () => {
   const [currentRound, setCurrentRound] = useState(1);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [analysisResults, setAnalysisResults] = useState<CreditAnalysisResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const { toast } = useToast();
 
-  const handleFileUpload = (file: File) => {
+  const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
-    // Simulate analysis completion after upload
-    setTimeout(() => setAnalysisComplete(true), 2000);
+    setIsAnalyzing(true);
+    setAnalysisComplete(false);
+
+    try {
+      // Get OpenAI API key from user or use pattern matching
+      const apiKey = localStorage.getItem('openai_api_key');
+      
+      const results = await CreditAnalysisService.analyzePDF(
+        { file, round: currentRound },
+        apiKey || undefined
+      );
+      
+      setAnalysisResults(results);
+      setAnalysisComplete(true);
+      
+      toast({
+        title: "Analysis Complete",
+        description: `Found ${results.summary.totalNegativeItems} negative items to dispute.`,
+      });
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      toast({
+        title: "Analysis Failed",
+        description: "Failed to analyze credit report. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -113,22 +146,22 @@ export const Dashboard = () => {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {!analysisComplete ? (
+                    {isAnalyzing ? (
                       <div className="space-y-4">
                         <div className="text-sm text-muted-foreground">
                           Analyzing credit report...
                         </div>
                         <Progress value={75} className="h-2" />
                       </div>
-                    ) : (
-                      <CreditAnalysis />
-                    )}
+                    ) : analysisComplete && analysisResults ? (
+                      <CreditAnalysis analysisResults={analysisResults} />
+                    ) : null}
                   </CardContent>
                 </Card>
 
                 {/* Dispute Letters Section */}
-                {analysisComplete && (
-                  <DisputeLetterDrafts roundNumber={currentRound} />
+                {analysisComplete && analysisResults && (
+                  <DisputeLetterDrafts creditItems={analysisResults.items} />
                 )}
               </div>
             )}

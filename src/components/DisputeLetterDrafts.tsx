@@ -1,73 +1,99 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { FileText, Edit3, Send, Eye, Download } from 'lucide-react';
-
-interface DisputeLetter {
-  id: string;
-  recipient: string;
-  type: 'bureau' | 'creditor';
-  issue: string;
-  content: string;
-  status: 'draft' | 'approved' | 'sent';
-}
+import { CreditItem, DisputeLetter } from '../types/CreditTypes';
+import { OpenAIService } from '../services/OpenAIService';
 
 interface DisputeLetterDraftsProps {
-  roundNumber: number;
+  creditItems: CreditItem[];
 }
 
-export const DisputeLetterDrafts = ({ roundNumber }: DisputeLetterDraftsProps) => {
-  const [letters] = useState<DisputeLetter[]>([
-    {
-      id: '1',
-      recipient: 'Experian Credit Bureau',
-      type: 'bureau',
-      issue: 'Capital One late payment dispute',
-      content: `Dear Experian Credit Reporting Agency,
+export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) => {
+  const [letters, setLetters] = useState<DisputeLetter[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
-I am writing to formally dispute an inaccurate item on my credit report. After reviewing my credit report dated [DATE], I found the following error that requires immediate correction:
+  useEffect(() => {
+    generateInitialLetters();
+  }, [creditItems]);
 
-Account Information:
-- Creditor: Capital One
-- Account Number: ****4567
-- Dispute Reason: The reported late payment on [DATE] is inaccurate
+  const generateInitialLetters = async () => {
+    setIsGenerating(true);
+    const apiKey = localStorage.getItem('openai_api_key');
+    
+    try {
+      // Group items by creditor
+      const itemsByCreditor = creditItems.reduce((acc, item) => {
+        if (!acc[item.creditor]) {
+          acc[item.creditor] = [];
+        }
+        acc[item.creditor].push(item);
+        return acc;
+      }, {} as Record<string, CreditItem[]>);
 
-I have enclosed supporting documentation that proves this payment was made on time. According to the Fair Credit Reporting Act (FCRA), I have the right to dispute inaccurate information, and you are required to investigate and correct this error within 30 days.
+      const newLetters: DisputeLetter[] = [];
 
-Please investigate this matter and remove this inaccurate information from my credit report immediately.
+      for (const [creditor, items] of Object.entries(itemsByCreditor)) {
+        const bureaus = [...new Set(items.flatMap(item => item.bureau))];
+        
+        for (const bureau of bureaus) {
+          const bureauItems = items.filter(item => item.bureau.includes(bureau));
+          
+          let content = '';
+          if (apiKey) {
+            try {
+              OpenAIService.initialize(apiKey);
+              content = await OpenAIService.generateDisputeLetter(
+                creditor,
+                bureauItems.map(item => item.issue),
+                'validation'
+              );
+            } catch (error) {
+              console.error('AI letter generation failed:', error);
+              content = generateFallbackLetter(creditor, bureauItems);
+            }
+          } else {
+            content = generateFallbackLetter(creditor, bureauItems);
+          }
 
-Sincerely,
-[Your Name]`,
-      status: 'draft'
-    },
-    {
-      id: '2',
-      recipient: 'Chase Bank',
-      type: 'creditor',
-      issue: 'Incorrect balance reporting',
-      content: `Dear Chase Bank,
+          newLetters.push({
+            id: `${creditor}-${bureau}`.toLowerCase().replace(/\s+/g, '-'),
+            creditor,
+            bureau,
+            items: bureauItems.map(item => item.issue),
+            content,
+            status: 'draft',
+            type: 'validation'
+          });
+        }
+      }
 
-I am writing to dispute inaccurate information being reported to the credit bureaus regarding my account ****8901.
-
-The issue is: Your records show an incorrect balance that does not match my account statements.
-
-I am requesting that you:
-1. Investigate this discrepancy immediately
-2. Correct your records
-3. Update all credit bureaus with the accurate information
-4. Provide me with written confirmation of these corrections
-
-As per the Fair Credit Reporting Act, you have 30 days to investigate and respond to this dispute.
-
-Thank you for your prompt attention to this matter.
-
-Sincerely,
-[Your Name]`,
-      status: 'draft'
+      setLetters(newLetters);
+    } catch (error) {
+      console.error('Error generating letters:', error);
+    } finally {
+      setIsGenerating(false);
     }
-  ]);
+  };
+
+  const generateFallbackLetter = (creditor: string, items: CreditItem[]): string => {
+    return `Dear ${creditor},
+
+I am writing to formally dispute inaccurate information on my credit report. Upon reviewing my credit report, I have identified several items that are incorrectly reported and are negatively impacting my credit score.
+
+The following items require immediate attention and correction:
+
+${items.map((item, index) => `${index + 1}. ${item.issue} - Account: ${item.account}`).join('\n')}
+
+I am requesting that you investigate these matters and provide proper documentation to support these claims. Under the Fair Credit Reporting Act (FCRA), I have the right to dispute inaccurate information and request validation.
+
+Please remove or correct these items within 30 days as required by law.
+
+Sincerely,
+[Your Name]`;
+  };
 
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<string | null>(null);
@@ -90,7 +116,7 @@ Sincerely,
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileText className="h-5 w-5 text-primary" />
-          Dispute Letters - Round {roundNumber}
+          Dispute Letters {isGenerating && '(Generating...)'}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -100,15 +126,17 @@ Sincerely,
               <div className="flex items-start justify-between">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <h4 className="font-semibold">{letter.recipient}</h4>
+                    <h4 className="font-semibold">{letter.creditor}</h4>
                     <Badge 
                       variant="outline" 
-                      className={getTypeColor(letter.type)}
+                      className="bg-primary/10 text-primary"
                     >
-                      {letter.type === 'bureau' ? 'Credit Bureau' : 'Creditor'}
+                      {letter.bureau}
                     </Badge>
                   </div>
-                  <p className="text-sm text-muted-foreground">{letter.issue}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {letter.items.join(', ')}
+                  </p>
                 </div>
                 <Badge variant={getStatusColor(letter.status)} className="capitalize">
                   {letter.status}

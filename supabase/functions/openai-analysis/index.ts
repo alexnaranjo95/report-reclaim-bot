@@ -131,7 +131,10 @@ ${reportText}
   }
 
   const content = data.choices[0].message.content;
-  const analysisResult = JSON.parse(content);
+  
+  // Clean the content to remove markdown code blocks if present
+  const cleanedContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const analysisResult = JSON.parse(cleanedContent);
 
   return new Response(JSON.stringify(analysisResult), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },

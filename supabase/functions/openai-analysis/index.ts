@@ -151,8 +151,19 @@ ${reportText}
   const content = data.choices[0].message.content;
   console.log('Raw OpenAI content:', content.substring(0, 200));
   
-  // Clean the content to remove markdown code blocks if present
-  const cleanedContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  // More robust cleaning of markdown code blocks
+  let cleanedContent = content.trim();
+  
+  // Remove opening markdown code blocks
+  cleanedContent = cleanedContent.replace(/^```(?:json)?\s*/i, '');
+  
+  // Remove closing markdown code blocks
+  cleanedContent = cleanedContent.replace(/\s*```\s*$/i, '');
+  
+  // Remove any remaining markdown artifacts
+  cleanedContent = cleanedContent.replace(/```/g, '');
+  
+  console.log('Cleaned content for parsing:', cleanedContent.substring(0, 200));
   
   try {
     const analysisResult = JSON.parse(cleanedContent);
@@ -162,7 +173,24 @@ ${reportText}
     });
   } catch (parseError) {
     console.error('JSON parse error:', parseError);
-    console.error('Cleaned content:', cleanedContent);
+    console.error('Full cleaned content:', cleanedContent);
+    
+    // Try to extract JSON from the content more aggressively
+    const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const extractedJson = jsonMatch[0];
+        console.log('Attempting to parse extracted JSON:', extractedJson.substring(0, 200));
+        const analysisResult = JSON.parse(extractedJson);
+        console.log('Successfully parsed extracted JSON');
+        return new Response(JSON.stringify(analysisResult), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (extractError) {
+        console.error('Extracted JSON parse error:', extractError);
+      }
+    }
+    
     throw new Error(`Failed to parse OpenAI response as JSON: ${parseError.message}`);
   }
 }

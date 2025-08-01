@@ -70,7 +70,11 @@ export const Dashboard = () => {
                 <Shield className="h-3 w-3 mr-1" />
                 Secure
               </Badge>
-              <Button variant="outline" size="sm">
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => window.location.href = '/settings'}
+              >
                 Settings
               </Button>
             </div>

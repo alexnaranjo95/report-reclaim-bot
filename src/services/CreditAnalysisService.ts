@@ -2,37 +2,34 @@ import { PDFProcessor } from './PDFProcessor';
 import { OpenAIService } from './OpenAIService';
 import { CreditAnalysisResult, CreditItem, PDFAnalysisRequest } from '../types/CreditTypes';
 import { CreditPatterns } from '../utils/CreditPatterns';
+import { supabase } from '@/integrations/supabase/client';
 
 export class CreditAnalysisService {
   static async analyzePDF(request: PDFAnalysisRequest): Promise<CreditAnalysisResult> {
     try {
-      // Extract text from PDF
-      const rawText = await PDFProcessor.extractTextFromPDF(request.file);
-      const cleanText = PDFProcessor.cleanText(rawText);
+      // Send PDF directly to edge function for processing
+      const formData = new FormData();
+      formData.append('file', request.file);
+      formData.append('action', 'analyzePDF');
       
-      // Detect bureau type
-      const bureausDetected = PDFProcessor.detectBureauType(cleanText);
-      
-      let analysisResult: any;
-      
-      // Try AI analysis first
-      try {
-        analysisResult = await OpenAIService.analyzeCreditReport(cleanText);
-        console.log('AI analysis successful');
-      } catch (aiError) {
-        console.warn('AI analysis failed, falling back to pattern matching:', aiError);
-        analysisResult = this.fallbackPatternAnalysis(cleanText, bureausDetected);
+      const { data, error } = await supabase.functions.invoke('openai-analysis', {
+        body: formData
+      });
+
+      if (error) {
+        console.error('Supabase function error:', error);
+        throw new Error('Failed to analyze credit report with server processing');
       }
-      
+
       // Process and validate the results
-      const items: CreditItem[] = (analysisResult.items || []).map((item: any, index: number) => ({
+      const items: CreditItem[] = (data.items || []).map((item: any, index: number) => ({
         id: `item-${index + 1}`,
         creditor: item.creditor || 'Unknown Creditor',
         account: item.account || '****0000',
         issue: item.issue || 'Negative item detected',
         impact: item.impact || 'medium',
         status: 'negative' as const,
-        bureau: item.bureau || bureausDetected,
+        bureau: item.bureau || ['Unknown'],
         dateOpened: item.dateOpened,
         lastActivity: item.lastActivity,
         balance: item.balance,
@@ -53,8 +50,8 @@ export class CreditAnalysisService {
       return {
         items,
         summary,
-        personalInfo: analysisResult.personalInfo || {},
-        creditScores: analysisResult.creditScores
+        personalInfo: data.personalInfo || {},
+        creditScores: data.creditScores
       };
       
     } catch (error) {

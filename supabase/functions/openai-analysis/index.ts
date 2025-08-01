@@ -1,6 +1,7 @@
 
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
@@ -16,18 +17,32 @@ serve(async (req) => {
   }
 
   try {
-    const { action, data } = await req.json();
-
-    if (action === 'analyzeCreditReport') {
-      return await analyzeCreditReport(data.reportText);
-    } else if (action === 'generateDisputeLetter') {
-      return await generateDisputeLetter(data.creditor, data.items, data.type);
+    const contentType = req.headers.get('content-type');
+    
+    if (contentType?.includes('multipart/form-data')) {
+      // Handle PDF upload
+      const formData = await req.formData();
+      const file = formData.get('file') as File;
+      const action = formData.get('action') as string;
+      
+      if (action === 'analyzePDF' && file) {
+        return await analyzePDFFile(file);
+      }
     } else {
-      return new Response(JSON.stringify({ error: 'Invalid action' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      // Handle JSON requests
+      const { action, data } = await req.json();
+
+      if (action === 'analyzeCreditReport') {
+        return await analyzeCreditReport(data.reportText);
+      } else if (action === 'generateDisputeLetter') {
+        return await generateDisputeLetter(data.creditor, data.items, data.type);
+      }
     }
+    
+    return new Response(JSON.stringify({ error: 'Invalid action' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   } catch (error) {
     console.error('Error in openai-analysis function:', error);
     return new Response(JSON.stringify({ error: error.message }), {
@@ -171,3 +186,56 @@ Format as a complete business letter with proper headers and closing.
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
+
+async function analyzePDFFile(file: File) {
+  try {
+    console.log('Processing PDF file:', file.name, 'Size:', file.size);
+    
+    // Convert PDF to text using a simple extraction method
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    
+    // Simple PDF text extraction - look for text content between stream objects
+    const pdfText = new TextDecoder().decode(uint8Array);
+    
+    // Extract readable text from PDF content
+    let extractedText = '';
+    const textMatches = pdfText.match(/stream\s*(.*?)\s*endstream/gs);
+    
+    if (textMatches) {
+      for (const match of textMatches) {
+        const streamContent = match.replace(/^stream\s*/, '').replace(/\s*endstream$/, '');
+        // Try to extract readable text
+        const readableText = streamContent.replace(/[^\x20-\x7E\n\r]/g, ' ');
+        if (readableText.trim().length > 10) {
+          extractedText += readableText + '\n';
+        }
+      }
+    }
+    
+    // Fallback: extract any readable text from the entire PDF
+    if (!extractedText.trim()) {
+      extractedText = pdfText.replace(/[^\x20-\x7E\n\r]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    
+    console.log('Extracted text length:', extractedText.length);
+    
+    if (extractedText.length < 100) {
+      throw new Error('Could not extract sufficient text from PDF');
+    }
+    
+    // Now analyze the extracted text with OpenAI
+    return await analyzeCreditReport(extractedText);
+    
+  } catch (error) {
+    console.error('PDF processing error:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Failed to process PDF file',
+      details: error.message 
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }

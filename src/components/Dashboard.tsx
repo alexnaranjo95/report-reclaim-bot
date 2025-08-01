@@ -26,13 +26,10 @@ export const Dashboard = () => {
     setAnalysisComplete(false);
 
     try {
-      // Get OpenAI API key from user or use pattern matching
-      const apiKey = localStorage.getItem('openai_api_key');
-      
-      const results = await CreditAnalysisService.analyzePDF(
-        { file, round: currentRound },
-        apiKey || undefined
-      );
+      const results = await CreditAnalysisService.analyzePDF({
+        file,
+        round: currentRound
+      });
       
       setAnalysisResults(results);
       setAnalysisComplete(true);

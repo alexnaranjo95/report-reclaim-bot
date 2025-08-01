@@ -4,7 +4,7 @@ import { CreditAnalysisResult, CreditItem, PDFAnalysisRequest } from '../types/C
 import { CreditPatterns } from '../utils/CreditPatterns';
 
 export class CreditAnalysisService {
-  static async analyzePDF(request: PDFAnalysisRequest, apiKey?: string): Promise<CreditAnalysisResult> {
+  static async analyzePDF(request: PDFAnalysisRequest): Promise<CreditAnalysisResult> {
     try {
       // Extract text from PDF
       const rawText = await PDFProcessor.extractTextFromPDF(request.file);
@@ -15,17 +15,12 @@ export class CreditAnalysisService {
       
       let analysisResult: any;
       
-      // Try AI analysis first if API key is provided
-      if (apiKey) {
-        try {
-          OpenAIService.initialize(apiKey);
-          analysisResult = await OpenAIService.analyzeCreditReport(cleanText);
-        } catch (aiError) {
-          console.warn('AI analysis failed, falling back to pattern matching:', aiError);
-          analysisResult = this.fallbackPatternAnalysis(cleanText, bureausDetected);
-        }
-      } else {
-        // Use pattern matching as fallback
+      // Try AI analysis first
+      try {
+        analysisResult = await OpenAIService.analyzeCreditReport(cleanText);
+        console.log('AI analysis successful');
+      } catch (aiError) {
+        console.warn('AI analysis failed, falling back to pattern matching:', aiError);
         analysisResult = this.fallbackPatternAnalysis(cleanText, bureausDetected);
       }
       

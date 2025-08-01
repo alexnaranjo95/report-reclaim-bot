@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -143,37 +144,6 @@ const Settings = () => {
                   <Save className="h-4 w-4" />
                   Save Preferences
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* OpenAI API Key */}
-          <Card className="bg-gradient-card shadow-card">
-            <CardHeader>
-              <CardTitle>AI Analysis Configuration</CardTitle>
-              <CardDescription>
-                Configure your OpenAI API key for enhanced credit report analysis
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="openai-key">OpenAI API Key (Optional)</Label>
-                <Input
-                  id="openai-key"
-                  type="password"
-                  placeholder="sk-..."
-                  defaultValue={localStorage.getItem('openai_api_key') || ''}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      localStorage.setItem('openai_api_key', e.target.value);
-                    } else {
-                      localStorage.removeItem('openai_api_key');
-                    }
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Providing your API key enables more detailed AI analysis. If not provided, the system will use pattern matching.
-                </p>
               </div>
             </CardContent>
           </Card>

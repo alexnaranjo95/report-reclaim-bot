@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,7 +22,6 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
 
   const generateInitialLetters = async () => {
     setIsGenerating(true);
-    const apiKey = localStorage.getItem('openai_api_key');
     
     try {
       // Group items by creditor
@@ -42,19 +42,14 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
           const bureauItems = items.filter(item => item.bureau.includes(bureau));
           
           let content = '';
-          if (apiKey) {
-            try {
-              OpenAIService.initialize(apiKey);
-              content = await OpenAIService.generateDisputeLetter(
-                creditor,
-                bureauItems.map(item => item.issue),
-                'validation'
-              );
-            } catch (error) {
-              console.error('AI letter generation failed:', error);
-              content = generateFallbackLetter(creditor, bureauItems);
-            }
-          } else {
+          try {
+            content = await OpenAIService.generateDisputeLetter(
+              creditor,
+              bureauItems.map(item => item.issue),
+              'validation'
+            );
+          } catch (error) {
+            console.error('AI letter generation failed:', error);
             content = generateFallbackLetter(creditor, bureauItems);
           }
 

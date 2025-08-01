@@ -239,3 +239,4 @@ async function analyzePDFFile(file: File) {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+}

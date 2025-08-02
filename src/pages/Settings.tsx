@@ -287,9 +287,23 @@ const Settings = () => {
     try {
       setUploading(true);
       
-      // Upload the edited image
+      // Find the original document to replace
+      const originalDoc = verificationDocuments.find(doc => 
+        doc.documentType === editingImage.documentType
+      );
+      
+      if (!originalDoc) {
+        throw new Error('Original document not found');
+      }
+
+      // Delete the old file from storage
+      await supabase.storage
+        .from('verification-documents')
+        .remove([originalDoc.url]);
+      
+      // Upload the edited image with the same path structure
       const fileExt = fileName.split('.').pop() || 'jpg';
-      const newFileName = `${user.id}/${editingImage.documentType}-edited-${Date.now()}.${fileExt}`;
+      const newFileName = `${user.id}/${editingImage.documentType}-${Date.now()}.${fileExt}`;
       
       const { data, error } = await supabase.storage
         .from('verification-documents')
@@ -297,31 +311,42 @@ const Settings = () => {
         
       if (error) throw error;
       
-      const newDoc: VerificationDocument = {
-        id: data.path,
-        name: `edited-${fileName}`,
-        type: editedImageBlob.type,
-        url: data.path,
-        uploadedAt: new Date().toISOString(),
-        documentType: editingImage.documentType
-      };
+      // Update the existing document in the array instead of creating a new one
+      const updatedDocs = verificationDocuments.map(doc => 
+        doc.id === originalDoc.id 
+          ? {
+              ...doc,
+              name: fileName,
+              url: data.path,
+              type: editedImageBlob.type,
+              uploadedAt: new Date().toISOString()
+            }
+          : doc
+      );
       
-      const updatedDocs = [...verificationDocuments, newDoc];
       setVerificationDocuments(updatedDocs);
       
-      toast({
-        title: "Image Saved",
-        description: "Your edited image has been saved successfully.",
+      // Update profile with the new document info
+      await supabase.rpc('upsert_user_profile', {
+        profile_user_id: user.id,
+        profile_email: email,
+        profile_phone_number: phone,
+        profile_email_notifications: emailNotifications,
+        profile_text_notifications: textNotifications,
+        profile_display_name: user.user_metadata?.display_name || user.email || ''
       });
+      
+      // Don't show success message here - it's already shown by ImageEditor
     } catch (error) {
       console.error('Error saving edited image:', error);
       toast({
         title: "Save Failed",
-        description: "Failed to save edited image. Please try again.",
+        description: "Failed to save the edited image. Please try again.",
         variant: "destructive",
       });
     } finally {
       setUploading(false);
+      setImageEditorOpen(false);
       setEditingImage(null);
     }
   };

@@ -48,9 +48,12 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
   useEffect(() => {
     const fetchTinyMCEKey = async () => {
       try {
+        console.log('Fetching TinyMCE API key...');
         const { data, error } = await supabase.functions.invoke('openai-analysis', {
           body: { action: 'getTinyMCEKey' }
         });
+        
+        console.log('TinyMCE key response:', { data, error });
         
         if (error) {
           console.error('Error fetching TinyMCE API key:', error);
@@ -58,7 +61,10 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
         }
         
         if (data?.apiKey) {
+          console.log('Setting TinyMCE API key');
           setTinyMCEApiKey(data.apiKey);
+        } else {
+          console.log('No API key in response');
         }
       } catch (error) {
         console.error('Error fetching TinyMCE API key:', error);

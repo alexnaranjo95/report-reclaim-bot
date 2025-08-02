@@ -10,6 +10,7 @@ import { CreditItem, DisputeLetter } from '../types/CreditTypes';
 import { OpenAIService } from '../services/OpenAIService';
 import { Editor } from '@tinymce/tinymce-react';
 import { useToast } from '@/hooks/use-toast';
+import { postgridService, PostgridLetter } from '../services/PostgridService';
 import { supabase } from '@/integrations/supabase/client';
 
 interface DisputeLetterDraftsProps {
@@ -604,11 +605,60 @@ Enclosures: Copy of credit report, Copy of ID`;
                   <Button 
                     size="sm" 
                     className="bg-gradient-primary text-white"
-                    onClick={() => {
+                    onClick={async () => {
+                      // For demo purposes - in production, you'd collect this info from user
+                      const sampleLetter: PostgridLetter = {
+                        to: {
+                          firstName: "Credit Bureau",
+                          lastName: "Department",
+                          companyName: letter.creditor,
+                          addressLine1: "123 Credit St",
+                          city: "Credit City",
+                          provinceOrState: "CA",
+                          postalOrZip: "90210",
+                          country: "US"
+                        },
+                        from: {
+                          firstName: "Your",
+                          lastName: "Name",
+                          addressLine1: "456 Your St",
+                          city: "Your City",
+                          provinceOrState: "CA",
+                          postalOrZip: "90211",
+                          country: "US"
+                        },
+                        content: letter.content,
+                        color: true,
+                        doubleSided: false,
+                        returnEnvelope: true
+                      };
+
                       toast({
-                        title: "Send Letter",
-                        description: "Postgrid mail service ready. Configure sender/recipient addresses to send.",
+                        title: "Sending Letter",
+                        description: "Processing letter through Postgrid mail service...",
                       });
+
+                      try {
+                        const result = await postgridService.sendLetter(sampleLetter);
+                        if (result.error) {
+                          toast({
+                            title: "Send Failed",
+                            description: result.error,
+                            variant: "destructive"
+                          });
+                        } else {
+                          toast({
+                            title: "Letter Sent Successfully",
+                            description: `Letter ID: ${result.id}. Estimated delivery: ${result.estimatedDelivery || 'N/A'}`,
+                          });
+                        }
+                      } catch (error) {
+                        toast({
+                          title: "Send Failed",
+                          description: "Failed to send letter via Postgrid",
+                          variant: "destructive"
+                        });
+                      }
                     }}
                   >
                     <Send className="h-3 w-3 mr-1" />

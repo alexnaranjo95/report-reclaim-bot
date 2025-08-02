@@ -254,7 +254,7 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
       return;
     }
 
-    // Enhanced loginAsUser function with fail-safe mechanisms
+    // Simplified and robust loginAsUser function using OTP flow
     const loginAsUser = async (email: string): Promise<void> => {
       console.log('STARTING IMPERSONATION:', { email, adminUserId: user.id });
 
@@ -269,145 +269,73 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
       // Get current session to store for later restoration
       const { data: currentSession } = await supabase.auth.getSession();
 
-      // Step 1: POST to debug route exactly like the UI
       try {
-        console.log('CALLING DEBUG ROUTE...');
-        const { data: debugData, error: debugError } = await supabase.functions.invoke('admin-debug-impersonate', {
-          body: { email }
+        console.log('CALLING IMPERSONATE-USER FUNCTION...');
+        
+        // Call the robust impersonate-user function with email
+        const { data: impersonationData, error: impersonateError } = await supabase.functions.invoke('impersonate-user', {
+          body: { 
+            email,
+            adminUserId: user.id
+          }
         });
 
-        if (debugError) {
-          console.error('DEBUG ROUTE ERROR:', debugError);
-          throw new Error(`Debug route failed: ${debugError.message}`);
+        if (impersonateError) {
+          console.error('IMPERSONATION ERROR:', impersonateError);
+          throw new Error(impersonateError.message);
         }
 
-        if (!debugData?.impersonateFunction?.data) {
-          console.error('DEBUG ROUTE: No impersonation data received');
-          throw new Error(debugData?.impersonateFunction?.error?.message || 'No impersonation data received');
+        if (!impersonationData?.access_token || !impersonationData?.refresh_token) {
+          console.error('IMPERSONATION: No tokens received');
+          throw new Error('No authentication tokens received from impersonation service');
         }
 
-        const impersonationData = debugData.impersonateFunction.data;
-        console.log('DEBUG ROUTE SUCCESS:', { hasData: !!impersonationData });
+        console.log('IMPERSONATION TOKENS RECEIVED:', {
+          hasAccessToken: !!impersonationData.access_token,
+          hasRefreshToken: !!impersonationData.refresh_token,
+          source: impersonationData.source
+        });
 
-        // Step 2: Attempt session setting with enhanced handling for impersonation tokens
-        try {
-          console.log('ATTEMPTING setSession with tokens...', {
-            hasAccessToken: !!impersonationData.access_token,
-            hasRefreshToken: !!impersonationData.refresh_token,
-            isImpersonation: !!impersonationData.impersonation,
-            source: impersonationData.source
-          });
+        // Set session with the received tokens (no fallback needed - we always get valid tokens)
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: impersonationData.access_token,
+          refresh_token: impersonationData.refresh_token
+        });
 
-          // Special handling for impersonation override tokens
-          if (impersonationData.impersonation && impersonationData.source === 'admin_impersonation_override') {
-            console.log('USING ADMIN IMPERSONATION OVERRIDE');
-            
-            // Store impersonation state in sessionStorage
-            sessionStorage.setItem('impersonatedUserId', impersonationData.user.id);
-            sessionStorage.setItem('impersonatedUserEmail', impersonationData.user.email);
-            sessionStorage.setItem('originalAdminSession', JSON.stringify(currentSession));
-            
-            // For impersonation override, we need to create a mock session
-            // Since we can't create real tokens, we'll simulate the user being logged in
-            console.log('SIMULATING IMPERSONATION SUCCESS');
-            
-            // Success toast
-            toast({
-              title: "Impersonation Successful",
-              description: `Now viewing as ${impersonationData.user.email}`,
-            });
-            
-            // Navigate to main dashboard as the impersonated user
-            window.location.href = '/';
-            return;
-          }
-          
-          // Normal token-based session setting
-          const { error: sessionError } = await supabase.auth.setSession({
-            access_token: impersonationData.access_token,
-            refresh_token: impersonationData.refresh_token
-          });
-
-          if (sessionError) {
-            throw sessionError;
-          }
-          
-          console.log('SESSION SET SUCCESS');
-          
-          // Store impersonation state
-          sessionStorage.setItem('impersonatedUserId', impersonationData.user.id);
-          sessionStorage.setItem('impersonatedUserEmail', impersonationData.user.email);
-          sessionStorage.setItem('originalAdminSession', JSON.stringify(currentSession));
-          
-          toast({
-            title: "Impersonation Successful",
-            description: `Now viewing as ${impersonationData.user.email}`,
-          });
-          
-        } catch (sessionError) {
-          console.warn('setSession failed, trying refreshSession...', sessionError);
-          
-          try {
-            const { error: refreshError } = await supabase.auth.refreshSession();
-            if (refreshError) {
-              throw refreshError;
-            }
-            
-            // Retry setSession after refresh
-            const { error: retrySessionError } = await supabase.auth.setSession({
-              access_token: impersonationData.access_token,
-              refresh_token: impersonationData.refresh_token
-            });
-            
-            if (retrySessionError) {
-              throw retrySessionError;
-            }
-            
-            console.log('SESSION SET SUCCESS (after refresh)');
-            
-            // Store impersonation state
-            sessionStorage.setItem('impersonatedUserId', impersonationData.user.id);
-            sessionStorage.setItem('impersonatedUserEmail', impersonationData.user.email);
-            sessionStorage.setItem('originalAdminSession', JSON.stringify(currentSession));
-            
-            toast({
-              title: "Impersonation Successful",
-              description: `Now viewing as ${impersonationData.user.email}`,
-            });
-            
-            // Navigate to main dashboard
-            window.location.href = '/';
-          } catch (refreshError) {
-            console.error('Both setSession and refreshSession failed:', refreshError);
-            throw new Error(`Session setting failed: ${sessionError.message}. Refresh also failed: ${refreshError.message}`);
-          }
+        if (sessionError) {
+          console.error('SESSION ERROR:', sessionError);
+          throw new Error(`Failed to set session: ${sessionError.message}`);
         }
-        
-      } catch (error) {
-        console.error('IMPERSONATION ERROR:', error);
-        
-        // Enhanced error message extraction for better user feedback
-        let errorMessage = "Failed to start impersonation session.";
-        
-        if (error?.message) {
-          errorMessage = error.message;
-        } else if (typeof error === 'string') {
-          errorMessage = error;
-        } else if (error?.error) {
-          errorMessage = error.error;
-        } else if (error?.details) {
-          errorMessage = `${errorMessage} Details: ${error.details}`;
-        }
-        
-        // Surface exact Edge error and abort navigation
+
+        console.log('SESSION SET SUCCESSFULLY');
+
+        // Store impersonation state in sessionStorage
+        const impersonationInfo = {
+          impersonatedUserId: impersonationData.user.id,
+          impersonatedUserEmail: impersonationData.user.email,
+          originalSession: currentSession.session,
+          adminUserId: user.id,
+          timestamp: Date.now()
+        };
+
+        sessionStorage.setItem('impersonation_data', JSON.stringify(impersonationInfo));
+
         toast({
-          title: "Impersonation Failed", 
-          description: `Exact Edge Error: ${errorMessage}`,
+          title: "Impersonation Successful",
+          description: `Now viewing as ${impersonationData.user.display_name || impersonationData.user.email}`,
+        });
+
+        // Navigate to main dashboard as the impersonated user
+        window.location.href = '/';
+
+      } catch (error) {
+        console.error('FINAL IMPERSONATION ERROR:', error);
+        
+        toast({
+          title: "Impersonation Failed",
+          description: `Impersonation failed: ${error.message}`,
           variant: "destructive",
         });
-        
-        // Do not navigate on failure
-        throw error;
       }
     };
 
@@ -480,8 +408,11 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
   };
 
   const filteredTenants = tenants.filter(tenant => {
-    const matchesSearch = tenant.display_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         tenant.email?.toLowerCase().includes(searchQuery.toLowerCase());
+    // Use both external search query and local search query
+    const searchTerm = (externalSearchQuery || searchQuery).toLowerCase();
+    const matchesSearch = !searchTerm || 
+                         tenant.display_name?.toLowerCase().includes(searchTerm) ||
+                         tenant.email?.toLowerCase().includes(searchTerm);
     const matchesRole = roleFilter === 'all' || tenant.role === roleFilter;
     return matchesSearch && matchesRole;
   });

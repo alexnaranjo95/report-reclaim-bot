@@ -124,13 +124,6 @@ const Admin = () => {
 
   return (
     <div className="min-h-screen bg-gradient-dashboard">
-      {/* Impersonation Banner */}
-      {isImpersonating && (
-        <ImpersonationBanner 
-          userName={impersonatedUser?.display_name || impersonatedUser?.email || 'Unknown User'}
-          onRevert={handleRevertImpersonation}
-        />
-      )}
 
       {/* Header */}
       <header className="border-b bg-card/80 backdrop-blur-sm">

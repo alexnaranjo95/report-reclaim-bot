@@ -160,4 +160,9 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Add padding when impersonation banner is active */
+  body:has(.impersonation-banner) {
+    padding-top: 2.5rem;
+  }
 }

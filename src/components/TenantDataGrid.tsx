@@ -309,16 +309,10 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
 
         console.log('SESSION SET SUCCESSFULLY');
 
-        // Store impersonation state in sessionStorage
-        const impersonationInfo = {
-          impersonatedUserId: impersonationData.user.id,
-          impersonatedUserEmail: impersonationData.user.email,
-          originalSession: currentSession.session,
-          adminUserId: user.id,
-          timestamp: Date.now()
-        };
-
-        sessionStorage.setItem('impersonation_data', JSON.stringify(impersonationInfo));
+        // Store impersonation data for the banner
+        sessionStorage.setItem('impersonatedUserId', impersonationData.user.id);
+        sessionStorage.setItem('impersonatedUserName', impersonationData.user.display_name || impersonationData.user.email);
+        sessionStorage.setItem('originalSession', JSON.stringify(currentSession.session));
 
         toast({
           title: "Impersonation Successful",

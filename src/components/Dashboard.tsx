@@ -4,14 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { UploadZone } from './UploadZone';
-import { RoundTracker } from './RoundTracker';
+
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
 import { FileText, TrendingUp, Shield, Clock, Trash2, Bug } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { useToast } from '@/hooks/use-toast';
-import { Session, SessionService } from '../services/SessionService';
 
 interface RoundData {
   draft: any;
@@ -222,7 +221,7 @@ export const Dashboard = () => {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Left Sidebar - Progress & Stats */}
           <div className="lg:col-span-1 space-y-4">
-            <RoundTracker currentRound={currentRound} totalRounds={12} />
+            
             
             {/* Quick Stats */}
             <Card className="bg-gradient-card shadow-card">

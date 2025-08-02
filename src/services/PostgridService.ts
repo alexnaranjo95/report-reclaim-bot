@@ -52,49 +52,45 @@ class PostgridService {
         throw new Error('Postgrid API key is not available');
       }
       
-      console.log('✅ API key retrieved successfully');
+      console.log('✅ Postgrid API key retrieved successfully');
+      
+      // Validate required fields before sending
+      this.validateLetterPayload(letter);
       
       // Create the correct JSON payload according to PostGrid API docs
       const payload = {
         to: {
-          firstName: letter.to.firstName,
-          lastName: letter.to.lastName,
-          addressLine1: letter.to.addressLine1,
+          first_name: letter.to.firstName,
+          last_name: letter.to.lastName,
+          address_line_1: letter.to.addressLine1,
+          address_line_2: letter.to.addressLine2 || undefined,
           city: letter.to.city,
-          provinceOrState: letter.to.provinceOrState,
-          postalOrZip: letter.to.postalOrZip,
-          country: letter.to.country,
-          ...(letter.to.companyName && { companyName: letter.to.companyName }),
-          ...(letter.to.addressLine2 && { addressLine2: letter.to.addressLine2 })
+          province_or_state: letter.to.provinceOrState,
+          postal_or_zip: letter.to.postalOrZip,
+          country: letter.to.country || 'US'
         },
         from: {
-          firstName: letter.from.firstName,
-          lastName: letter.from.lastName,
-          addressLine1: letter.from.addressLine1,
+          first_name: letter.from.firstName,
+          last_name: letter.from.lastName,
+          address_line_1: letter.from.addressLine1,
+          address_line_2: letter.from.addressLine2 || undefined,
           city: letter.from.city,
-          provinceOrState: letter.from.provinceOrState,
-          postalOrZip: letter.from.postalOrZip,
-          country: letter.from.country,
-          ...(letter.from.companyName && { companyName: letter.from.companyName }),
-          ...(letter.from.addressLine2 && { addressLine2: letter.from.addressLine2 })
+          province_or_state: letter.from.provinceOrState,
+          postal_or_zip: letter.from.postalOrZip,
+          country: letter.from.country || 'US'
         },
         html: letter.content,
-        color: letter.color || false,
-        doubleSided: letter.doubleSided || false,
-        returnEnvelope: letter.returnEnvelope ? 'true' : 'false',
-        addressPlacement: 'top_first_page'
+        double_sided: false,
+        color: false,
+        address_placement: 'top_first_page'
       };
 
       console.log('📤 Sending letter to PostGrid API...');
       console.log('Payload preview:', {
-        to: payload.to.firstName + ' ' + payload.to.lastName,
-        from: payload.from.firstName + ' ' + payload.from.lastName,
-        contentLength: payload.html.length,
-        options: {
-          color: payload.color,
-          doubleSided: payload.doubleSided,
-          returnEnvelope: payload.returnEnvelope
-        }
+        to: `${payload.to.first_name} ${payload.to.last_name}`,
+        from: `${payload.from.first_name} ${payload.from.last_name}`,
+        contentLength: letter.content.length,
+        hasAddressLine2: !!payload.to.address_line_2
       });
       
       const response = await fetch('https://api.postgrid.com/print-mail/v1/letters', {
@@ -112,21 +108,40 @@ class PostgridService {
       
       if (!response.ok) {
         let errorMessage = `PostGrid API Error (${response.status})`;
+        let errorDetails = {};
+        
         try {
           const errorData = JSON.parse(responseText);
+          errorDetails = errorData;
+          
           if (errorData.message) {
             errorMessage = errorData.message;
           } else if (errorData.error) {
             errorMessage = typeof errorData.error === 'string' ? errorData.error : JSON.stringify(errorData.error);
           } else if (errorData.errors && Array.isArray(errorData.errors)) {
-            errorMessage = errorData.errors.map(e => typeof e === 'string' ? e : e.message || JSON.stringify(e)).join(', ');
+            errorMessage = errorData.errors.map(e => {
+              if (typeof e === 'string') return e;
+              if (e.message) return e.message;
+              if (e.field && e.code) return `${e.field}: ${e.code}`;
+              return JSON.stringify(e);
+            }).join(', ');
           }
+          
           console.error('❌ PostGrid detailed error:', errorData);
+          
+          // Handle common validation errors
+          if (response.status === 400 || response.status === 422) {
+            console.error('❌ Request validation failed. Check address fields and required data.');
+          }
         } catch (e) {
           errorMessage = `HTTP ${response.status}: ${responseText}`;
           console.error('❌ PostGrid raw error:', responseText);
         }
-        throw new Error(errorMessage);
+        
+        const error = new Error(errorMessage);
+        (error as any).status = response.status;
+        (error as any).details = errorDetails;
+        throw error;
       }
       
       const responseData = JSON.parse(responseText);
@@ -181,12 +196,42 @@ class PostgridService {
       };
       
     } catch (error) {
-      console.error('Error getting letter status:', error);
+      console.error('❌ Error getting letter status:', error);
       return {
         id: letterId,
         status: 'error',
         error: error instanceof Error ? error.message : 'Unknown error occurred',
       };
+    }
+  }
+
+  private validateLetterPayload(letter: PostgridLetter): void {
+    const requiredFields = [
+      { path: 'to.firstName', value: letter.to.firstName },
+      { path: 'to.lastName', value: letter.to.lastName },
+      { path: 'to.addressLine1', value: letter.to.addressLine1 },
+      { path: 'to.city', value: letter.to.city },
+      { path: 'to.provinceOrState', value: letter.to.provinceOrState },
+      { path: 'to.postalOrZip', value: letter.to.postalOrZip },
+      { path: 'from.firstName', value: letter.from.firstName },
+      { path: 'from.lastName', value: letter.from.lastName },
+      { path: 'from.addressLine1', value: letter.from.addressLine1 },
+      { path: 'from.city', value: letter.from.city },
+      { path: 'from.provinceOrState', value: letter.from.provinceOrState },
+      { path: 'from.postalOrZip', value: letter.from.postalOrZip },
+      { path: 'content', value: letter.content }
+    ];
+
+    const missingFields = requiredFields.filter(field => !field.value?.trim());
+    
+    if (missingFields.length > 0) {
+      const missingFieldNames = missingFields.map(f => f.path).join(', ');
+      throw new Error(`Missing required fields: ${missingFieldNames}`);
+    }
+
+    // Validate content is not empty
+    if (letter.content.trim().length < 10) {
+      throw new Error('Letter content must be at least 10 characters long');
     }
   }
 }

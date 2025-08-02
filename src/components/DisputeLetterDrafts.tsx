@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,22 +36,62 @@ export const DisputeLetterDrafts = ({ creditItems, selectedSession }: DisputeLet
   const [showCostConfirmation, setShowCostConfirmation] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Load drafts for current round
+  // Load drafts from localStorage on component mount
+  useEffect(() => {
+    const loadDraftsFromStorage = () => {
+      try {
+        const storedDrafts = localStorage.getItem('creditRepairDrafts');
+        if (storedDrafts) {
+          const parsedDrafts = JSON.parse(storedDrafts);
+          setDraftsByRound(parsedDrafts);
+          
+          // Load letters for current round if available
+          if (parsedDrafts[currentRound]) {
+            setLetters(parsedDrafts[currentRound]);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading drafts from localStorage:', error);
+      }
+    };
+    
+    loadDraftsFromStorage();
+  }, []);
+
+  // Load drafts for current round when round changes
   useEffect(() => {
     if (draftsByRound[currentRound]) {
       setLetters(draftsByRound[currentRound]);
+    } else {
+      setLetters([]); // Clear letters if no drafts for this round
     }
   }, [currentRound, draftsByRound]);
 
-  // Save drafts when letters change
+  // Save drafts to localStorage when draftsByRound changes
+  useEffect(() => {
+    if (Object.keys(draftsByRound).length > 0) {
+      try {
+        localStorage.setItem('creditRepairDrafts', JSON.stringify(draftsByRound));
+      } catch (error) {
+        console.error('Error saving drafts to localStorage:', error);
+      }
+    }
+  }, [draftsByRound]);
+
+  // Save current letters to round-specific storage
+  const saveDraftsForCurrentRound = useCallback(() => {
+    setDraftsByRound(prev => ({
+      ...prev,
+      [currentRound]: letters
+    }));
+  }, [letters, currentRound]);
+
+  // Auto-save drafts when letters change
   useEffect(() => {
     if (letters.length > 0) {
-      setDraftsByRound(prev => ({
-        ...prev,
-        [currentRound]: letters
-      }));
+      saveDraftsForCurrentRound();
     }
-  }, [letters, currentRound]);
+  }, [letters, saveDraftsForCurrentRound]);
 
   // Timer effect for loading state
   useEffect(() => {
@@ -737,21 +777,44 @@ Enclosures: Copy of credit report, Copy of ID`;
                     try {
                       const result = await postgridService.sendLetter(sampleLetter);
                       if (result.error) {
-                        toast({
-                          title: "Send Failed",
-                          description: result.error,
-                          variant: "destructive"
-                        });
-                      } else {
-                        toast({
-                          title: "Letter Sent Successfully",
-                          description: `Letter ID: ${result.id}. Estimated delivery: ${result.estimatedDelivery || 'N/A'}`,
-                        });
+                        throw new Error(result.error);
                       }
-                    } catch (error) {
+                      
+                      console.log('✅ Letter sent successfully:', result);
+                      
+                      // Mark letter as sent and save to database if session exists
+                      if (selectedSession) {
+                        // TODO: Mark letter as sent in the database
+                        // await SessionService.markLetterAsSent(letter.id);
+                      }
+                      
+                      toast({
+                        title: "Letter Sent Successfully!",
+                        description: `Letter sent to ${letter.creditor}. Tracking ID: ${result.id}`,
+                      });
+                      
+                      setShowCostConfirmation(null);
+                    } catch (error: any) {
+                      console.error('❌ Failed to send letter:', error);
+                      
+                      let errorMessage = "Failed to send letter via Postgrid";
+                      
+                      if (error.message) {
+                        errorMessage = error.message;
+                      }
+                      
+                      // Handle specific error types
+                      if (error.status === 400 || error.status === 422) {
+                        errorMessage = "Invalid address or letter data. Please check all fields are filled correctly.";
+                      } else if (error.status === 401) {
+                        errorMessage = "Authentication failed. Please check your Postgrid API configuration.";
+                      } else if (error.status === 429) {
+                        errorMessage = "Too many requests. Please try again in a moment.";
+                      }
+                      
                       toast({
                         title: "Send Failed",
-                        description: "Failed to send letter via Postgrid",
+                        description: errorMessage,
                         variant: "destructive"
                       });
                     } finally {

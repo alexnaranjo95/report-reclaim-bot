@@ -13,32 +13,14 @@ import { CreditAnalysisResult } from '../types/CreditTypes';
 import { useToast } from '@/hooks/use-toast';
 import { Session, SessionService } from '../services/SessionService';
 
-interface DashboardProps {
-  selectedSession: Session | null;
-  showCreateNew: boolean;
-  onSessionCreated: (session: Session) => void;
-}
-
-export const Dashboard = ({ selectedSession, showCreateNew, onSessionCreated }: DashboardProps) => {
+export const Dashboard = () => {
   const [currentRound, setCurrentRound] = useState(1);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<CreditAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [roundStatuses, setRoundStatuses] = useState<Record<number, 'draft' | 'saved' | 'sent'>>({});
   const { toast } = useToast();
-
-  // Load session data when selectedSession changes
-  useEffect(() => {
-    if (selectedSession?.analysis_data) {
-      setAnalysisResults(selectedSession.analysis_data);
-      setAnalysisComplete(true);
-      setUploadedFile(null);
-    } else if (showCreateNew) {
-      setAnalysisResults(null);
-      setAnalysisComplete(false);
-      setUploadedFile(null);
-    }
-  }, [selectedSession, showCreateNew]);
 
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
@@ -57,27 +39,6 @@ export const Dashboard = ({ selectedSession, showCreateNew, onSessionCreated }: 
       
       setAnalysisResults(results);
       setAnalysisComplete(true);
-
-      // Create a new session if creating new
-      if (showCreateNew) {
-        try {
-          const sessionName = `Credit Repair - ${new Date().toLocaleDateString()}`;
-          const newSession = await SessionService.createSession(sessionName, results);
-          onSessionCreated(newSession);
-          
-          toast({
-            title: "Session Created",
-            description: `New session "${sessionName}" created successfully.`,
-          });
-        } catch (error) {
-          console.error('Failed to create session:', error);
-          toast({
-            title: "Session Creation Failed",
-            description: "Analysis completed but failed to save session.",
-            variant: "destructive",
-          });
-        }
-      }
       
       toast({
         title: "Analysis Complete",
@@ -113,6 +74,48 @@ export const Dashboard = ({ selectedSession, showCreateNew, onSessionCreated }: 
     });
     // Open edge function logs in new tab
     window.open('https://supabase.com/dashboard/project/rcrpqdhfawtpjicttgvx/functions/openai-analysis/logs', '_blank');
+  };
+
+  const handleRoundClick = (roundNumber: number) => {
+    setCurrentRound(roundNumber);
+    // Load data for the selected round
+    const roundData = localStorage.getItem(`draftsByRound`);
+    if (roundData) {
+      const parsedData = JSON.parse(roundData);
+      if (parsedData[roundNumber]) {
+        // Round has saved data, we can navigate to it
+        setAnalysisComplete(true);
+        toast({
+          title: `Round ${roundNumber} Selected`,
+          description: `Viewing saved data for Round ${roundNumber}`,
+        });
+      }
+    }
+  };
+
+  const updateRoundStatus = (roundNumber: number, status: 'draft' | 'saved' | 'sent') => {
+    setRoundStatuses(prev => ({
+      ...prev,
+      [roundNumber]: status
+    }));
+  };
+
+  const getRoundIcon = (roundNumber: number) => {
+    const status = roundStatuses[roundNumber];
+    if (status === 'sent') {
+      return <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
+        <span className="text-xs text-white">✓</span>
+      </div>;
+    } else if (status === 'saved') {
+      return <div className="w-4 h-4 rounded-full bg-warning flex items-center justify-center">
+        <span className="text-xs text-white">S</span>
+      </div>;
+    } else if (status === 'draft') {
+      return <div className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center">
+        <span className="text-xs text-muted-foreground">D</span>
+      </div>;
+    }
+    return null;
   };
 
   return (
@@ -193,15 +196,18 @@ export const Dashboard = ({ selectedSession, showCreateNew, onSessionCreated }: 
               </CardHeader>
               <CardContent className="space-y-2">
                 {Array.from({ length: 12 }, (_, i) => i + 1).map(round => (
-                  <div key={round} className="flex items-center justify-between py-1">
-                    <span className="text-sm">Round {round}</span>
+                  <div 
+                    key={round} 
+                    className={`flex items-center justify-between py-2 px-2 rounded cursor-pointer transition-colors ${
+                      currentRound === round ? 'bg-primary/10 border border-primary/20' : 'hover:bg-muted/50'
+                    }`}
+                    onClick={() => handleRoundClick(round)}
+                  >
+                    <span className={`text-sm ${currentRound === round ? 'font-medium text-primary' : ''}`}>
+                      Round {round}
+                    </span>
                     <div className="flex items-center gap-2">
-                      {/* Green checkmark for completed rounds - placeholder logic */}
-                      {round <= currentRound && (
-                        <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
-                          <span className="text-xs text-white">✓</span>
-                        </div>
-                      )}
+                      {getRoundIcon(round)}
                     </div>
                   </div>
                 ))}
@@ -272,7 +278,8 @@ export const Dashboard = ({ selectedSession, showCreateNew, onSessionCreated }: 
                 {analysisComplete && analysisResults && (
                 <DisputeLetterDrafts 
                   creditItems={analysisResults.items} 
-                  selectedSession={selectedSession}
+                  currentRound={currentRound}
+                  onRoundStatusChange={updateRoundStatus}
                 />
                 )}
               </div>

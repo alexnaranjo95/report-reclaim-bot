@@ -18,13 +18,13 @@ import { Session } from '../services/SessionService';
 
 interface DisputeLetterDraftsProps {
   creditItems: CreditItem[];
-  selectedSession?: Session | null;
+  currentRound: number;
+  onRoundStatusChange: (roundNumber: number, status: 'draft' | 'saved' | 'sent') => void;
 }
 
-export const DisputeLetterDrafts = ({ creditItems, selectedSession }: DisputeLetterDraftsProps) => {
+export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusChange }: DisputeLetterDraftsProps) => {
   const [letters, setLetters] = useState<DisputeLetter[]>([]);
   const [draftsByRound, setDraftsByRound] = useState<Record<number, DisputeLetter[]>>({});
-  const [currentRound, setCurrentRound] = useState<number>(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<string | null>(null);
@@ -89,11 +89,12 @@ export const DisputeLetterDrafts = ({ creditItems, selectedSession }: DisputeLet
   // Manual save function for the Save Round button
   const saveDrafts = useCallback(() => {
     saveDraftsForCurrentRound();
+    onRoundStatusChange(currentRound, 'saved');
     toast({
       title: "Round Saved",
       description: `Round ${currentRound} drafts have been saved successfully.`,
     });
-  }, [saveDraftsForCurrentRound, currentRound, toast]);
+  }, [saveDraftsForCurrentRound, currentRound, onRoundStatusChange, toast]);
 
   // Auto-save drafts when letters change
   useEffect(() => {
@@ -448,21 +449,6 @@ Enclosures: Copy of credit report, Copy of ID`;
               Dispute Letters - Round {currentRound} of 12
             </CardTitle>
             <div className="flex items-center gap-2">
-              <label htmlFor="round-selector" className="text-sm text-muted-foreground">
-                Select Round:
-              </label>
-              <select
-                id="round-selector"
-                value={currentRound}
-                onChange={(e) => setCurrentRound(Number(e.target.value))}
-                className="px-2 py-1 text-sm border border-border rounded bg-background"
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map(round => (
-                  <option key={round} value={round}>
-                    Round {round}
-                  </option>
-                ))}
-              </select>
               <span className="text-xs text-muted-foreground">
                 ({letters.length} letters)
               </span>
@@ -800,11 +786,8 @@ Enclosures: Copy of credit report, Copy of ID`;
                       
                       console.log('✅ Letter sent successfully:', result);
                       
-                      // Mark letter as sent and save to database if session exists
-                      if (selectedSession) {
-                        // TODO: Mark letter as sent in the database
-                        // await SessionService.markLetterAsSent(letter.id);
-                      }
+                      // Mark letter as sent
+                      onRoundStatusChange(currentRound, 'sent');
                       
                       toast({
                         title: "Letter Sent Successfully!",

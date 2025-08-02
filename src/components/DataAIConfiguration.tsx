@@ -83,6 +83,9 @@ export const DataAIConfiguration = () => {
   const [promptBuilder, setPromptBuilder] = useState('');
   const [savingPrompt, setSavingPrompt] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState<any>(null);
+  const [quickAddTemplate, setQuickAddTemplate] = useState('');
+  const [addingQuickTemplate, setAddingQuickTemplate] = useState(false);
+  const [lastTrainedAt, setLastTrainedAt] = useState<string | null>(null);
   
   // Settings state
   const [settings, setSettings] = useState<AdminSetting[]>([]);
@@ -251,15 +254,24 @@ export const DataAIConfiguration = () => {
     if (!files || files.length === 0) return;
 
     setUploadingTemplates(true);
+    let successCount = 0;
     
     try {
       for (const file of Array.from(files)) {
-        const content = await file.text();
+        let content = '';
         const fileType = file.name.split('.').pop()?.toLowerCase() || 'txt';
         
-        if (!['docx', 'markdown', 'txt', 'md'].includes(fileType)) {
+        if (!['docx', 'markdown', 'txt', 'md', 'pdf'].includes(fileType)) {
           console.warn(`Skipping unsupported file type: ${file.name}`);
           continue;
+        }
+
+        // Handle different file types
+        if (fileType === 'pdf') {
+          // For PDF files, we'll store a placeholder indicating it needs processing
+          content = `[PDF File: ${file.name}] - Content extraction required`;
+        } else {
+          content = await file.text();
         }
 
         const { error } = await supabase
@@ -277,11 +289,12 @@ export const DataAIConfiguration = () => {
           console.error(`Error uploading ${file.name}:`, error);
           continue;
         }
+        successCount++;
       }
 
       toast({
         title: "Success",
-        description: `Uploaded ${files.length} template files`,
+        description: `Uploaded ${successCount} template files`,
       });
       
       loadTemplates();
@@ -295,6 +308,51 @@ export const DataAIConfiguration = () => {
     } finally {
       setUploadingTemplates(false);
       event.target.value = '';
+    }
+  };
+
+  const handleQuickAddTemplate = async () => {
+    if (!quickAddTemplate.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter template content",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAddingQuickTemplate(true);
+    
+    try {
+      const { error } = await supabase
+        .from('dispute_templates')
+        .insert({
+          name: `Quick Template ${new Date().toLocaleString()}`,
+          content: quickAddTemplate.trim(),
+          file_type: 'text',
+          tags: [],
+          is_active: true,
+          preference_weight: 1.0
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Template added successfully",
+      });
+      
+      setQuickAddTemplate('');
+      loadTemplates();
+    } catch (error) {
+      console.error('Error adding quick template:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add template",
+        variant: "destructive",
+      });
+    } finally {
+      setAddingQuickTemplate(false);
     }
   };
 
@@ -318,9 +376,13 @@ export const DataAIConfiguration = () => {
 
       if (error) throw error;
 
+      // Update last trained timestamp
+      const now = new Date().toISOString();
+      setLastTrainedAt(now);
+
       toast({
         title: "Training Complete",
-        description: data.message || "AI model retrained successfully",
+        description: "Model retrained with latest templates & prompt ✅",
       });
       
       loadTemplates();
@@ -392,7 +454,8 @@ export const DataAIConfiguration = () => {
 
       toast({
         title: "Success",
-        description: data.message || "Prompt saved & applied ✔︎",
+        description: "Prompt saved & applied ✔︎",
+        className: "bg-green-50 border-green-200 text-green-800",
       });
       
       loadCurrentPrompt();
@@ -581,28 +644,70 @@ export const DataAIConfiguration = () => {
                       Upload DOCX, Markdown, or text files for AI training
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <input
-                      type="file"
-                      accept=".txt,.docx,.md"
-                      multiple
-                      onChange={handleTemplateUpload}
-                      className="hidden"
-                      id="template-upload"
-                      disabled={uploadingTemplates}
-                    />
-                    <Button 
-                      onClick={() => document.getElementById('template-upload')?.click()}
-                      disabled={uploadingTemplates}
-                      className="w-full flex items-center gap-2"
-                    >
-                      <Upload className="h-4 w-4" />
-                      {uploadingTemplates ? 'Uploading...' : 'Upload Templates'}
-                    </Button>
-                    <p className="text-sm text-muted-foreground">
-                      Templates: {templates.length} | Active: {templates.filter(t => t.is_active).length}
-                    </p>
-                  </CardContent>
+                   <CardContent className="space-y-4">
+                      <input
+                        type="file"
+                        accept=".txt,.docx,.md,.pdf"
+                        multiple
+                        onChange={handleTemplateUpload}
+                        className="hidden"
+                        id="template-upload"
+                        disabled={uploadingTemplates}
+                      />
+                      <input
+                        type="file"
+                        accept=".txt,.docx,.md,.pdf"
+                        multiple
+                        {...({ webkitdirectory: "" } as any)}
+                        onChange={handleTemplateUpload}
+                        className="hidden"
+                        id="folder-upload"
+                        disabled={uploadingTemplates}
+                      />
+                     <div className="space-y-2">
+                       <Button 
+                         onClick={() => document.getElementById('template-upload')?.click()}
+                         disabled={uploadingTemplates}
+                         className="w-full flex items-center gap-2"
+                       >
+                         <Upload className="h-4 w-4" />
+                         {uploadingTemplates ? 'Uploading...' : 'Upload Files'}
+                       </Button>
+                       <Button 
+                         variant="outline"
+                         onClick={() => document.getElementById('folder-upload')?.click()}
+                         disabled={uploadingTemplates}
+                         className="w-full flex items-center gap-2"
+                       >
+                         <Upload className="h-4 w-4" />
+                         Upload Folder
+                       </Button>
+                     </div>
+                     
+                     <div className="border-t pt-4 space-y-3">
+                       <Label className="text-sm font-medium">Quick-Add Template</Label>
+                       <Textarea
+                         placeholder="Paste template content here..."
+                         value={quickAddTemplate}
+                         onChange={(e) => setQuickAddTemplate(e.target.value)}
+                         rows={3}
+                         className="resize-none"
+                       />
+                       <Button 
+                         onClick={handleQuickAddTemplate}
+                         disabled={addingQuickTemplate || !quickAddTemplate.trim()}
+                         size="sm"
+                         className="flex items-center gap-2"
+                       >
+                         <CheckCircle className="h-4 w-4" />
+                         {addingQuickTemplate ? 'Adding...' : 'Add'}
+                       </Button>
+                     </div>
+                     
+                     <p className="text-sm text-muted-foreground">
+                       Templates: {templates.length} | Active: {templates.filter(t => t.is_active).length}
+                     </p>
+                   </CardContent>
                 </Card>
 
                 <Card>
@@ -630,9 +735,9 @@ export const DataAIConfiguration = () => {
                       <RefreshCw className={`h-4 w-4 ${isTraining ? 'animate-spin' : ''}`} />
                       {isTraining ? 'Training...' : 'Start Training'}
                     </Button>
-                    <p className="text-sm text-muted-foreground">
-                      Last trained: Never
-                    </p>
+                     <p className="text-sm text-muted-foreground">
+                       Last trained: {lastTrainedAt ? new Date(lastTrainedAt).toLocaleString() : 'Never'}
+                     </p>
                   </CardContent>
                 </Card>
               </div>
@@ -660,11 +765,11 @@ export const DataAIConfiguration = () => {
                       <CheckCircle className="h-4 w-4" />
                       {savingPrompt ? 'Saving...' : 'Save Prompt Version'}
                     </Button>
-                    {currentPrompt && (
-                      <p className="text-sm text-muted-foreground">
-                        Last saved: {new Date(currentPrompt.updated_at).toLocaleString()}
-                      </p>
-                    )}
+                     {currentPrompt && (
+                       <p className="text-green-600 text-xs mt-1">
+                         Last saved: {new Date(currentPrompt.updated_at).toLocaleString()}
+                       </p>
+                     )}
                   </div>
                 </CardContent>
               </Card>

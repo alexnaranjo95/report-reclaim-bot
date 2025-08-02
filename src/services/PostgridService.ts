@@ -43,7 +43,7 @@ class PostgridService {
     return data?.apiKey;
   }
 
-  async sendLetter(letter: PostgridLetter): Promise<PostgridResponse> {
+  async sendLetter(letter: PostgridLetter, retryCount = 0): Promise<PostgridResponse> {
     try {
       console.log('🔑 Getting Postgrid API key...');
       const apiKey = await this.getPostgridApiKey();
@@ -160,10 +160,17 @@ class PostgridService {
       console.error('❌ Error sending letter via Postgrid:', errorMessage);
       console.error('Full error details:', error);
       
+      // Retry logic for network failures
+      if (retryCount === 0 && this.isNetworkError(error)) {
+        console.log('🔄 Retrying request with exponential backoff...');
+        await this.delay(2000 * Math.pow(2, retryCount)); // 2s, 4s, 8s...
+        return this.sendLetter(letter, retryCount + 1);
+      }
+      
       return {
         id: '',
         status: 'error',
-        error: errorMessage,
+        error: this.getUserFriendlyError(error, errorMessage),
       };
     }
   }
@@ -265,6 +272,36 @@ class PostgridService {
 
     validateAddress(letter.to, 'Recipient');
     validateAddress(letter.from, 'Sender');
+  }
+
+  private isNetworkError(error: any): boolean {
+    return error.name === 'TypeError' || 
+           error.message?.includes('fetch') || 
+           error.message?.includes('network') ||
+           error.code === 'NETWORK_ERROR';
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private getUserFriendlyError(error: any, fallbackMessage: string): string {
+    if (error.status === 400 || error.status === 422) {
+      return 'Invalid address or letter data. Please check all required fields and try again.';
+    }
+    if (error.status === 401) {
+      return 'Authentication failed. Please check API credentials.';
+    }
+    if (error.status === 403) {
+      return 'Access denied. Please verify account permissions.';
+    }
+    if (error.status >= 500) {
+      return 'Server error. Please try again later.';
+    }
+    if (this.isNetworkError(error)) {
+      return 'Network connection failed. Please check your internet connection and try again.';
+    }
+    return fallbackMessage;
   }
 }
 

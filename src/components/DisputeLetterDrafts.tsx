@@ -19,7 +19,7 @@ import { Session } from '../services/SessionService';
 interface DisputeLetterDraftsProps {
   creditItems: CreditItem[];
   currentRound: number;
-  onRoundStatusChange: (roundNumber: number, status: 'draft' | 'saved' | 'sent') => void;
+  onRoundStatusChange: (roundNumber: number, status: 'draft' | 'saved' | 'sent', data?: any) => void;
 }
 
 export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusChange }: DisputeLetterDraftsProps) => {
@@ -89,19 +89,20 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
   // Manual save function for the Save Round button
   const saveDrafts = useCallback(() => {
     saveDraftsForCurrentRound();
-    onRoundStatusChange(currentRound, 'saved');
+    onRoundStatusChange(currentRound, 'saved', letters);
     toast({
       title: "Round Saved",
       description: `Round ${currentRound} drafts have been saved successfully.`,
     });
-  }, [saveDraftsForCurrentRound, currentRound, onRoundStatusChange, toast]);
+  }, [saveDraftsForCurrentRound, currentRound, onRoundStatusChange, toast, letters]);
 
-  // Auto-save drafts when letters change
-  useEffect(() => {
+  // Auto-save drafts when letters change (on blur events)
+  const handleAutoSave = useCallback(() => {
     if (letters.length > 0) {
       saveDraftsForCurrentRound();
+      onRoundStatusChange(currentRound, 'draft', letters);
     }
-  }, [letters, saveDraftsForCurrentRound]);
+  }, [letters, saveDraftsForCurrentRound, currentRound, onRoundStatusChange]);
 
   // Timer effect for loading state
   useEffect(() => {
@@ -622,11 +623,12 @@ Enclosures: Copy of credit report, Copy of ID`;
                               <p className="text-sm text-muted-foreground">Loading TinyMCE editor...</p>
                             </div>
                           </div>
-                        ) : tinyMCEApiKey ? (
+                         ) : tinyMCEApiKey ? (
                           <Editor
                             apiKey={tinyMCEApiKey}
                             value={editContent}
                             onEditorChange={(content) => setEditContent(content)}
+                            onBlur={handleAutoSave}
                             init={{
                               height: 600,
                               menubar: false,
@@ -650,6 +652,7 @@ Enclosures: Copy of credit report, Copy of ID`;
                             <Textarea
                               value={editContent}
                               onChange={(e) => setEditContent(e.target.value)}
+                              onBlur={handleAutoSave}
                               className="mt-2 min-h-96"
                               placeholder="Edit your dispute letter content here..."
                             />
@@ -787,7 +790,7 @@ Enclosures: Copy of credit report, Copy of ID`;
                       console.log('✅ Letter sent successfully:', result);
                       
                       // Mark letter as sent
-                      onRoundStatusChange(currentRound, 'sent');
+                      onRoundStatusChange(currentRound, 'sent', letters);
                       
                       toast({
                         title: "Letter Sent Successfully!",

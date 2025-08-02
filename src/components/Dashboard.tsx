@@ -13,14 +13,68 @@ import { CreditAnalysisResult } from '../types/CreditTypes';
 import { useToast } from '@/hooks/use-toast';
 import { Session, SessionService } from '../services/SessionService';
 
+interface RoundData {
+  draft: any;
+  letterRound: number;
+  letterStatus: 'draft' | 'saved' | 'sent';
+  savedAt: number;
+  sentAt?: number;
+}
+
 export const Dashboard = () => {
   const [currentRound, setCurrentRound] = useState(1);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<CreditAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [roundStatuses, setRoundStatuses] = useState<Record<number, 'draft' | 'saved' | 'sent'>>({});
+  const [draftsByRound, setDraftsByRound] = useState<Record<number, RoundData>>({});
   const { toast } = useToast();
+
+  // Load drafts data on component mount
+  useEffect(() => {
+    const loadDraftsData = () => {
+      try {
+        const storedData = localStorage.getItem('draftsByRound');
+        if (storedData) {
+          const parsedData = JSON.parse(storedData);
+          setDraftsByRound(parsedData);
+        }
+      } catch (error) {
+        console.error('Error loading drafts data:', error);
+      }
+    };
+    loadDraftsData();
+  }, []);
+
+  // Load drafts for current round when round changes
+  useEffect(() => {
+    if (draftsByRound[currentRound]) {
+      setAnalysisComplete(true);
+    }
+  }, [currentRound, draftsByRound]);
+
+  // Save drafts data to localStorage when it changes
+  useEffect(() => {
+    if (Object.keys(draftsByRound).length > 0) {
+      try {
+        localStorage.setItem('draftsByRound', JSON.stringify(draftsByRound));
+      } catch (error) {
+        console.error('Error saving drafts data:', error);
+      }
+    }
+  }, [draftsByRound]);
+
+  // Check if a round is unlocked
+  const isRoundUnlocked = (roundNumber: number): boolean => {
+    if (roundNumber === 1) return true; // First round is always unlocked
+    
+    const previousRound = draftsByRound[roundNumber - 1];
+    if (!previousRound || previousRound.letterStatus !== 'sent') return false;
+    
+    const sentAt = previousRound.sentAt || 0;
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    return Date.now() - sentAt >= thirtyDaysMs;
+  };
 
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
@@ -77,31 +131,43 @@ export const Dashboard = () => {
   };
 
   const handleRoundClick = (roundNumber: number) => {
+    if (!isRoundUnlocked(roundNumber)) {
+      toast({
+        title: "Round Locked",
+        description: "This round unlocks 30 days after the previous round is sent.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setCurrentRound(roundNumber);
-    // Load data for the selected round
-    const roundData = localStorage.getItem(`draftsByRound`);
-    if (roundData) {
-      const parsedData = JSON.parse(roundData);
-      if (parsedData[roundNumber]) {
-        // Round has saved data, we can navigate to it
-        setAnalysisComplete(true);
-        toast({
-          title: `Round ${roundNumber} Selected`,
-          description: `Viewing saved data for Round ${roundNumber}`,
-        });
-      }
+    
+    if (draftsByRound[roundNumber]) {
+      setAnalysisComplete(true);
+      toast({
+        title: `Round ${roundNumber} Selected`,
+        description: `Viewing ${draftsByRound[roundNumber].letterStatus} data for Round ${roundNumber}`,
+      });
     }
   };
 
-  const updateRoundStatus = (roundNumber: number, status: 'draft' | 'saved' | 'sent') => {
-    setRoundStatuses(prev => ({
+  const updateRoundStatus = (roundNumber: number, status: 'draft' | 'saved' | 'sent', data?: any) => {
+    setDraftsByRound(prev => ({
       ...prev,
-      [roundNumber]: status
+      [roundNumber]: {
+        draft: data || prev[roundNumber]?.draft,
+        letterRound: roundNumber,
+        letterStatus: status,
+        savedAt: Date.now(),
+        sentAt: status === 'sent' ? Date.now() : prev[roundNumber]?.sentAt
+      }
     }));
   };
 
   const getRoundIcon = (roundNumber: number) => {
-    const status = roundStatuses[roundNumber];
+    const roundData = draftsByRound[roundNumber];
+    const status = roundData?.letterStatus;
+    
     if (status === 'sent') {
       return <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
         <span className="text-xs text-white">✓</span>
@@ -116,6 +182,11 @@ export const Dashboard = () => {
       </div>;
     }
     return null;
+  };
+
+  const getRoundStatus = (roundNumber: number) => {
+    const roundData = draftsByRound[roundNumber];
+    return roundData?.letterStatus || 'draft';
   };
 
   return (
@@ -195,22 +266,40 @@ export const Dashboard = () => {
                 <CardTitle className="text-sm font-medium">Dispute Rounds</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {Array.from({ length: 12 }, (_, i) => i + 1).map(round => (
-                  <div 
-                    key={round} 
-                    className={`flex items-center justify-between py-2 px-2 rounded cursor-pointer transition-colors ${
-                      currentRound === round ? 'bg-primary/10 border border-primary/20' : 'hover:bg-muted/50'
-                    }`}
-                    onClick={() => handleRoundClick(round)}
-                  >
-                    <span className={`text-sm ${currentRound === round ? 'font-medium text-primary' : ''}`}>
-                      Round {round}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {getRoundIcon(round)}
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(round => {
+                  const isUnlocked = isRoundUnlocked(round);
+                  const isActive = currentRound === round;
+                  const status = getRoundStatus(round);
+                  
+                  return (
+                    <div 
+                      key={round} 
+                      className={`flex items-center justify-between py-2 px-2 rounded transition-colors ${
+                        !isUnlocked 
+                          ? 'opacity-50 pointer-events-none cursor-not-allowed' 
+                          : isActive 
+                            ? 'bg-primary/10 border border-primary/20 cursor-pointer' 
+                            : 'hover:bg-muted/50 cursor-pointer'
+                      }`}
+                      onClick={() => handleRoundClick(round)}
+                      title={!isUnlocked ? "Unlocks 30 days after last round & when letters are sent." : undefined}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm ${isActive ? 'font-medium text-primary' : ''}`}>
+                          Round {round}
+                        </span>
+                        {isActive && (
+                          <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded">
+                            {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {getRoundIcon(round)}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           </div>

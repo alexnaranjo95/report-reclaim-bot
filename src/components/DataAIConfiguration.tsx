@@ -354,8 +354,27 @@ export const DataAIConfiguration = () => {
     setAddingQuickTemplate(true);
     
     try {
-      console.log('Attempting to add quick template:', quickAddTemplate.trim());
-      
+      // Create a .txt file blob from the content
+      const fileBlob = new Blob([quickAddTemplate.trim()], { type: 'text/plain' });
+      const fileName = `quick-template-${Date.now()}.txt`;
+      const filePath = `dispute_templates/${fileName}`;
+
+      // Upload to storage
+      const { error: uploadError } = await supabase.storage
+        .from('verification-documents')
+        .upload(filePath, fileBlob);
+
+      if (uploadError) {
+        console.error('Storage upload error:', uploadError);
+        throw uploadError;
+      }
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('verification-documents')
+        .getPublicUrl(filePath);
+
+      // Insert into database with file information
       const { data, error } = await supabase
         .from('dispute_templates')
         .insert({
@@ -369,7 +388,11 @@ export const DataAIConfiguration = () => {
         .select();
 
       if (error) {
-        console.error('Supabase error:', error);
+        console.error('Supabase insert error:', error);
+        // Clean up uploaded file if database insert fails
+        await supabase.storage
+          .from('verification-documents')
+          .remove([filePath]);
         throw error;
       }
 
@@ -377,7 +400,7 @@ export const DataAIConfiguration = () => {
 
       toast({
         title: "Success", 
-        description: "Template added successfully",
+        description: "Template added and saved as .txt file ✔︎",
       });
       
       setQuickAddTemplate('');

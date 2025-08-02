@@ -107,12 +107,12 @@ Analyze this credit report text comprehensively and extract ALL data for a compl
 
 COMPREHENSIVE ANALYSIS REQUIREMENTS:
 
-1. NEGATIVE ITEMS (for "items" array):
-   - Late payments (30, 60, 90+ days late) - look for "LATE", "30 DAYS", "60 DAYS", "90 DAYS", payment history codes
-   - Collections accounts - look for "COLLECTION", "PLACED FOR COLLECTION", collection agencies
-   - Charge-offs - look for "CHARGE OFF", "CHARGED OFF", "PROFIT AND LOSS"
-   - Bankruptcies - look for "BANKRUPTCY", "CHAPTER 7", "CHAPTER 13", "BK"
-   - Repossessions - look for "REPOSSESSION", "REPO", "VOLUNTARY SURRENDER"
+1. NEGATIVE ITEMS (for "items" array) - BE VERY SPECIFIC:
+   - Late payments: Look for "LATE", "30 DAYS LATE", "60 DAYS LATE", "90 DAYS LATE", "120+ DAYS LATE", payment history codes like "1", "2", "3", "4", "5", "6", "7"
+   - Collections: Look for "COLLECTION", "PLACED FOR COLLECTION", "COLLECTION AGENCY", "COLLECTIONS", "DEBT COLLECTOR"
+   - Charge-offs: Look for "CHARGE OFF", "CHARGED OFF", "CHARGE-OFF", "CHARGEOFF", "PROFIT AND LOSS", "P&L WRITE OFF", "WRITTEN OFF", "BAD DEBT"
+   - Bankruptcies: Look for "BANKRUPTCY", "CHAPTER 7", "CHAPTER 13", "CHAPTER 11", "BK", "BANKRUPT"
+   - Repossessions: Look for "REPOSSESSION", "REPO", "VOLUNTARY SURRENDER", "INVOLUNTARY REPO"
    - Foreclosures - look for "FORECLOSURE", "REAL ESTATE OWNED"
    - High credit utilization (>30%) - calculate utilization ratios
    - Incorrect information - wrong dates, amounts, or account details
@@ -191,7 +191,7 @@ ${reportText}
   }
 
   const content = data.choices[0].message.content;
-  console.log('Raw OpenAI content:', content.substring(0, 200));
+  console.log('Raw OpenAI content:', content.substring(0, 400));
   
   // More robust cleaning of markdown code blocks
   let cleanedContent = content.trim();
@@ -205,11 +205,15 @@ ${reportText}
   // Remove any remaining markdown artifacts
   cleanedContent = cleanedContent.replace(/```/g, '');
   
-  console.log('Cleaned content for parsing:', cleanedContent.substring(0, 200));
+  console.log('Cleaned content for parsing:', cleanedContent.substring(0, 400));
   
   try {
     const analysisResult = JSON.parse(cleanedContent);
     console.log('Successfully parsed JSON result');
+    console.log('Found items:', analysisResult.items?.length || 0);
+    console.log('Positive accounts:', analysisResult.totalPositiveAccounts || 0);
+    console.log('Total accounts:', analysisResult.totalAccounts || 0);
+    
     return new Response(JSON.stringify(analysisResult), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -222,9 +226,10 @@ ${reportText}
     if (jsonMatch) {
       try {
         const extractedJson = jsonMatch[0];
-        console.log('Attempting to parse extracted JSON:', extractedJson.substring(0, 200));
+        console.log('Attempting to parse extracted JSON:', extractedJson.substring(0, 400));
         const analysisResult = JSON.parse(extractedJson);
         console.log('Successfully parsed extracted JSON');
+        console.log('Found items from extracted:', analysisResult.items?.length || 0);
         return new Response(JSON.stringify(analysisResult), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });

@@ -26,10 +26,14 @@ export const Dashboard = () => {
     setAnalysisComplete(false);
 
     try {
+      console.log('Starting analysis for file:', file.name);
+      
       const results = await CreditAnalysisService.analyzePDF({
         file,
         round: currentRound
       });
+      
+      console.log('Analysis results received:', results);
       
       setAnalysisResults(results);
       setAnalysisComplete(true);

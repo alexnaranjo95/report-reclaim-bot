@@ -86,6 +86,15 @@ export const DisputeLetterDrafts = ({ creditItems, selectedSession }: DisputeLet
     }));
   }, [letters, currentRound]);
 
+  // Manual save function for the Save Round button
+  const saveDrafts = useCallback(() => {
+    saveDraftsForCurrentRound();
+    toast({
+      title: "Round Saved",
+      description: `Round ${currentRound} drafts have been saved successfully.`,
+    });
+  }, [saveDraftsForCurrentRound, currentRound, toast]);
+
   // Auto-save drafts when letters change
   useEffect(() => {
     if (letters.length > 0) {
@@ -694,6 +703,15 @@ Enclosures: Copy of credit report, Copy of ID`;
                   >
                     <Download className="h-3 w-3 mr-1" />
                     Download
+                  </Button>
+
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => saveDrafts()}
+                    className="text-primary hover:text-primary"
+                  >
+                    Save Round
                   </Button>
                   
                   <Button 

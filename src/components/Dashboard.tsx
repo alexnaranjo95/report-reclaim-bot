@@ -185,6 +185,28 @@ export const Dashboard = ({ selectedSession, showCreateNew, onSessionCreated }: 
                 </div>
               </CardContent>
             </Card>
+
+            {/* Dispute Rounds */}
+            <Card className="bg-gradient-card shadow-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Dispute Rounds</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(round => (
+                  <div key={round} className="flex items-center justify-between py-1">
+                    <span className="text-sm">Round {round}</span>
+                    <div className="flex items-center gap-2">
+                      {/* Green checkmark for completed rounds - placeholder logic */}
+                      {round <= currentRound && (
+                        <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
+                          <span className="text-xs text-white">✓</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
           </div>
 
           {/* Main Content Area */}

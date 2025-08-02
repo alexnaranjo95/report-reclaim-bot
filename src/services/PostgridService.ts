@@ -233,6 +233,38 @@ class PostgridService {
     if (letter.content.trim().length < 10) {
       throw new Error('Letter content must be at least 10 characters long');
     }
+
+    // Additional PostGrid-specific validations
+    const validateAddress = (address: PostgridAddress, type: string) => {
+      // Check address line length
+      if (address.addressLine1.trim().length < 3) {
+        throw new Error(`${type} address line 1 must be at least 3 characters`);
+      }
+      
+      // Check postal code format based on country
+      const postalCode = address.postalOrZip.trim();
+      if (address.country === 'US' || !address.country) {
+        // US ZIP code validation (5 or 9 digits)
+        if (!/^\d{5}(-\d{4})?$/.test(postalCode)) {
+          throw new Error(`${type} postal code must be valid US ZIP format (12345 or 12345-6789)`);
+        }
+      } else if (address.country === 'CA') {
+        // Canadian postal code validation
+        if (!/^[A-Z]\d[A-Z] \d[A-Z]\d$/.test(postalCode.toUpperCase())) {
+          throw new Error(`${type} postal code must be valid Canadian format (A1A 1A1)`);
+        }
+      }
+      
+      // State/Province validation for US/CA
+      if (address.country === 'US' || !address.country) {
+        if (address.provinceOrState.length !== 2) {
+          throw new Error(`${type} state must be 2-letter US state code`);
+        }
+      }
+    };
+
+    validateAddress(letter.to, 'Recipient');
+    validateAddress(letter.from, 'Sender');
   }
 }
 

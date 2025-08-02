@@ -36,7 +36,7 @@ export const Dashboard = () => {
       
       toast({
         title: "Analysis Complete",
-        description: `Found ${results.summary.totalNegativeItems} negative items and ${results.summary.totalPositiveAccounts} positive accounts.`,
+        description: `Found ${results.summary.totalNegativeItems} negative items, ${results.summary.totalPositiveAccounts} positive accounts out of ${results.summary.totalAccounts} total accounts.`,
       });
     } catch (error) {
       console.error('Analysis failed:', error);
@@ -116,21 +116,27 @@ export const Dashboard = () => {
                     <FileText className="h-4 w-4 text-primary" />
                     <span className="text-sm">Letters Sent</span>
                   </div>
-                  <span className="font-semibold">24</span>
+                  <span className="font-semibold">
+                    {analysisResults?.historicalData.lettersSent || 0}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-success" />
                     <span className="text-sm">Items Removed</span>
                   </div>
-                  <span className="font-semibold text-success">8</span>
+                  <span className="font-semibold text-success">
+                    {analysisResults?.historicalData.itemsRemoved || 0}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-warning" />
                     <span className="text-sm">Pending</span>
                   </div>
-                  <span className="font-semibold">16</span>
+                  <span className="font-semibold">
+                    {analysisResults?.historicalData.itemsPending || 0}
+                  </span>
                 </div>
               </CardContent>
             </Card>

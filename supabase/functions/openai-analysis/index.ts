@@ -56,7 +56,7 @@ serve(async (req) => {
 
 async function analyzeCreditReport(reportText: string) {
   const prompt = `
-Analyze this credit report text and extract negative items. Return a JSON object with the following structure:
+Analyze this credit report text comprehensively and extract ALL data for a complete financial profile. Return a JSON object with the following structure:
 
 {
   "items": [
@@ -74,33 +74,71 @@ Analyze this credit report text and extract negative items. Return a JSON object
   ],
   "personalInfo": {
     "name": "Full name if found",
-    "address": "Address if found"
+    "address": "Full address if found", 
+    "ssn": "SSN if found (partial)",
+    "dateOfBirth": "DOB if found",
+    "phone": "Phone number if found",
+    "employer": "Current employer if found"
   },
   "creditScores": {
     "experian": 0,
     "equifax": 0,
     "transunion": 0
   },
-  "totalPositiveAccounts": 0
+  "totalPositiveAccounts": 0,
+  "totalAccounts": 0,
+  "historicalData": {
+    "lettersSent": 0,
+    "itemsRemoved": 0,
+    "itemsPending": 0,
+    "successRate": 0,
+    "avgRemovalTime": 0
+  },
+  "accountBreakdown": {
+    "creditCards": 0,
+    "mortgages": 0,
+    "autoLoans": 0,
+    "studentLoans": 0,
+    "personalLoans": 0,
+    "collections": 0,
+    "other": 0
+  }
 }
 
-Focus on identifying NEGATIVE ITEMS ONLY:
-- Late payments (30, 60, 90+ days late) - look for "LATE", "30 DAYS", "60 DAYS", "90 DAYS", payment history codes
-- Collections accounts - look for "COLLECTION", "PLACED FOR COLLECTION", collection agencies
-- Charge-offs - look for "CHARGE OFF", "CHARGED OFF", "PROFIT AND LOSS"
-- Bankruptcies - look for "BANKRUPTCY", "CHAPTER 7", "CHAPTER 13", "BK"
-- Repossessions - look for "REPOSSESSION", "REPO", "VOLUNTARY SURRENDER"
-- Foreclosures - look for "FORECLOSURE", "REAL ESTATE OWNED"
-- High credit utilization (>30%) - calculate utilization ratios
-- Incorrect information - wrong dates, amounts, or account details
-- Fraudulent accounts - accounts not opened by consumer
+COMPREHENSIVE ANALYSIS REQUIREMENTS:
 
-ALSO COUNT POSITIVE ACCOUNTS:
-Count the total number of accounts with positive payment history (marked as "PAYS AS AGREED", "CURRENT", "NEVER LATE", or similar positive indicators) and include this in the "totalPositiveAccounts" field.
+1. NEGATIVE ITEMS (for "items" array):
+   - Late payments (30, 60, 90+ days late) - look for "LATE", "30 DAYS", "60 DAYS", "90 DAYS", payment history codes
+   - Collections accounts - look for "COLLECTION", "PLACED FOR COLLECTION", collection agencies
+   - Charge-offs - look for "CHARGE OFF", "CHARGED OFF", "PROFIT AND LOSS"
+   - Bankruptcies - look for "BANKRUPTCY", "CHAPTER 7", "CHAPTER 13", "BK"
+   - Repossessions - look for "REPOSSESSION", "REPO", "VOLUNTARY SURRENDER"
+   - Foreclosures - look for "FORECLOSURE", "REAL ESTATE OWNED"
+   - High credit utilization (>30%) - calculate utilization ratios
+   - Incorrect information - wrong dates, amounts, or account details
+   - Fraudulent accounts - accounts not opened by consumer
+
+2. ACCOUNT COUNTING:
+   - totalPositiveAccounts: Count accounts with "PAYS AS AGREED", "CURRENT", "NEVER LATE", good payment history
+   - totalAccounts: Count ALL credit accounts (positive + negative)
+   - accountBreakdown: Categorize by type (credit cards, mortgages, auto loans, student loans, personal loans, collections, other)
+
+3. HISTORICAL DATA EXTRACTION:
+   - Look for previous dispute information, letters sent, resolved items
+   - Calculate success rates if historical data is present
+   - Extract timeline information for removal processes
+
+4. PERSONAL INFORMATION:
+   - Extract complete personal details (name, address, SSN, DOB, phone, employer)
+   - Ensure accuracy and completeness
+
+5. CREDIT SCORES:
+   - Extract scores from all three bureaus if present
+   - Look for score history or trends
 
 Rate impact as:
 - high: Collections, charge-offs, bankruptcies, foreclosures, repossessions, 90+ day lates
-- medium: 60-day lates, high utilization (>50%), multiple 30-day lates
+- medium: 60-day lates, high utilization (>50%), multiple 30-day lates  
 - low: Single 30-day lates, minor errors, high utilization (30-50%)
 
 Credit Report Text:
@@ -120,19 +158,19 @@ ${reportText}
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'o3-2025-04-16',
       messages: [
         {
           role: 'system',
-          content: 'You are a credit repair expert. Analyze credit reports and identify negative items that can be disputed. ALWAYS return valid JSON without markdown code blocks.'
+          content: 'You are an expert credit analyst with deep knowledge of credit reporting systems, FCRA regulations, and dispute processes. Analyze credit reports comprehensively and extract ALL relevant data with precision. ALWAYS return valid JSON without markdown code blocks. Be thorough in extracting every piece of useful information from the credit report.'
         },
         {
           role: 'user',
           content: prompt
         }
       ],
-      temperature: 0.1,
-      max_tokens: 2000
+      temperature: 0.05,
+      max_tokens: 4000
     }),
   });
 

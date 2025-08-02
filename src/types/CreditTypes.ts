@@ -18,17 +18,36 @@ export interface CreditAnalysisResult {
   summary: {
     totalNegativeItems: number;
     totalPositiveAccounts: number;
+    totalAccounts: number;
     estimatedScoreImpact: number;
     bureausAffected: string[];
     highImpactItems: number;
     mediumImpactItems: number;
     lowImpactItems: number;
   };
+  historicalData: {
+    lettersSent: number;
+    itemsRemoved: number;
+    itemsPending: number;
+    successRate: number;
+    avgRemovalTime: number; // in days
+  };
+  accountBreakdown: {
+    creditCards: number;
+    mortgages: number;
+    autoLoans: number;
+    studentLoans: number;
+    personalLoans: number;
+    collections: number;
+    other: number;
+  };
   personalInfo: {
     name?: string;
     address?: string;
     ssn?: string;
     dateOfBirth?: string;
+    phone?: string;
+    employer?: string;
   };
   creditScores?: {
     experian?: number;

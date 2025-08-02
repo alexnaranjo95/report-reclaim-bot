@@ -41,6 +41,7 @@ export class CreditAnalysisService {
       const summary = {
         totalNegativeItems: items.length,
         totalPositiveAccounts: data.totalPositiveAccounts || 0,
+        totalAccounts: data.totalAccounts || 0,
         estimatedScoreImpact: this.calculateScoreImpact(items),
         bureausAffected: [...new Set(items.flatMap(item => item.bureau))],
         highImpactItems: items.filter(item => item.impact === 'high').length,
@@ -51,6 +52,22 @@ export class CreditAnalysisService {
       return {
         items,
         summary,
+        historicalData: data.historicalData || {
+          lettersSent: 0,
+          itemsRemoved: 0,
+          itemsPending: 0,
+          successRate: 0,
+          avgRemovalTime: 0
+        },
+        accountBreakdown: data.accountBreakdown || {
+          creditCards: 0,
+          mortgages: 0,
+          autoLoans: 0,
+          studentLoans: 0,
+          personalLoans: 0,
+          collections: 0,
+          other: 0
+        },
         personalInfo: data.personalInfo || {},
         creditScores: data.creditScores
       };

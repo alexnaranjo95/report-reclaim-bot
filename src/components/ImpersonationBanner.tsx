@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,8 +7,15 @@ import { useToast } from '@/hooks/use-toast';
 
 export const ImpersonationBanner = () => {
   const [impersonatedUser, setImpersonatedUser] = useState<string | null>(null);
+  const [show, setShow] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
+
+  // Conditional render check - exit early if not impersonating
+  if (!sessionStorage.getItem('impersonatedUserId')) {
+    return null;
+  }
 
   useEffect(() => {
     // Check for impersonation data
@@ -17,10 +24,25 @@ export const ImpersonationBanner = () => {
     
     if (impersonatedUserId && impersonatedUserName) {
       setImpersonatedUser(impersonatedUserName);
+      setShow(true);
     } else {
       setImpersonatedUser(null);
+      setShow(false);
     }
   }, []);
+
+  // Route change listener (safety net) - hide banner if impersonation ended
+  useEffect(() => {
+    const checkImpersonationState = () => {
+      if (!sessionStorage.getItem('impersonatedUserId')) {
+        setShow(false);
+        setImpersonatedUser(null);
+      }
+    };
+
+    // Check on route changes
+    checkImpersonationState();
+  }, [location.pathname]);
 
   const restoreAdminSession = async () => {
     try {
@@ -33,6 +55,15 @@ export const ImpersonationBanner = () => {
         });
         return;
       }
+
+      // Clear impersonation state BEFORE restoring session
+      sessionStorage.removeItem('impersonatedUserId');
+      sessionStorage.removeItem('impersonatedUserName');
+      sessionStorage.removeItem('originalSession');
+      
+      // Hide banner immediately
+      setShow(false);
+      setImpersonatedUser(null);
 
       const originalSession = JSON.parse(originalSessionStr);
       
@@ -48,11 +79,6 @@ export const ImpersonationBanner = () => {
         return;
       }
 
-      // Clear impersonation data
-      sessionStorage.removeItem('impersonatedUserId');
-      sessionStorage.removeItem('impersonatedUserName');
-      sessionStorage.removeItem('originalSession');
-      
       // Navigate back to admin
       navigate('/admin');
       
@@ -70,7 +96,7 @@ export const ImpersonationBanner = () => {
     }
   };
 
-  if (!impersonatedUser) {
+  if (!impersonatedUser || !show) {
     return null;
   }
 

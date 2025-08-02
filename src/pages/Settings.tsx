@@ -193,14 +193,15 @@ const Settings = () => {
       const updatedDocs = [...verificationDocuments, ...uploadedDocuments];
       setVerificationDocuments(updatedDocs);
       
-      // Save to profile (temporarily without verification_documents until function is updated)
+      // Save to profile with updated documents
       await supabase.rpc('upsert_user_profile', {
         profile_user_id: user.id,
         profile_email: email,
         profile_phone_number: phone,
         profile_email_notifications: emailNotifications,
         profile_text_notifications: textNotifications,
-        profile_display_name: user.user_metadata?.display_name || user.email || ''
+        profile_display_name: user.user_metadata?.display_name || user.email || '',
+        profile_verification_documents: updatedDocs as any
       });
       
       toast({
@@ -234,14 +235,15 @@ const Settings = () => {
       const updatedDocs = verificationDocuments.filter(doc => doc.id !== docId);
       setVerificationDocuments(updatedDocs);
       
-      // Save to profile (temporarily without verification_documents until function is updated)
+      // Save to profile with updated documents
       await supabase.rpc('upsert_user_profile', {
         profile_user_id: user.id,
         profile_email: email,
         profile_phone_number: phone,
         profile_email_notifications: emailNotifications,
         profile_text_notifications: textNotifications,
-        profile_display_name: user.user_metadata?.display_name || user.email || ''
+        profile_display_name: user.user_metadata?.display_name || user.email || '',
+        profile_verification_documents: updatedDocs as any
       });
       
       toast({
@@ -333,7 +335,8 @@ const Settings = () => {
         profile_phone_number: phone,
         profile_email_notifications: emailNotifications,
         profile_text_notifications: textNotifications,
-        profile_display_name: user.user_metadata?.display_name || user.email || ''
+        profile_display_name: user.user_metadata?.display_name || user.email || '',
+        profile_verification_documents: updatedDocs as any
       });
       
       // Don't show success message here - it's already shown by ImageEditor

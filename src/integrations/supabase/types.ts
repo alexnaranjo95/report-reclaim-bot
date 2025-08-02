@@ -233,14 +233,24 @@ export type Database = {
         }[]
       }
       upsert_user_profile: {
-        Args: {
-          profile_user_id: string
-          profile_email: string
-          profile_phone_number: string
-          profile_email_notifications: boolean
-          profile_text_notifications: boolean
-          profile_display_name: string
-        }
+        Args:
+          | {
+              profile_user_id: string
+              profile_email: string
+              profile_phone_number: string
+              profile_email_notifications: boolean
+              profile_text_notifications: boolean
+              profile_display_name: string
+            }
+          | {
+              profile_user_id: string
+              profile_email: string
+              profile_phone_number: string
+              profile_email_notifications: boolean
+              profile_text_notifications: boolean
+              profile_display_name: string
+              profile_verification_documents?: Json
+            }
         Returns: string
       }
     }

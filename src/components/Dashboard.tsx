@@ -7,7 +7,7 @@ import { UploadZone } from './UploadZone';
 
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
-import { FileText, TrendingUp, Shield, Clock, Trash2, Bug } from 'lucide-react';
+import { FileText, TrendingUp, Shield, Clock, Trash2, Bug, RefreshCw, Save } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { useToast } from '@/hooks/use-toast';
@@ -188,6 +188,49 @@ export const Dashboard = () => {
     return roundData?.letterStatus || 'draft';
   };
 
+  const saveRoundDraft = (roundNumber: number) => {
+    if (analysisResults) {
+      updateRoundStatus(roundNumber, 'saved', analysisResults);
+      toast({
+        title: "Round Saved",
+        description: `Round ${roundNumber} draft has been saved successfully.`,
+      });
+    }
+  };
+
+  const regenerateRound = async (roundNumber: number) => {
+    if (!confirm("Regenerate this round? This will overwrite the current draft.")) {
+      return;
+    }
+    
+    if (uploadedFile) {
+      setIsAnalyzing(true);
+      try {
+        const results = await CreditAnalysisService.analyzePDF({
+          file: uploadedFile,
+          round: roundNumber
+        });
+        
+        setAnalysisResults(results);
+        updateRoundStatus(roundNumber, 'draft', results);
+        
+        toast({
+          title: "Round Regenerated",
+          description: `Round ${roundNumber} has been regenerated with new analysis.`,
+        });
+      } catch (error) {
+        console.error('Regeneration failed:', error);
+        toast({
+          title: "Regeneration Failed",
+          description: "Failed to regenerate round. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsAnalyzing(false);
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-dashboard">
       {/* Header */}
@@ -335,7 +378,7 @@ export const Dashboard = () => {
                           AI analysis of {uploadedFile.name}
                         </CardDescription>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-3 ml-auto">
                         <Button
                           variant="outline"
                           size="sm"
@@ -344,6 +387,23 @@ export const Dashboard = () => {
                         >
                           <Trash2 className="h-4 w-4" />
                           Remove
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => saveRoundDraft(currentRound)}
+                          className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+                        >
+                          <Save className="h-4 w-4" />
+                          Save
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => regenerateRound(currentRound)}
+                          className="flex items-center gap-1 border-gray-300 text-gray-700 hover:bg-gray-50"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Regenerate
                         </Button>
                       </div>
                     </div>

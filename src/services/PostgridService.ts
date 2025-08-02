@@ -81,7 +81,7 @@ class PostgridService {
         html: letter.content,
         color: letter.color || false,
         doubleSided: letter.doubleSided || false,
-        returnEnvelope: letter.returnEnvelope || false,
+        returnEnvelope: letter.returnEnvelope ? 'true' : 'false',
         addressPlacement: 'top_first_page'
       };
 

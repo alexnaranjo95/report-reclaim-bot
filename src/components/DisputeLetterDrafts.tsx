@@ -408,6 +408,10 @@ Enclosures: Copy of credit report, Copy of ID`;
     });
   };
 
+  const handleSendAllLetters = () => {
+    setShowCostConfirmation('send-all');
+  };
+
   const getTypeColor = (type: string) => {
     switch (type) {
       case 'validation': return 'bg-primary/10 text-primary';
@@ -463,6 +467,26 @@ Enclosures: Copy of credit report, Copy of ID`;
         </div>
       </CardHeader>
       <CardContent>
+        {/* Action buttons at the top */}
+        {letters.length > 0 && !isGenerating && (
+          <div className="flex gap-2 mb-6 p-4 bg-muted/30 rounded-lg border">
+            <Button 
+              variant="outline"
+              onClick={() => saveDrafts()}
+              className="text-primary hover:text-primary"
+            >
+              Save
+            </Button>
+            <Button 
+              className="bg-gradient-primary text-white"
+              onClick={() => handleSendAllLetters()}
+            >
+              <Send className="h-3 w-3 mr-1" />
+              Send All Letters ({letters.length} letters @ $2.94 each)
+            </Button>
+          </div>
+        )}
+        
         {isGenerating ? (
           <div className="space-y-6 py-8">
             {/* Enhanced Loading Header with Timer */}
@@ -694,14 +718,6 @@ Enclosures: Copy of credit report, Copy of ID`;
                     Download
                   </Button>
 
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => saveDrafts()}
-                    className="text-primary hover:text-primary"
-                  >
-                    Save Round
-                  </Button>
                   
                   <Button 
                     size="sm" 
@@ -752,6 +768,79 @@ Enclosures: Copy of credit report, Copy of ID`;
               <div className="p-6">
                 <LetterCostNotification
                   onConfirm={async () => {
+                    if (showCostConfirmation === 'send-all') {
+                      // Handle sending all letters
+                      try {
+                        let successCount = 0;
+                        let errorCount = 0;
+
+                        for (const letter of letters) {
+                          const sampleLetter: PostgridLetter = {
+                            to: {
+                              firstName: "Credit Bureau",
+                              lastName: "Department", 
+                              companyName: letter.creditor,
+                              addressLine1: "123 Credit St",
+                              city: "Credit City",
+                              provinceOrState: "CA",
+                              postalOrZip: "90210",
+                              country: "US"
+                            },
+                            from: {
+                              firstName: "Your",
+                              lastName: "Name",
+                              addressLine1: "456 Your St",
+                              city: "Your City",
+                              provinceOrState: "CA",
+                              postalOrZip: "90211",
+                              country: "US"
+                            },
+                            content: letter.content,
+                            color: true,
+                            doubleSided: false,
+                            returnEnvelope: true
+                          };
+
+                          try {
+                            const result = await postgridService.sendLetter(sampleLetter);
+                            if (result.error) {
+                              throw new Error(result.error);
+                            }
+                            successCount++;
+                          } catch (error) {
+                            console.error(`Failed to send letter to ${letter.creditor}:`, error);
+                            errorCount++;
+                          }
+                        }
+
+                        // Mark round as sent if all letters were successful
+                        if (errorCount === 0) {
+                          onRoundStatusChange(currentRound, 'sent', letters);
+                          toast({
+                            title: "All Letters Sent Successfully!",
+                            description: `${successCount} letters sent successfully.`,
+                          });
+                        } else {
+                          toast({
+                            title: "Partial Success",
+                            description: `${successCount} letters sent, ${errorCount} failed.`,
+                            variant: errorCount > successCount ? "destructive" : "default",
+                          });
+                        }
+
+                        setShowCostConfirmation(null);
+                      } catch (error: any) {
+                        console.error('❌ Failed to send letters:', error);
+                        toast({
+                          title: "Send Failed",
+                          description: "Failed to send letters. Please try again.",
+                          variant: "destructive"
+                        });
+                        setShowCostConfirmation(null);
+                      }
+                      return;
+                    }
+
                     const letter = letters.find(l => l.id === showCostConfirmation);
                     if (!letter) return;
 
@@ -826,7 +915,7 @@ Enclosures: Copy of credit report, Copy of ID`;
                     }
                   }}
                   onCancel={() => setShowCostConfirmation(null)}
-                  letterCount={1}
+                  letterCount={showCostConfirmation === 'send-all' ? letters.length : 1}
                 />
               </div>
             </div>

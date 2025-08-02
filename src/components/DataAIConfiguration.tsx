@@ -89,6 +89,7 @@ export const DataAIConfiguration = () => {
   const [lastTrainedAt, setLastTrainedAt] = useState<string | null>(null);
   const [isPromptLive, setIsPromptLive] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [originalPromptText, setOriginalPromptText] = useState('');
   
   // Settings state
   const [settings, setSettings] = useState<AdminSetting[]>([]);
@@ -111,15 +112,15 @@ export const DataAIConfiguration = () => {
 
   const loadCurrentPrompt = async () => {
     try {
-      const currentPrompt = await AIPromptService.getCurrentPrompt();
-      if (currentPrompt) {
-        setCurrentPrompt(currentPrompt);
-        setPromptBuilder(currentPrompt.prompt_text || '');
+      const prompt = await AIPromptService.getCurrentPrompt();
+      if (prompt) {
+        setCurrentPrompt(prompt);
+        setPromptBuilder(prompt.prompt_text || '');
+        setOriginalPromptText(prompt.prompt_text || '');
+        // Check if prompt is live when loading
+        const { isLive } = await AIPromptService.verifyPromptIsLive();
+        setIsPromptLive(isLive);
       }
-      
-      // Check if prompt is live
-      const { isLive } = await AIPromptService.verifyPromptIsLive();
-      setIsPromptLive(isLive);
     } catch (error) {
       console.error('Error loading current prompt:', error);
     }
@@ -441,32 +442,79 @@ export const DataAIConfiguration = () => {
       return;
     }
 
-    setSavingPrompt(true);
-    setIsCheckingStatus(true);
-    
     try {
-      await AIPromptService.savePromptVersion(promptBuilder);
+      setSavingPrompt(true);
+      setIsCheckingStatus(true);
+      
+      const result = await AIPromptService.savePromptVersion(
+        promptBuilder,
+        `Version ${new Date().toLocaleDateString()}`,
+        'Admin-configured AI prompt'
+      );
 
-      toast({
-        title: "Success",
-        description: "Prompt saved & applied ✔︎",
-        className: "bg-green-50 border-green-200 text-green-800",
-      });
-      
-      // Poll for verification
-      const isLive = await AIPromptService.pollPromptStatus();
-      setIsPromptLive(isLive);
-      
-      loadCurrentPrompt();
+      if (result) {
+        setCurrentPrompt({
+          ...result,
+          prompt_text: promptBuilder,
+          updated_at: new Date().toISOString()
+        });
+        setOriginalPromptText(promptBuilder);
+        
+        // Start polling for live status
+        pollForLiveStatus();
+        
+        toast({
+          title: "Success",
+          description: "Saved and Trained",
+        });
+      }
     } catch (error) {
       console.error('Error saving prompt:', error);
       toast({
         title: "Error",
-        description: "Failed to save prompt",
+        description: "Failed to save prompt version",
         variant: "destructive",
       });
+      setIsCheckingStatus(false);
     } finally {
       setSavingPrompt(false);
+    }
+  };
+
+  const handleResetPrompt = async () => {
+    const confirmed = window.confirm('Delete current prompt?');
+    if (!confirmed) return;
+
+    try {
+      // Clear from database by saving empty prompt
+      await AIPromptService.savePromptVersion('', 'Reset', 'Prompt cleared by admin');
+      
+      setPromptBuilder('');
+      setOriginalPromptText('');
+      setCurrentPrompt(null);
+      setIsPromptLive(false);
+      
+      toast({
+        title: "Success",
+        description: "Prompt cleared",
+      });
+    } catch (error) {
+      console.error('Error resetting prompt:', error);
+      toast({
+        title: "Error",
+        description: "Failed to clear prompt",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const pollForLiveStatus = async () => {
+    try {
+      const isLive = await AIPromptService.pollPromptStatus();
+      setIsPromptLive(isLive);
+      setIsCheckingStatus(false);
+    } catch (error) {
+      console.error('Error polling prompt status:', error);
       setIsCheckingStatus(false);
     }
   };
@@ -742,20 +790,14 @@ export const DataAIConfiguration = () => {
                 </Card>
               </div>
 
-              <Card>
+                <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     Prompt Builder
-                    {isPromptLive && (
+                    {isPromptLive && promptBuilder === originalPromptText && (
                       <Badge variant="default" className="bg-green-100 text-green-800 border-green-200 flex items-center gap-1">
                         <CheckCircle className="h-3 w-3" />
-                        Prompt uploaded
-                      </Badge>
-                    )}
-                    {isCheckingStatus && (
-                      <Badge variant="outline" className="flex items-center gap-1">
-                        <RefreshCw className="h-3 w-3 animate-spin" />
-                        Saved, training...
+                        Saved and Trained
                       </Badge>
                     )}
                   </CardTitle>
@@ -771,16 +813,27 @@ export const DataAIConfiguration = () => {
                     rows={6}
                   />
                   <div className="flex items-center justify-between">
-                    <Button 
-                      onClick={handleSavePrompt}
-                      disabled={savingPrompt}
-                      className="flex items-center gap-2"
-                    >
-                      <CheckCircle className="h-4 w-4" />
-                      {savingPrompt ? 'Saving...' : 'Save Prompt Version'}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        onClick={handleSavePrompt}
+                        disabled={savingPrompt}
+                        className="flex items-center gap-2"
+                      >
+                        <CheckCircle className="h-4 w-4" />
+                        {savingPrompt ? 'Saving...' : 'Save Prompt Version'}
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        onClick={handleResetPrompt}
+                        disabled={savingPrompt}
+                        className="flex items-center gap-2 text-muted-foreground"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Reset
+                      </Button>
+                    </div>
                      {currentPrompt && (
-                       <p className="text-green-600 text-xs mt-1">
+                       <p className="text-green-600 text-xs">
                          Last saved: {new Date(currentPrompt.updated_at).toLocaleString()}
                        </p>
                      )}

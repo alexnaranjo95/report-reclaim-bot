@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ReactCrop, { Crop, PixelCrop, centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Save, RotateCcw, Image as ImageIcon, Settings } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface ImageEditorProps {
   isOpen: boolean;
@@ -137,13 +138,19 @@ export const ImageEditor = ({ isOpen, onClose, imageSrc, onSave, fileName }: Ima
 
   const handleSave = async () => {
     const croppedCanvas = getCroppedImg();
-    if (!croppedCanvas) return;
+    if (!croppedCanvas) {
+      toast.error('Failed to process image. Please try again.');
+      return;
+    }
 
     croppedCanvas.toBlob(
       (blob) => {
         if (blob) {
           onSave(blob, fileName);
+          toast.success('Image saved successfully!');
           onClose();
+        } else {
+          toast.error('Failed to save image. Please try again.');
         }
       },
       'image/jpeg',

@@ -286,18 +286,40 @@ Enclosures: Copy of credit report, Copy of ID`;
   };
 
   const handleExportPDF = (letter: DisputeLetter) => {
-    // Create a downloadable text file for now (PDF generation would require additional library)
-    const element = document.createElement('a');
-    const file = new Blob([letter.content], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = `dispute-letter-${letter.creditor}-${letter.bureau}.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-    
-    toast({
-      title: "Letter Downloaded",
-      description: "Your dispute letter has been downloaded as a text file.",
+    // Import jsPDF dynamically
+    import('jspdf').then(({ jsPDF }) => {
+      const doc = new jsPDF();
+      
+      // Set up the document
+      doc.setFontSize(12);
+      
+      // Add title
+      doc.setFontSize(16);
+      doc.text(`Dispute Letter - ${letter.creditor}`, 20, 20);
+      
+      // Add bureau info
+      doc.setFontSize(12);
+      doc.text(`Bureau: ${letter.bureau}`, 20, 35);
+      doc.text(`Type: ${letter.type.charAt(0).toUpperCase() + letter.type.slice(1)}`, 20, 45);
+      
+      // Add content with proper wrapping
+      const splitContent = doc.splitTextToSize(letter.content, 170);
+      doc.text(splitContent, 20, 60);
+      
+      // Save the PDF
+      doc.save(`dispute-letter-${letter.creditor}-${letter.bureau}.pdf`);
+      
+      toast({
+        title: "PDF Downloaded",
+        description: "Your dispute letter has been downloaded as a PDF file.",
+      });
+    }).catch(error => {
+      console.error('Error generating PDF:', error);
+      toast({
+        title: "PDF Generation Failed",
+        description: "Unable to generate PDF. Please try again.",
+        variant: "destructive",
+      });
     });
   };
 

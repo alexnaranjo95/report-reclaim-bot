@@ -1053,11 +1053,12 @@ export const DataAIConfiguration = () => {
         </CardContent>
       </Card>
 
-      <TemplateViewerModal
-        isOpen={isTemplateModalOpen}
-        onClose={() => setIsTemplateModalOpen(false)}
-        templates={templates}
-      />
+        <TemplateViewerModal
+          isOpen={isTemplateModalOpen}
+          onClose={() => setIsTemplateModalOpen(false)}
+          templates={templates}
+          onTemplateUpdated={loadTemplates}
+        />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,12 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { FileText, Calendar, Tag } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { FileText, Calendar, Tag, Edit2, Trash2, Save, X } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
 
 interface DisputeTemplate {
   id: string;
@@ -26,14 +31,20 @@ interface TemplateViewerModalProps {
   isOpen: boolean;
   onClose: () => void;
   templates: DisputeTemplate[];
+  onTemplateUpdated?: () => void;
 }
 
 export const TemplateViewerModal: React.FC<TemplateViewerModalProps> = ({
   isOpen,
   onClose,
   templates,
+  onTemplateUpdated,
 }) => {
-  const getPreviewText = (content: string, maxLength: number = 200) => {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editContent, setEditContent] = useState('');
+
+  const getPreviewText = (content: string, maxLength: number = 100) => {
     if (content.length <= maxLength) return content;
     return content.substring(0, maxLength) + '...';
   };
@@ -41,6 +52,77 @@ export const TemplateViewerModal: React.FC<TemplateViewerModalProps> = ({
   const getSourceLabel = (name: string) => {
     if (name.startsWith('Quick Template')) return 'Quick Add';
     return 'File Upload';
+  };
+
+  const handleEdit = (template: DisputeTemplate) => {
+    setEditingId(template.id);
+    setEditName(template.name);
+    setEditContent(template.content);
+  };
+
+  const handleSave = async (templateId: string) => {
+    try {
+      const { error } = await supabase
+        .from('dispute_templates')
+        .update({
+          name: editName,
+          content: editContent,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', templateId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Template updated successfully",
+      });
+
+      setEditingId(null);
+      onTemplateUpdated?.();
+    } catch (error) {
+      console.error('Error updating template:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update template",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDelete = async (templateId: string, templateName: string) => {
+    if (!confirm(`Delete template "${templateName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('dispute_templates')
+        .delete()
+        .eq('id', templateId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Template deleted successfully",
+      });
+
+      onTemplateUpdated?.();
+    } catch (error) {
+      console.error('Error deleting template:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete template",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCancel = () => {
+    setEditingId(null);
+    setEditName('');
+    setEditContent('');
   };
 
   return (
@@ -64,59 +146,122 @@ export const TemplateViewerModal: React.FC<TemplateViewerModalProps> = ({
               <p className="text-sm">Upload files or use Quick-Add to get started</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-1">
+              {/* Header */}
+              <div className="grid grid-cols-12 gap-2 px-3 py-2 text-xs font-medium text-muted-foreground border-b">
+                <div className="col-span-3">Name</div>
+                <div className="col-span-4">Preview</div>
+                <div className="col-span-2">Type</div>
+                <div className="col-span-2">Created</div>
+                <div className="col-span-1">Actions</div>
+              </div>
+
+              {/* Template Rows */}
               {templates.map((template) => (
-                <div
-                  key={template.id}
-                  className="border rounded-lg p-4 space-y-3 hover:bg-accent/50 transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-sm truncate">{template.name}</h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge 
-                          variant={template.is_active ? "default" : "secondary"}
-                          className="text-xs"
+                <div key={template.id} className="hover:bg-accent/30 transition-colors">
+                  {editingId === template.id ? (
+                    // Edit Mode
+                    <div className="grid grid-cols-12 gap-2 p-3 border rounded-lg bg-accent/20">
+                      <div className="col-span-3">
+                        <Input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="text-xs h-8"
+                          placeholder="Template name"
+                        />
+                      </div>
+                      <div className="col-span-4">
+                        <Textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className="text-xs min-h-[60px] resize-none"
+                          placeholder="Template content"
+                        />
+                      </div>
+                      <div className="col-span-2 flex items-start">
+                        <div className="flex flex-col gap-1">
+                          <Badge variant={template.is_active ? "default" : "secondary"} className="text-xs w-fit">
+                            {template.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs w-fit">
+                            {template.file_type}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="col-span-2 text-xs text-muted-foreground flex items-start">
+                        {new Date(template.created_at).toLocaleDateString()}
+                      </div>
+                      <div className="col-span-1 flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0"
+                          onClick={() => handleSave(template.id)}
                         >
-                          {template.is_active ? 'Active' : 'Inactive'}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {getSourceLabel(template.name)}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {template.file_type}
-                        </Badge>
+                          <Save className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0"
+                          onClick={handleCancel}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {new Date(template.created_at).toLocaleDateString()}
-                    </div>
-                  </div>
-
-                  <div className="text-sm text-muted-foreground">
-                    <p className="leading-relaxed">
-                      {getPreviewText(template.content)}
-                    </p>
-                  </div>
-
-                  {template.tags && template.tags.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <Tag className="h-3 w-3 text-muted-foreground" />
-                      <div className="flex gap-1 flex-wrap">
-                        {template.tags.map((tag, index) => (
-                          <Badge key={index} variant="outline" className="text-xs">
-                            {tag}
+                  ) : (
+                    // View Mode
+                    <div className="grid grid-cols-12 gap-2 p-3 items-center">
+                      <div className="col-span-3">
+                        <div className="text-sm font-medium truncate" title={template.name}>
+                          {template.name}
+                        </div>
+                      </div>
+                      <div className="col-span-4">
+                        <div className="text-xs text-muted-foreground truncate" title={template.content}>
+                          {getPreviewText(template.content, 80)}
+                        </div>
+                      </div>
+                      <div className="col-span-2">
+                        <div className="flex flex-col gap-1">
+                          <Badge variant={template.is_active ? "default" : "secondary"} className="text-xs w-fit">
+                            {template.is_active ? 'Active' : 'Inactive'}
                           </Badge>
-                        ))}
+                          <Badge variant="outline" className="text-xs w-fit">
+                            {getSourceLabel(template.name)}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="col-span-2 text-xs text-muted-foreground">
+                        {new Date(template.created_at).toLocaleDateString()}
+                      </div>
+                      <div className="col-span-1">
+                        {template.file_type === 'txt' && (
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0"
+                              onClick={() => handleEdit(template)}
+                              title="Edit template"
+                            >
+                              <Edit2 className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                              onClick={() => handleDelete(template.id, template.name)}
+                              title="Delete template"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
-
-                  <div className="text-xs text-muted-foreground">
-                    Weight: {template.preference_weight} | 
-                    Similarity: {(template.similarity_score * 100).toFixed(1)}%
-                  </div>
                 </div>
               ))}
             </div>

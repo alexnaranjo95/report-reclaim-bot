@@ -26,13 +26,12 @@ export const DocumentPreview = ({ document, onEdit }: DocumentPreviewProps) => {
   const handlePreview = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.storage
+      // Use public URL since bucket is now public
+      const { data } = supabase.storage
         .from('verification-documents')
-        .createSignedUrl(document.url, 3600); // 1 hour expiry
-
-      if (error) throw error;
+        .getPublicUrl(document.url);
       
-      setPreviewUrl(data.signedUrl);
+      setPreviewUrl(data.publicUrl);
       setIsOpen(true);
     } catch (error) {
       console.error('Error getting preview URL:', error);

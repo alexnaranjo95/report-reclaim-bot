@@ -260,14 +260,13 @@ const Settings = () => {
 
   const handleEditImage = async (doc: VerificationDocument) => {
     try {
-      const { data, error } = await supabase.storage
+      // Use public URL instead of signed URL to avoid CORS issues
+      const { data } = supabase.storage
         .from('verification-documents')
-        .createSignedUrl(doc.url, 3600);
-
-      if (error) throw error;
+        .getPublicUrl(doc.url);
 
       setEditingImage({
-        src: data.signedUrl,
+        src: data.publicUrl,
         fileName: doc.name,
         documentType: doc.documentType
       });

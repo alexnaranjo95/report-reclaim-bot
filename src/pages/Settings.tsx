@@ -1,25 +1,29 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Bell, Mail, Phone, Save, Upload, File, X } from 'lucide-react';
+import { ArrowLeft, Bell, Mail, Phone, Save, Upload, File, X, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 
 const Settings = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, signOut } = useAuth();
   
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [textNotifications, setTextNotifications] = useState(false);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [intakeDocuments, setIntakeDocuments] = useState<File[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const requiredDocuments = [
     { 
@@ -39,12 +43,88 @@ const Settings = () => {
     }
   ];
 
-  const handleSave = () => {
-    // Here you would save to database/backend
-    toast({
-      title: "Settings Saved",
-      description: "Your notification preferences have been updated.",
-    });
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+          
+        if (error && error.code !== 'PGRST116') {
+          console.error('Error loading profile:', error);
+          return;
+        }
+        
+        if (data) {
+          setEmailNotifications(data.email_notifications ?? true);
+          setTextNotifications(data.text_notifications ?? false);
+          setEmail(data.email || user.email || '');
+          setPhone(data.phone || '');
+          // Note: Documents would need separate storage/table for files
+        }
+      } catch (error) {
+        console.error('Error loading profile:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!user) return;
+    
+    try {
+      const profileData = {
+        user_id: user.id,
+        email,
+        phone,
+        email_notifications: emailNotifications,
+        text_notifications: textNotifications,
+        first_name: user.user_metadata?.first_name || '',
+        last_name: user.user_metadata?.last_name || '',
+      };
+
+      const { error } = await supabase
+        .from('profiles')
+        .upsert(profileData);
+
+      if (error) throw error;
+
+      toast({
+        title: "Settings Saved",
+        description: "Your notification preferences have been updated.",
+      });
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      toast({
+        title: "Save Failed",
+        description: "Failed to save your settings. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      navigate('/auth');
+      toast({
+        title: "Signed Out",
+        description: "You have been successfully signed out.",
+      });
+    } catch (error) {
+      toast({
+        title: "Sign Out Failed",
+        description: "Failed to sign out. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleFileUpload = (files: FileList | null, documentType: string) => {
@@ -77,29 +157,45 @@ const Settings = () => {
       {/* Header */}
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => navigate('/')}
+                className="flex items-center gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Dashboard
+              </Button>
+              <div className="h-6 w-px bg-border" />
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                  Settings
+                </h1>
+                <p className="text-muted-foreground">Manage your preferences</p>
+              </div>
+            </div>
             <Button 
-              variant="ghost" 
+              variant="outline" 
               size="sm" 
-              onClick={() => navigate('/')}
+              onClick={handleSignOut}
               className="flex items-center gap-2"
             >
-              <ArrowLeft className="h-4 w-4" />
-              Back to Dashboard
+              <LogOut className="h-4 w-4" />
+              Sign Out
             </Button>
-            <div className="h-6 w-px bg-border" />
-            <div>
-              <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                Settings
-              </h1>
-              <p className="text-muted-foreground">Manage your preferences</p>
-            </div>
           </div>
         </div>
       </header>
 
       <div className="container mx-auto px-6 py-8 max-w-2xl">
-        <div className="space-y-6">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+          </div>
+        ) : (
+          <div className="space-y-6">
           {/* Notification Settings */}
           <Card className="bg-gradient-card shadow-card">
             <CardHeader>
@@ -269,7 +365,8 @@ const Settings = () => {
               )}
             </CardContent>
           </Card>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

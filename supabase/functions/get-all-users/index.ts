@@ -81,6 +81,19 @@ serve(async (req) => {
       return acc;
     }, {} as Record<string, { total: number; active: number }>) || {};
 
+    // Get user roles
+    const { data: userRoles } = await supabase
+      .from('user_roles')
+      .select('user_id, role');
+
+    const roleStats = userRoles?.reduce((acc, userRole) => {
+      if (!acc[userRole.user_id]) {
+        acc[userRole.user_id] = [];
+      }
+      acc[userRole.user_id].push(userRole.role);
+      return acc;
+    }, {} as Record<string, string[]>) || {};
+
     // Create profile lookup
     const profileLookup = profiles?.reduce((acc, profile) => {
       acc[profile.user_id] = profile;
@@ -97,6 +110,18 @@ serve(async (req) => {
       // Use database status if available, otherwise default to 'active'
       const status = profile?.status || 'active';
 
+      // Get user's primary role (highest privilege)
+      const userRolesList = roleStats[authUser.id] || [];
+      let primaryRole = 'user'; // default
+      if (userRolesList.includes('superadmin')) primaryRole = 'superadmin';
+      else if (userRolesList.includes('admin')) primaryRole = 'admin';
+      
+      // Also check raw_app_metadata for role
+      const metadataRole = authUser.raw_app_metadata?.role;
+      if (metadataRole && !userRolesList.length) {
+        primaryRole = metadataRole;
+      }
+
       return {
         user_id: authUser.id,
         display_name: profile?.display_name || authUser.email || 'Unknown User',
@@ -109,7 +134,8 @@ serve(async (req) => {
         active_rounds: userRounds.active,
         user_created_at: authUser.created_at,
         has_profile: !!profile,
-        database_status: profile?.status || null // Keep track of what's in the database
+        database_status: profile?.status || null, // Keep track of what's in the database
+        role: primaryRole
       };
     });
 

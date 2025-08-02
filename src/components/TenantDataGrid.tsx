@@ -14,7 +14,14 @@ import {
   Pause, 
   LogIn, 
   MoreHorizontal,
-  ArrowUpDown
+  ArrowUpDown,
+  Download,
+  DollarSign,
+  Mail,
+  Users,
+  FileText,
+  Clock,
+  TrendingUp
 } from 'lucide-react';
 import { 
   DropdownMenu,
@@ -22,11 +29,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DashboardStats } from '@/components/DashboardStats';
+import Papa from 'papaparse';
+import useSWR from 'swr';
 
 interface TenantData {
   user_id: string;
@@ -39,6 +56,7 @@ interface TenantData {
   status: 'active' | 'inactive' | 'dormant' | 'suspended';
   active_rounds: number;
   user_created_at: string;
+  role?: 'superadmin' | 'admin' | 'user';
 }
 
 interface TenantDataGridProps {
@@ -52,10 +70,39 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
   const [sortField, setSortField] = useState<keyof TenantData>('last_activity');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
+  const [roleFilter, setRoleFilter] = useState<string>('all');
   const pageSize = 20;
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth(); // Get current admin user
+
+  // Fetch metrics data with SWR
+  const { data: metricsData, error: metricsError } = useSWR(
+    '/api/admin/metrics?range=30d',
+    () => fetchMetrics(),
+    { refreshInterval: 60000 }
+  );
+
+  // Load/save grid state from localStorage
+  useEffect(() => {
+    const savedState = localStorage.getItem('tenantGrid_state');
+    if (savedState) {
+      try {
+        const { sortField: savedSort, sortDirection: savedDirection, roleFilter: savedRole } = JSON.parse(savedState);
+        if (savedSort) setSortField(savedSort);
+        if (savedDirection) setSortDirection(savedDirection);
+        if (savedRole) setRoleFilter(savedRole);
+      } catch (e) {
+        console.warn('Failed to load grid state:', e);
+      }
+    }
+  }, []);
+
+  // Save grid state to localStorage when it changes
+  useEffect(() => {
+    const state = { sortField, sortDirection, roleFilter };
+    localStorage.setItem('tenantGrid_state', JSON.stringify(state));
+  }, [sortField, sortDirection, roleFilter]);
 
   useEffect(() => {
     fetchTenants();
@@ -216,17 +263,29 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
       // Get current session to store for later restoration
       const { data: currentSession } = await supabase.auth.getSession();
       
-      // Call the impersonation edge function
-      const { data: impersonationData, error } = await supabase.functions.invoke('impersonate-user', {
-        body: {
-          targetUserId: tenant.user_id,
-          adminUserId: user.id
-        }
-      });
+      // Call the impersonation edge function with retry logic
+      const attemptImpersonation = async (attempt = 1): Promise<any> => {
+        const { data: impersonationData, error } = await supabase.functions.invoke('impersonate-user', {
+          body: {
+            targetUserId: tenant.user_id,
+            adminUserId: user.id
+          }
+        });
 
-      if (error) {
-        throw error;
-      }
+        if (error && attempt === 1) {
+          // Retry once on failure
+          console.warn('First impersonation attempt failed, retrying...', error);
+          return attemptImpersonation(2);
+        }
+
+        if (error) {
+          throw error;
+        }
+
+        return impersonationData;
+      };
+
+      const impersonationData = await attemptImpersonation();
 
       // Store the impersonation data including the original admin session
       const impersonationInfo = {
@@ -239,14 +298,26 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
 
       sessionStorage.setItem('impersonation_data', JSON.stringify(impersonationInfo));
       
-      // Switch to the target user's session
-      const { error: sessionError } = await supabase.auth.setSession({
-        access_token: impersonationData.access_token,
-        refresh_token: impersonationData.refresh_token
-      });
+      // Switch to the target user's session with retry logic
+      try {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: impersonationData.access_token,
+          refresh_token: impersonationData.refresh_token
+        });
 
-      if (sessionError) {
-        throw sessionError;
+        if (sessionError) {
+          throw sessionError;
+        }
+      } catch (sessionError) {
+        // If session setting fails, try with fallback data
+        if (impersonationData.expires_in) {
+          await supabase.auth.setSession({
+            access_token: impersonationData.access_token,
+            refresh_token: impersonationData.refresh_token
+          });
+        } else {
+          throw sessionError;
+        }
       }
 
       // Notify parent component about impersonation
@@ -257,7 +328,7 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
         description: `Now viewing as ${tenant.display_name || tenant.email}`,
       });
 
-      // Navigate to main dashboard as the impersonated user
+      // Navigate to portal (client view) as the impersonated user
       navigate('/');
     } catch (error) {
       console.error('Error starting impersonation:', error);
@@ -329,10 +400,12 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
     }
   };
 
-  const filteredTenants = tenants.filter(tenant =>
-    tenant.display_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    tenant.email?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredTenants = tenants.filter(tenant => {
+    const matchesSearch = tenant.display_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         tenant.email?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesRole = roleFilter === 'all' || tenant.role === roleFilter;
+    return matchesSearch && matchesRole;
+  });
 
   const sortedTenants = [...filteredTenants].sort((a, b) => {
     const aVal = a[sortField];
@@ -379,6 +452,67 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
     return `$${(lettersSent * 2.5).toFixed(2)}`;
   };
 
+  const fetchMetrics = async () => {
+    const { data: sessions } = await supabase.from('sessions').select('*');
+    const { data: letters } = await supabase.from('letters').select('*');
+    const { data: rounds } = await supabase.from('rounds').select('*');
+    const { data: profiles } = await supabase.from('profiles').select('*');
+    
+    const lettersSent = letters?.filter(l => l.status === 'sent').length || 0;
+    const activeUsers = profiles?.length || 0;
+    const disputesDrafted = letters?.filter(l => l.status === 'draft').length || 0;
+    const disputesResolved = rounds?.filter(r => r.status === 'completed').length || 0;
+    const totalRevenue = lettersSent * 2.5;
+    
+    return {
+      totalRevenue: `$${totalRevenue.toFixed(2)}`,
+      lettersSent: lettersSent.toString(),
+      activeUsers: activeUsers.toString(),
+      draftRounds: disputesDrafted.toString(),
+      resolvedCases: disputesResolved.toString(),
+      successRate: lettersSent > 0 ? `${Math.round((disputesResolved / lettersSent) * 100)}%` : '0%'
+    };
+  };
+
+  const exportClientData = () => {
+    const csvData = paginatedTenants.map(tenant => ({
+      name: tenant.display_name || 'Unknown User',
+      email: tenant.email,
+      plan: 'Basic',
+      nextRound: tenant.active_rounds > 0 ? `Round ${tenant.active_rounds + 1}` : 'Complete',
+      revenueToDate: formatRevenue(tenant.letters_sent),
+      lastLogin: formatDate(tenant.last_activity),
+      status: tenant.status,
+      role: tenant.role || 'user'
+    }));
+
+    const csv = Papa.unparse(csvData);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {
+      href: url,
+      download: `clients_${new Date().toISOString().slice(0, 10)}.csv`
+    });
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Export Complete",
+      description: `Exported ${csvData.length} client records to CSV.`,
+    });
+  };
+
+  const getRoleBadge = (role?: string) => {
+    switch (role) {
+      case 'superadmin':
+        return { variant: 'default' as const, className: 'bg-red-100 text-red-700', text: 'Super Admin' };
+      case 'admin':
+        return { variant: 'default' as const, className: 'bg-indigo-100 text-indigo-700', text: 'Admin' };
+      default:
+        return { variant: 'default' as const, className: 'bg-gray-100 text-gray-700', text: 'Client' };
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -399,6 +533,48 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
 
   return (
     <div className="space-y-4">
+      {/* Quick Stats Bar */}
+      <DashboardStats
+        stats={metricsData || {
+          totalRevenue: 'No data',
+          lettersSent: 'No data', 
+          activeUsers: 'No data',
+          draftRounds: 'No data',
+          resolvedCases: 'No data',
+          successRate: 'No data'
+        }}
+        icons={{
+          totalRevenue: DollarSign,
+          lettersSent: Mail,
+          activeUsers: Users,
+          draftRounds: FileText,
+          resolvedCases: Clock,
+          successRate: TrendingUp
+        }}
+        loading={!metricsData && !metricsError}
+      />
+
+      {/* Controls */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Filter by role" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Roles</SelectItem>
+              <SelectItem value="superadmin">Super Admin</SelectItem>
+              <SelectItem value="admin">Admin</SelectItem>
+              <SelectItem value="user">Client</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button onClick={exportClientData} variant="outline" size="sm">
+          <Download className="h-4 w-4 mr-2" />
+          Export Client Data
+        </Button>
+      </div>
+
       <Table>
         <TableHeader>
           <TableRow>
@@ -411,6 +587,12 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
             <TableHead className="cursor-pointer" onClick={() => handleSort('email')}>
               <div className="flex items-center gap-2">
                 Email
+                <ArrowUpDown className="h-4 w-4" />
+              </div>
+            </TableHead>
+            <TableHead className="cursor-pointer w-[110px]" onClick={() => handleSort('role')}>
+              <div className="flex items-center gap-2">
+                Role
                 <ArrowUpDown className="h-4 w-4" />
               </div>
             </TableHead>
@@ -451,6 +633,16 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
                   {tenant.display_name || 'Unknown User'}
                 </TableCell>
                 <TableCell>{tenant.email}</TableCell>
+                <TableCell>
+                  {(() => {
+                    const roleBadge = getRoleBadge(tenant.role);
+                    return (
+                      <Badge variant={roleBadge.variant} className={roleBadge.className}>
+                        {roleBadge.text}
+                      </Badge>
+                    );
+                  })()}
+                </TableCell>
                 <TableCell>
                   <Badge variant="outline">Basic</Badge>
                 </TableCell>

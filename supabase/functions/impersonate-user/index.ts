@@ -68,66 +68,86 @@ serve(async (req) => {
       );
     }
 
-    // Generate a session for the target user using admin.createUser approach
-    const { data: sessionData, error: sessionError } = await supabase.auth.admin.generateLink({
-      type: 'signup',
-      email: targetProfile.email,
-      options: {
-        data: {
-          impersonated: true,
-          impersonated_by: adminUserId
-        }
-      }
-    });
-
-    if (sessionError) {
-      console.error('Error generating session link:', sessionError);
-      return new Response(
-        JSON.stringify({ error: 'Failed to generate session link' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Try to create a session directly using the admin API
-    const { data: userSession, error: userSessionError } = await supabase.auth.admin.generateLink({
-      type: 'recovery',
+    // Generate magic link for the target user
+    const { data: magicLinkData, error: magicLinkError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
       email: targetProfile.email
     });
 
-    if (userSessionError) {
-      console.error('Error generating recovery link:', userSessionError);
+    if (magicLinkError) {
+      console.error('Error generating magic link:', magicLinkError);
       return new Response(
-        JSON.stringify({ error: 'Failed to generate user session' }),
+        JSON.stringify({ error: 'Failed to generate magic link' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Extract tokens from the recovery link
-    const recoveryUrl = new URL(userSession.properties.action_link);
-    const accessToken = recoveryUrl.searchParams.get('access_token');
-    const refreshToken = recoveryUrl.searchParams.get('refresh_token');
+    // Parse both query string and hash fragment for tokens
+    const actionUrl = new URL(magicLinkData.properties.action_link);
+    let accessToken = actionUrl.searchParams.get('access_token');
+    let refreshToken = actionUrl.searchParams.get('refresh_token');
 
+    // If tokens not in query string, check hash fragment
     if (!accessToken || !refreshToken) {
-      console.error('Failed to extract tokens from recovery link');
-      console.log('Recovery URL:', userSession.properties.action_link);
-      
-      // Fallback: return a simpler response that the client can handle
+      const hashParams = new URLSearchParams(actionUrl.hash.substring(1));
+      accessToken = accessToken || hashParams.get('access_token');
+      refreshToken = refreshToken || hashParams.get('refresh_token');
+    }
+
+    // If still missing tokens, try token refresh endpoint
+    if (!refreshToken) {
+      console.error('No refresh token available for session creation');
       return new Response(
-        JSON.stringify({ 
-          impersonation_url: userSession.properties.action_link,
-          user: {
-            id: targetUserId,
-            email: targetProfile.email,
-            display_name: targetProfile.display_name
-          }
-        }),
-        { 
-          headers: { 
-            ...corsHeaders, 
-            'Content-Type': 'application/json' 
-          } 
-        }
+        JSON.stringify({ error: 'Failed to extract tokens from magic link' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // If access token is missing, refresh it using the refresh token
+    if (!accessToken && refreshToken) {
+      try {
+        const tokenRefreshResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/token?grant_type=refresh_token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': Deno.env.get('SUPABASE_ANON_KEY')!
+          },
+          body: JSON.stringify({
+            refresh_token: refreshToken
+          })
+        });
+
+        if (tokenRefreshResponse.ok) {
+          const tokenData = await tokenRefreshResponse.json();
+          accessToken = tokenData.access_token;
+          refreshToken = tokenData.refresh_token;
+          
+          console.log('Successfully refreshed tokens for impersonation');
+          
+          return new Response(
+            JSON.stringify({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+              expires_in: tokenData.expires_in || 3600,
+              user: {
+                id: targetUserId,
+                email: targetProfile.email,
+                display_name: targetProfile.display_name
+              }
+            }),
+            { 
+              headers: { 
+                ...corsHeaders, 
+                'Content-Type': 'application/json' 
+              } 
+            }
+          );
+        } else {
+          console.error('Token refresh failed:', await tokenRefreshResponse.text());
+        }
+      } catch (refreshError) {
+        console.error('Error refreshing token:', refreshError);
+      }
     }
 
     console.log(`Generated impersonation tokens for user ${targetUserId}`);

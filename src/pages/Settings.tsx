@@ -6,13 +6,15 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Bell, Mail, Phone, Save, Upload, File, X, LogOut, Trash2 } from 'lucide-react';
+import { ArrowLeft, Bell, Mail, Phone, Save, Upload, File, X, LogOut, Trash2, Edit3, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { DocumentPreview } from '@/components/DocumentPreview';
+import { ImageEditor } from '@/components/ImageEditor';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -26,6 +28,8 @@ const Settings = () => {
   const [verificationDocuments, setVerificationDocuments] = useState<VerificationDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
+  const [editingImage, setEditingImage] = useState<{ src: string; fileName: string; documentType: string } | null>(null);
 
   interface VerificationDocument {
     id: string;
@@ -53,6 +57,21 @@ const Settings = () => {
       accepted: [".jpg", ".jpeg", ".png", ".pdf"]
     }
   ];
+
+  // Check if all required documents are uploaded
+  const getUploadedDocumentTypes = () => {
+    return verificationDocuments.map(doc => doc.documentType);
+  };
+
+  const getMissingDocumentTypes = () => {
+    const uploadedTypes = getUploadedDocumentTypes();
+    return requiredDocuments.map(doc => doc.type).filter(type => !uploadedTypes.includes(type));
+  };
+
+  const areAllDocumentsUploaded = () => {
+    return getMissingDocumentTypes().length === 0;
+  };
+
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -239,6 +258,75 @@ const Settings = () => {
     }
   };
 
+  const handleEditImage = async (doc: VerificationDocument) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('verification-documents')
+        .createSignedUrl(doc.url, 3600);
+
+      if (error) throw error;
+
+      setEditingImage({
+        src: data.signedUrl,
+        fileName: doc.name,
+        documentType: doc.documentType
+      });
+      setImageEditorOpen(true);
+    } catch (error) {
+      console.error('Error getting image for editing:', error);
+      toast({
+        title: "Edit Failed",
+        description: "Failed to load image for editing.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSaveEditedImage = async (editedImageBlob: Blob, fileName: string) => {
+    if (!user || !editingImage) return;
+
+    try {
+      setUploading(true);
+      
+      // Upload the edited image
+      const fileExt = fileName.split('.').pop() || 'jpg';
+      const newFileName = `${user.id}/${editingImage.documentType}-edited-${Date.now()}.${fileExt}`;
+      
+      const { data, error } = await supabase.storage
+        .from('verification-documents')
+        .upload(newFileName, editedImageBlob);
+        
+      if (error) throw error;
+      
+      const newDoc: VerificationDocument = {
+        id: data.path,
+        name: `edited-${fileName}`,
+        type: editedImageBlob.type,
+        url: data.path,
+        uploadedAt: new Date().toISOString(),
+        documentType: editingImage.documentType
+      };
+      
+      const updatedDocs = [...verificationDocuments, newDoc];
+      setVerificationDocuments(updatedDocs);
+      
+      toast({
+        title: "Image Saved",
+        description: "Your edited image has been saved successfully.",
+      });
+    } catch (error) {
+      console.error('Error saving edited image:', error);
+      toast({
+        title: "Save Failed",
+        description: "Failed to save edited image. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      setEditingImage(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-dashboard">
       {/* Header */}
@@ -385,9 +473,41 @@ const Settings = () => {
               </CardTitle>
               <CardDescription>
                 Upload required documents for dispute processing. These will be included when sending letters via Postgrid.
+                <strong className="text-primary"> All three document types are mandatory to create dispute letters.</strong>
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Document Requirements Status */}
+              {!areAllDocumentsUploaded() && (
+                <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Required Documents Status:</strong>
+                    <div className="mt-2 space-y-1">
+                      {requiredDocuments.map((docType) => {
+                        const isUploaded = getUploadedDocumentTypes().includes(docType.type);
+                        return (
+                          <div key={docType.type} className="flex items-center gap-2">
+                            {isUploaded ? (
+                              <CheckCircle2 className="h-3 w-3 text-green-600" />
+                            ) : (
+                              <X className="h-3 w-3 text-red-600" />
+                            )}
+                            <span className={isUploaded ? "text-green-700" : "text-red-700"}>
+                              {docType.type}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {getMissingDocumentTypes().length > 0 && (
+                      <p className="mt-2 text-sm text-amber-700">
+                        Missing: {getMissingDocumentTypes().join(', ')}
+                      </p>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
               {requiredDocuments.map((docType, index) => (
                 <div key={index} className="space-y-3">
                   <div>
@@ -440,6 +560,17 @@ const Settings = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <DocumentPreview document={doc} />
+                          {doc.type.startsWith('image/') && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditImage(doc)}
+                              className="h-8 w-8 p-0"
+                              title="Edit Image"
+                            >
+                              <Edit3 className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -459,6 +590,20 @@ const Settings = () => {
           </div>
         )}
       </div>
+
+      {/* Image Editor */}
+      {editingImage && (
+        <ImageEditor
+          isOpen={imageEditorOpen}
+          onClose={() => {
+            setImageEditorOpen(false);
+            setEditingImage(null);
+          }}
+          imageSrc={editingImage.src}
+          fileName={editingImage.fileName}
+          onSave={handleSaveEditedImage}
+        />
+      )}
     </div>
   );
 };

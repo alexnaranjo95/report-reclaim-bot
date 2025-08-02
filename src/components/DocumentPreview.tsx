@@ -88,17 +88,7 @@ export const DocumentPreview = ({ document }: DocumentPreviewProps) => {
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <span>{document.name}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsOpen(false)}
-                className="h-8 w-8 p-0"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </DialogTitle>
+            <DialogTitle>{document.name}</DialogTitle>
           </DialogHeader>
           <div className="overflow-auto">
             {renderPreview()}

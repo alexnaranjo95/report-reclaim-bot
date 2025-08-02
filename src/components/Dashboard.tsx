@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { UploadZone } from './UploadZone';
-
+import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
 import { FileText, TrendingUp, Shield, Clock, Trash2, Bug, RefreshCw, Save } from 'lucide-react';
@@ -261,6 +261,9 @@ export const Dashboard = () => {
       </header>
 
       <div className="container mx-auto px-6 py-8">
+        {/* Document Notification Banner */}
+        <DocumentNotificationBanner />
+        
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Left Sidebar - Progress & Stats */}
           <div className="lg:col-span-1 space-y-4">

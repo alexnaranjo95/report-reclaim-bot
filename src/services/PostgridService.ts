@@ -47,69 +47,63 @@ class PostgridService {
     try {
       const apiKey = await this.getPostgridApiKey();
       
-      const formData = new FormData();
-      
-      // Add letter data
-      formData.append('to[firstName]', letter.to.firstName);
-      formData.append('to[lastName]', letter.to.lastName);
-      formData.append('to[addressLine1]', letter.to.addressLine1);
-      formData.append('to[city]', letter.to.city);
-      formData.append('to[provinceOrState]', letter.to.provinceOrState);
-      formData.append('to[postalOrZip]', letter.to.postalOrZip);
-      formData.append('to[country]', letter.to.country);
-      
-      if (letter.to.companyName) {
-        formData.append('to[companyName]', letter.to.companyName);
-      }
-      if (letter.to.addressLine2) {
-        formData.append('to[addressLine2]', letter.to.addressLine2);
-      }
-      
-      formData.append('from[firstName]', letter.from.firstName);
-      formData.append('from[lastName]', letter.from.lastName);
-      formData.append('from[addressLine1]', letter.from.addressLine1);
-      formData.append('from[city]', letter.from.city);
-      formData.append('from[provinceOrState]', letter.from.provinceOrState);
-      formData.append('from[postalOrZip]', letter.from.postalOrZip);
-      formData.append('from[country]', letter.from.country);
-      
-      if (letter.from.companyName) {
-        formData.append('from[companyName]', letter.from.companyName);
-      }
-      if (letter.from.addressLine2) {
-        formData.append('from[addressLine2]', letter.from.addressLine2);
-      }
-      
-      // Add content as HTML
-      const blob = new Blob([letter.content], { type: 'text/html' });
-      formData.append('file', blob, 'dispute-letter.html');
-      
-      // Add attachments (intake documents)
-      if (letter.attachments) {
-        letter.attachments.forEach((file, index) => {
-          formData.append(`attachments[${index}]`, file);
-        });
-      }
-      
-      // Add options
-      formData.append('color', letter.color ? 'true' : 'false');
-      formData.append('doubleSided', letter.doubleSided ? 'true' : 'false');
-      formData.append('returnEnvelope', letter.returnEnvelope ? 'true' : 'false');
+      // Create the request payload as JSON first
+      const payload = {
+        to: {
+          firstName: letter.to.firstName,
+          lastName: letter.to.lastName,
+          addressLine1: letter.to.addressLine1,
+          city: letter.to.city,
+          provinceOrState: letter.to.provinceOrState,
+          postalOrZip: letter.to.postalOrZip,
+          country: letter.to.country,
+          ...(letter.to.companyName && { companyName: letter.to.companyName }),
+          ...(letter.to.addressLine2 && { addressLine2: letter.to.addressLine2 })
+        },
+        from: {
+          firstName: letter.from.firstName,
+          lastName: letter.from.lastName,
+          addressLine1: letter.from.addressLine1,
+          city: letter.from.city,
+          provinceOrState: letter.from.provinceOrState,
+          postalOrZip: letter.from.postalOrZip,
+          country: letter.from.country,
+          ...(letter.from.companyName && { companyName: letter.from.companyName }),
+          ...(letter.from.addressLine2 && { addressLine2: letter.from.addressLine2 })
+        },
+        // Use HTML content directly
+        html: letter.content,
+        color: letter.color || false,
+        doubleSided: letter.doubleSided || false,
+        returnEnvelope: letter.returnEnvelope || false
+      };
+
+      console.log('Sending letter to PostGrid with payload:', JSON.stringify(payload, null, 2));
       
       const response = await fetch('https://api.postgrid.com/print-mail/v1/letters', {
         method: 'POST',
         headers: {
           'x-api-key': apiKey,
+          'Content-Type': 'application/json',
         },
-        body: formData,
+        body: JSON.stringify(payload),
       });
       
+      const responseText = await response.text();
+      console.log('PostGrid API response:', response.status, responseText);
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to send letter via Postgrid');
+        let errorMessage = 'Failed to send letter via Postgrid';
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch (e) {
+          errorMessage = `HTTP ${response.status}: ${responseText}`;
+        }
+        throw new Error(errorMessage);
       }
       
-      const responseData = await response.json();
+      const responseData = JSON.parse(responseText);
       
       return {
         id: responseData.id,

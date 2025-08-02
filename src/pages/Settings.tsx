@@ -63,7 +63,7 @@ const Settings = () => {
           setEmailNotifications(data.email_notifications ?? true);
           setTextNotifications(data.text_notifications ?? false);
           setEmail(data.email || user.email || '');
-          setPhone(data.phone || '');
+          setPhone(data.phone_number || '');
           // Note: Documents would need separate storage/table for files
         }
       } catch (error) {
@@ -83,7 +83,7 @@ const Settings = () => {
       const profileData = {
         user_id: user.id,
         email,
-        phone,
+        phone_number: phone,
         email_notifications: emailNotifications,
         text_notifications: textNotifications,
         first_name: user.user_metadata?.first_name || '',

@@ -64,6 +64,45 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          email_notifications: boolean | null
+          id: string
+          phone_number: string | null
+          text_notifications: boolean | null
+          updated_at: string
+          uploaded_documents: Json | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          email_notifications?: boolean | null
+          id?: string
+          phone_number?: string | null
+          text_notifications?: boolean | null
+          updated_at?: string
+          uploaded_documents?: Json | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          email_notifications?: boolean | null
+          id?: string
+          phone_number?: string | null
+          text_notifications?: boolean | null
+          updated_at?: string
+          uploaded_documents?: Json | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       response_logs: {
         Row: {
           created_at: string

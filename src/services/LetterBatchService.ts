@@ -1,5 +1,3 @@
-import { supabase } from '@/integrations/supabase/client';
-import { SessionService } from './SessionService';
 import { DisputeLetter } from '@/types/CreditTypes';
 
 export interface LetterBatch {
@@ -12,24 +10,11 @@ export interface LetterBatch {
   roundId: string;
 }
 
-export interface LetterBatchResponse {
-  id: string;
-  round_number: number;
-  letters_data: DisputeLetter[];
-  generated_at: string;
-  version: number;
-  archived: boolean;
-  session_id: string;
-  round_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export class LetterBatchService {
   private static STORAGE_KEY = 'lettersByRound';
 
   /**
-   * Save letter batch to both database and localStorage
+   * Save letter batch to localStorage (will be extended to database once migration is approved)
    */
   static async saveLetterBatch(
     sessionId: string,
@@ -37,24 +22,20 @@ export class LetterBatchService {
     letters: DisputeLetter[]
   ): Promise<LetterBatch> {
     try {
-      // Get or create round
-      const rounds = await SessionService.getRounds(sessionId);
-      let currentRound = rounds.find(r => r.round_number === roundNumber);
+      // Get existing batches for this session
+      const existingBatches = this.getFromLocalStorage();
+      const sessionBatches = Object.values(existingBatches).filter(b => b.sessionId === sessionId);
+      const existingRoundBatches = sessionBatches.filter(b => b.round === roundNumber);
       
-      if (!currentRound) {
-        currentRound = await SessionService.createRound(sessionId, roundNumber);
-      }
-
-      // Check for existing batch to determine version
-      const existingBatches = await this.getLetterBatchesForRound(currentRound.id);
-      const latestVersion = existingBatches.length > 0 
-        ? Math.max(...existingBatches.map(b => b.version)) 
+      // Determine version
+      const latestVersion = existingRoundBatches.length > 0 
+        ? Math.max(...existingRoundBatches.map(b => b.version)) 
         : 0;
       const newVersion = latestVersion + 1;
 
       // Archive previous versions if regenerating
-      if (existingBatches.length > 0) {
-        await this.archivePreviousVersions(currentRound.id);
+      if (existingRoundBatches.length > 0) {
+        this.archivePreviousVersions(sessionId, roundNumber);
       }
 
       // Create batch object
@@ -65,47 +46,13 @@ export class LetterBatchService {
         version: newVersion,
         archived: false,
         sessionId,
-        roundId: currentRound.id
+        roundId: `${sessionId}-round-${roundNumber}` // Generate a consistent roundId
       };
 
-      // Save to database via migration-created table
-      const { data, error } = await supabase
-        .from('letter_batches')
-        .insert([{
-          round_id: currentRound.id,
-          session_id: sessionId,
-          round_number: roundNumber,
-          letters_data: letters as any,
-          generated_at: batch.generatedAt,
-          version: newVersion,
-          archived: false
-        }])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Failed to save letter batch to database:', error);
-        throw new Error('Failed to save letters to database');
-      }
-
-      // Save individual letters to letters table for compatibility
-      for (const letter of letters) {
-        await SessionService.saveLetter({
-          round_id: currentRound.id,
-          creditor: letter.creditor,
-          bureau: letter.bureau,
-          items: letter.items,
-          content: letter.content,
-          status: letter.status === 'ready' ? 'draft' : 'draft',
-          type: letter.type,
-          user_id: (await supabase.auth.getUser()).data.user?.id || '',
-          version: newVersion
-        });
-      }
-
-      // Save to localStorage for offline resilience
+      // Save to localStorage
       this.saveToLocalStorage(batch);
 
+      console.log(`Letters for Round ${roundNumber} saved successfully.`);
       return batch;
     } catch (error) {
       console.error('Error saving letter batch:', error);
@@ -116,22 +63,21 @@ export class LetterBatchService {
   /**
    * Get letter batch for specific round
    */
-  static async getLetterBatch(roundId: string): Promise<LetterBatch | null> {
+  static async getLetterBatch(sessionId: string, roundNumber: number): Promise<LetterBatch | null> {
     try {
-      const { data, error } = await supabase
-        .from('letter_batches')
-        .select('*')
-        .eq('round_id', roundId)
-        .eq('archived', false)
-        .order('version', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (error || !data) {
+      const stored = this.getFromLocalStorage();
+      const sessionBatches = Object.values(stored).filter(
+        b => b.sessionId === sessionId && b.round === roundNumber && !b.archived
+      );
+      
+      if (sessionBatches.length === 0) {
         return null;
       }
 
-      return this.mapResponseToBatch(data);
+      // Return the latest version
+      return sessionBatches.reduce((latest, current) => 
+        current.version > latest.version ? current : latest
+      );
     } catch (error) {
       console.error('Error getting letter batch:', error);
       return null;
@@ -143,30 +89,20 @@ export class LetterBatchService {
    */
   static async getAllLetterBatches(sessionId: string): Promise<Record<number, LetterBatch>> {
     try {
-      const { data, error } = await supabase
-        .from('letter_batches')
-        .select('*')
-        .eq('session_id', sessionId)
-        .eq('archived', false)
-        .order('round_number', { ascending: true });
-
-      if (error) {
-        console.error('Error getting letter batches:', error);
-        return {};
-      }
-
+      const stored = this.getFromLocalStorage();
       const batchesByRound: Record<number, LetterBatch> = {};
       
-      for (const batch of data) {
-        const roundNumber = batch.round_number;
-        if (!batchesByRound[roundNumber] || batch.version > batchesByRound[roundNumber].version) {
-          batchesByRound[roundNumber] = this.mapResponseToBatch(batch);
-        }
-      }
+      // Get all batches for this session
+      const sessionBatches = Object.values(stored).filter(
+        b => b.sessionId === sessionId && !b.archived
+      );
 
-      // Also save to localStorage for offline access
-      for (const batch of Object.values(batchesByRound)) {
-        this.saveToLocalStorage(batch);
+      // Group by round and keep only the latest version
+      for (const batch of sessionBatches) {
+        const roundNumber = batch.round;
+        if (!batchesByRound[roundNumber] || batch.version > batchesByRound[roundNumber].version) {
+          batchesByRound[roundNumber] = batch;
+        }
       }
 
       return batchesByRound;
@@ -179,7 +115,7 @@ export class LetterBatchService {
   /**
    * Get letter batches from localStorage for offline access
    */
-  static getFromLocalStorage(): Record<number, LetterBatch> {
+  static getFromLocalStorage(): Record<string, LetterBatch> {
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
       return stored ? JSON.parse(stored) : {};
@@ -195,7 +131,8 @@ export class LetterBatchService {
   private static saveToLocalStorage(batch: LetterBatch): void {
     try {
       const existing = this.getFromLocalStorage();
-      existing[batch.round] = batch;
+      const key = `${batch.sessionId}-${batch.round}-v${batch.version}`;
+      existing[key] = batch;
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(existing));
     } catch (error) {
       console.error('Error saving to localStorage:', error);
@@ -205,68 +142,32 @@ export class LetterBatchService {
   /**
    * Archive previous versions of letter batches for a round
    */
-  private static async archivePreviousVersions(roundId: string): Promise<void> {
-    const { error } = await supabase
-      .from('letter_batches')
-      .update({ archived: true })
-      .eq('round_id', roundId)
-      .eq('archived', false);
-
-    if (error) {
+  private static archivePreviousVersions(sessionId: string, roundNumber: number): void {
+    try {
+      const existing = this.getFromLocalStorage();
+      
+      // Mark all previous versions of this round as archived
+      for (const [key, batch] of Object.entries(existing)) {
+        if (batch.sessionId === sessionId && batch.round === roundNumber && !batch.archived) {
+          existing[key] = { ...batch, archived: true };
+        }
+      }
+      
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(existing));
+    } catch (error) {
       console.error('Error archiving previous versions:', error);
     }
   }
 
   /**
-   * Get all versions of letter batches for a round (for audit)
-   */
-  private static async getLetterBatchesForRound(roundId: string): Promise<LetterBatch[]> {
-    const { data, error } = await supabase
-      .from('letter_batches')
-      .select('*')
-      .eq('round_id', roundId)
-      .order('version', { ascending: false });
-
-    if (error || !data) {
-      return [];
-    }
-
-    return data.map(batch => this.mapResponseToBatch(batch));
-  }
-
-  /**
-   * Map database response to LetterBatch interface
-   */
-  private static mapResponseToBatch(data: LetterBatchResponse): LetterBatch {
-    return {
-      round: data.round_number,
-      letters: data.letters_data,
-      generatedAt: data.generated_at,
-      version: data.version,
-      archived: data.archived,
-      sessionId: data.session_id,
-      roundId: data.round_id
-    };
-  }
-
-  /**
-   * Hydrate UI state from database and localStorage
+   * Hydrate UI state from localStorage (will be extended to database once migration is approved)
    */
   static async hydrateLetterBatches(sessionId: string): Promise<Record<number, LetterBatch>> {
     try {
-      // Try to get from database first
-      const dbBatches = await this.getAllLetterBatches(sessionId);
-      
-      // Fallback to localStorage if database is unavailable
-      if (Object.keys(dbBatches).length === 0) {
-        return this.getFromLocalStorage();
-      }
-
-      return dbBatches;
+      return await this.getAllLetterBatches(sessionId);
     } catch (error) {
       console.error('Error hydrating letter batches:', error);
-      // Fallback to localStorage
-      return this.getFromLocalStorage();
+      return {};
     }
   }
 

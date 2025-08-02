@@ -10,6 +10,7 @@ import { CreditItem, DisputeLetter } from '../types/CreditTypes';
 import { OpenAIService } from '../services/OpenAIService';
 import { Editor } from '@tinymce/tinymce-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface DisputeLetterDraftsProps {
   creditItems: CreditItem[];
@@ -23,6 +24,7 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
   const [editContent, setEditContent] = useState<string>('');
   const [loadingTimer, setLoadingTimer] = useState(0);
   const [generationStage, setGenerationStage] = useState<string>('');
+  const [tinyMCEApiKey, setTinyMCEApiKey] = useState<string>('no-api-key');
   const { toast } = useToast();
 
   // Timer effect for loading state
@@ -42,6 +44,29 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
   useEffect(() => {
     generateInitialLetters();
   }, [creditItems]);
+
+  useEffect(() => {
+    const fetchTinyMCEKey = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('openai-analysis', {
+          body: { action: 'getTinyMCEKey' }
+        });
+        
+        if (error) {
+          console.error('Error fetching TinyMCE API key:', error);
+          return;
+        }
+        
+        if (data?.apiKey) {
+          setTinyMCEApiKey(data.apiKey);
+        }
+      } catch (error) {
+        console.error('Error fetching TinyMCE API key:', error);
+      }
+    };
+
+    fetchTinyMCEKey();
+  }, []);
 
   const generateInitialLetters = async () => {
     if (creditItems.length === 0) return;
@@ -463,7 +488,7 @@ Enclosures: Copy of credit report, Copy of ID`;
                       </DialogHeader>
                       <div className="space-y-4">
                         <Editor
-                          apiKey="t8p7p5hvr1yuv0m60w9mwdzhu8shmwdpprxqteooesge4asl"
+                          apiKey={tinyMCEApiKey}
                           value={editContent}
                           onEditorChange={(content) => setEditContent(content)}
                           init={{

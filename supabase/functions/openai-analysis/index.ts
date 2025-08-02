@@ -4,6 +4,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+const tinyMCEApiKey = Deno.env.get('TINYMCE_API_KEY');
 
 console.log('OpenAI API Key configured:', !!openAIApiKey);
 
@@ -38,6 +39,10 @@ serve(async (req) => {
         return await analyzeCreditReport(data.reportText);
       } else if (action === 'generateDisputeLetter') {
         return await generateDisputeLetter(data.creditor, data.items, data.type);
+      } else if (action === 'getTinyMCEKey') {
+        return new Response(JSON.stringify({ apiKey: tinyMCEApiKey }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
     }
     

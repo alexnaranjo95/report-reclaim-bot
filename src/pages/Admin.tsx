@@ -154,28 +154,88 @@ const Admin = () => {
         </div>
       </header>
 
-      <div className="container mx-auto px-6 py-8">
-        {/* KPI Cards */}
-        <AdminMetrics />
+      <div className="container mx-auto px-6 py-8 space-y-6">
+        {/* System Metrics Dashboard */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Card className="bg-gradient-card shadow-card">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-primary/10 rounded-full">
+                  <Users className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Total Clients</p>
+                  <p className="text-2xl font-bold">247</p>
+                  <p className="text-xs text-green-600">+12 this month</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Customer Control Panel */}
-        <Card className="bg-gradient-card shadow-card mt-6">
+          <Card className="bg-gradient-card shadow-card">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-500/10 rounded-full">
+                  <FileText className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Letters Sent</p>
+                  <p className="text-2xl font-bold">1,847</p>
+                  <p className="text-xs text-green-600">+156 this week</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-card shadow-card">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-green-500/10 rounded-full">
+                  <DollarSign className="h-6 w-6 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Revenue (MTD)</p>
+                  <p className="text-2xl font-bold">$12,450</p>
+                  <p className="text-xs text-green-600">+8.2% from last month</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-card shadow-card">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-orange-500/10 rounded-full">
+                  <TrendingUp className="h-6 w-6 text-orange-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Success Rate</p>
+                  <p className="text-2xl font-bold">73%</p>
+                  <p className="text-xs text-green-600">+5% this quarter</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Client Management Panel */}
+        <Card className="bg-gradient-card shadow-card">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-primary" />
-                  Customer Control Panel
+                  Client Management Portal
                 </CardTitle>
                 <CardDescription>
-                  Manage and monitor all DIY-credit customer instances
+                  Access client accounts, view contact information, and manage their credit repair journey
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search customers..."
+                    placeholder="Search clients by name, email..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10 w-64"
@@ -183,7 +243,7 @@ const Admin = () => {
                 </div>
                 <Button variant="outline" size="sm" className="flex items-center gap-2">
                   <Download className="h-4 w-4" />
-                  Export CSV
+                  Export Client Data
                 </Button>
               </div>
             </div>

@@ -14,6 +14,150 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_settings: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          is_encrypted: boolean | null
+          setting_key: string
+          setting_value: Json
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_encrypted?: boolean | null
+          setting_key: string
+          setting_value: Json
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_encrypted?: boolean | null
+          setting_key?: string
+          setting_value?: Json
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      ai_prompt_versions: {
+        Row: {
+          additional_rules: string | null
+          base_prompt: string
+          created_at: string | null
+          created_by: string | null
+          id: string
+          is_active: boolean | null
+          version_name: string
+        }
+        Insert: {
+          additional_rules?: string | null
+          base_prompt: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          version_name: string
+        }
+        Update: {
+          additional_rules?: string | null
+          base_prompt?: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          version_name?: string
+        }
+        Relationships: []
+      }
+      creditor_addresses: {
+        Row: {
+          bureau: string
+          city: string
+          created_at: string | null
+          created_by: string | null
+          creditor: string
+          id: string
+          state: string
+          street: string
+          updated_at: string | null
+          zip: string
+        }
+        Insert: {
+          bureau: string
+          city: string
+          created_at?: string | null
+          created_by?: string | null
+          creditor: string
+          id?: string
+          state: string
+          street: string
+          updated_at?: string | null
+          zip: string
+        }
+        Update: {
+          bureau?: string
+          city?: string
+          created_at?: string | null
+          created_by?: string | null
+          creditor?: string
+          id?: string
+          state?: string
+          street?: string
+          updated_at?: string | null
+          zip?: string
+        }
+        Relationships: []
+      }
+      dispute_templates: {
+        Row: {
+          content: string
+          created_at: string | null
+          created_by: string | null
+          file_type: string
+          id: string
+          is_active: boolean | null
+          name: string
+          preference_weight: number | null
+          similarity_score: number | null
+          tags: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          created_by?: string | null
+          file_type: string
+          id?: string
+          is_active?: boolean | null
+          name: string
+          preference_weight?: number | null
+          similarity_score?: number | null
+          tags?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          created_by?: string | null
+          file_type?: string
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          preference_weight?: number | null
+          similarity_score?: number | null
+          tags?: string[] | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       letters: {
         Row: {
           bureau: string

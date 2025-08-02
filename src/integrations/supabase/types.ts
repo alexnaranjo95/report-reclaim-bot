@@ -76,6 +76,7 @@ export type Database = {
           updated_at: string
           uploaded_documents: Json | null
           user_id: string
+          verification_documents: Json | null
         }
         Insert: {
           created_at?: string
@@ -88,6 +89,7 @@ export type Database = {
           updated_at?: string
           uploaded_documents?: Json | null
           user_id: string
+          verification_documents?: Json | null
         }
         Update: {
           created_at?: string
@@ -100,6 +102,7 @@ export type Database = {
           updated_at?: string
           uploaded_documents?: Json | null
           user_id?: string
+          verification_documents?: Json | null
         }
         Relationships: []
       }
@@ -214,7 +217,32 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_profile: {
+        Args: { profile_user_id: string }
+        Returns: {
+          id: string
+          user_id: string
+          email: string
+          phone_number: string
+          email_notifications: boolean
+          text_notifications: boolean
+          display_name: string
+          uploaded_documents: Json
+          created_at: string
+          updated_at: string
+        }[]
+      }
+      upsert_user_profile: {
+        Args: {
+          profile_user_id: string
+          profile_email: string
+          profile_phone_number: string
+          profile_email_notifications: boolean
+          profile_text_notifications: boolean
+          profile_display_name: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

@@ -18,6 +18,9 @@ export const useRole = () => {
       }
 
       try {
+        // Add a small delay to ensure user data is fully loaded
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         const { data, error } = await supabase.rpc('get_user_roles', {
           _user_id: user.id
         });
@@ -26,7 +29,9 @@ export const useRole = () => {
           console.error('Error fetching roles:', error);
           setRoles(['user']); // Default role
         } else {
-          setRoles(data?.map((item: any) => item.role) || ['user']);
+          const fetchedRoles = data?.map((item: any) => item.role) || ['user'];
+          console.log('Fetched roles for user:', user.email, fetchedRoles);
+          setRoles(fetchedRoles);
         }
       } catch (error) {
         console.error('Error fetching roles:', error);
@@ -36,6 +41,8 @@ export const useRole = () => {
       }
     };
 
+    // Reset loading state when user changes
+    setLoading(true);
     fetchRoles();
   }, [user]);
 

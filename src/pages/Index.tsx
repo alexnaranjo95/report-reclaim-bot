@@ -8,8 +8,13 @@ const Index = () => {
   const { isSuperAdmin, loading } = useRole();
 
   useEffect(() => {
+    // Only redirect if we're certain the user is a superadmin and not loading
     if (!loading && isSuperAdmin) {
-      navigate('/admin');
+      // Add a small delay to prevent rapid redirects
+      const timer = setTimeout(() => {
+        navigate('/admin');
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [isSuperAdmin, loading, navigate]);
 

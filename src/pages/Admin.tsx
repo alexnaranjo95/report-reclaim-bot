@@ -50,15 +50,20 @@ const Admin = () => {
     }
   }, []);
 
-  // Redirect if not superadmin
+  // Redirect if not superadmin (with better timing logic)
   useEffect(() => {
+    // Only check access after role loading is complete and no impersonation
     if (!roleLoading && !isSuperAdmin && !isImpersonating) {
-      toast({
-        title: "Access Denied",
-        description: "You don't have permission to access the admin portal.",
-        variant: "destructive",
-      });
-      navigate('/');
+      // Add a delay to prevent rapid toast notifications
+      const timer = setTimeout(() => {
+        toast({
+          title: "Access Denied",
+          description: "You don't have permission to access the admin portal.",
+          variant: "destructive",
+        });
+        navigate('/');
+      }, 200);
+      return () => clearTimeout(timer);
     }
   }, [isSuperAdmin, roleLoading, navigate, toast, isImpersonating]);
 

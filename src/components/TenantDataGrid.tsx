@@ -21,7 +21,8 @@ import {
   Users,
   FileText,
   Clock,
-  TrendingUp
+  TrendingUp,
+  Search
 } from 'lucide-react';
 import { 
   DropdownMenu,
@@ -36,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -64,13 +66,14 @@ interface TenantDataGridProps {
   onImpersonate: (user: any) => void;
 }
 
-export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridProps) => {
+export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate }: TenantDataGridProps) => {
   const [tenants, setTenants] = useState<TenantData[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortField, setSortField] = useState<keyof TenantData>('last_activity');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const pageSize = 20;
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -254,7 +257,7 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
     try {
       // Store current admin state
       localStorage.setItem('admin_state', JSON.stringify({
-        searchQuery,
+        searchQuery: externalSearchQuery,
         currentPage,
         sortField,
         sortDirection
@@ -309,13 +312,19 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
           throw sessionError;
         }
       } catch (sessionError) {
-        // If session setting fails, try with fallback data
-        if (impersonationData.expires_in) {
-          await supabase.auth.setSession({
-            access_token: impersonationData.access_token,
-            refresh_token: impersonationData.refresh_token
-          });
-        } else {
+        // If session setting fails, try refreshing the session and retry once
+        console.warn('Session setting failed, trying refresh...', sessionError);
+        try {
+          const { error: refreshError } = await supabase.auth.refreshSession();
+          if (!refreshError) {
+            await supabase.auth.setSession({
+              access_token: impersonationData.access_token,
+              refresh_token: impersonationData.refresh_token
+            });
+          } else {
+            throw sessionError;
+          }
+        } catch (retryError) {
           throw sessionError;
         }
       }
@@ -332,9 +341,20 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
       navigate('/');
     } catch (error) {
       console.error('Error starting impersonation:', error);
+      
+      // Extract error message from different error formats
+      let errorMessage = "Failed to start impersonation session.";
+      if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error?.error) {
+        errorMessage = error.error;
+      }
+      
       toast({
         title: "Impersonation Failed", 
-        description: error.message || "Failed to start impersonation session.",
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -553,6 +573,19 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
         }}
         loading={!metricsData && !metricsError}
       />
+
+      {/* Search Bar */}
+      <div className="flex w-full sm:w-64 mb-4">
+        <div className="relative w-full">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search clients by name, email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 w-full"
+          />
+        </div>
+      </div>
 
       {/* Controls */}
       <div className="flex items-center justify-between">

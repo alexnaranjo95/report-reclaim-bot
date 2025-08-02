@@ -82,29 +82,33 @@ serve(async (req) => {
       );
     }
 
+    // Log the action link for debugging
+    console.log({ action_link: magicLinkData.properties.action_link });
+
     // Parse both query string and hash fragment for tokens
-    const actionUrl = new URL(magicLinkData.properties.action_link);
-    let accessToken = actionUrl.searchParams.get('access_token');
-    let refreshToken = actionUrl.searchParams.get('refresh_token');
+    try {
+      const actionUrl = new URL(magicLinkData.properties.action_link);
+      let accessToken = actionUrl.searchParams.get('access_token');
+      let refreshToken = actionUrl.searchParams.get('refresh_token');
 
-    // If tokens not in query string, check hash fragment
-    if (!accessToken || !refreshToken) {
-      const hashParams = new URLSearchParams(actionUrl.hash.substring(1));
-      accessToken = accessToken || hashParams.get('access_token');
-      refreshToken = refreshToken || hashParams.get('refresh_token');
-    }
+      // If tokens not in query string, check hash fragment
+      if (!accessToken || !refreshToken) {
+        const hashParams = new URLSearchParams(actionUrl.hash.substring(1));
+        accessToken = accessToken || hashParams.get('access_token');
+        refreshToken = refreshToken || hashParams.get('refresh_token');
+      }
 
-    // If still missing tokens, try token refresh endpoint
-    if (!refreshToken) {
-      console.error('No refresh token available for session creation');
-      return new Response(
-        JSON.stringify({ error: 'Failed to extract tokens from magic link' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+      // If still missing tokens, try token refresh endpoint
+      if (!refreshToken) {
+        console.error('No refresh token available for session creation');
+        return new Response(
+          JSON.stringify({ error: 'Failed to extract tokens from magic link' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
-    // If access token is missing, refresh it using the refresh token
-    if (!accessToken && refreshToken) {
+      // If access token is missing, refresh it using the refresh token
+      if (!accessToken && refreshToken) {
       try {
         const tokenRefreshResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/token?grant_type=refresh_token`, {
           method: 'POST',
@@ -148,6 +152,13 @@ serve(async (req) => {
       } catch (refreshError) {
         console.error('Error refreshing token:', refreshError);
       }
+      }
+    } catch (tokenParsingError) {
+      console.error('Error parsing tokens from action link:', tokenParsingError);
+      return new Response(
+        JSON.stringify({ error: 'Failed to parse tokens from magic link' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     console.log(`Generated impersonation tokens for user ${targetUserId}`);
@@ -173,9 +184,9 @@ serve(async (req) => {
   } catch (error) {
     console.error('Function error:', error)
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: error.message || 'Internal server error' }),
       { 
-        status: 500,
+        status: 400,
         headers: { 
           ...corsHeaders, 
           'Content-Type': 'application/json' 

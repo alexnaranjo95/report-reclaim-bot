@@ -199,21 +199,6 @@ const Admin = () => {
                     Access client accounts, view contact information, and manage their credit repair journey
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search clients by name, email..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10 w-64"
-                    />
-                  </div>
-                  <Button variant="outline" size="sm" className="flex items-center gap-2">
-                    <Download className="h-4 w-4" />
-                    Export Client Data
-                  </Button>
-                </div>
               </div>
             </CardHeader>
             <CardContent>

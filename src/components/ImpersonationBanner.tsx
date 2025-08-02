@@ -40,9 +40,9 @@ export const ImpersonationBanner = () => {
     checkImpersonationState();
   }, [location.pathname]);
 
-  // NOW we can safely do conditional returns AFTER all hooks
+  // Render empty fragment instead of null to maintain consistent component structure
   if (!impersonatedUser || !show) {
-    return null;
+    return <></>;
   }
 
   const restoreAdminSession = async () => {

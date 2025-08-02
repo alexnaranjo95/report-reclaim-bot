@@ -30,7 +30,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminMetrics } from '@/components/AdminMetrics';
 import { TenantDataGrid } from '@/components/TenantDataGrid';
-import { ImpersonationBanner } from '@/components/ImpersonationBanner';
+
 import { DataAIConfiguration } from '@/components/DataAIConfiguration';
 import { LogOut } from 'lucide-react';
 

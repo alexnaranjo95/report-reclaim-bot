@@ -398,12 +398,38 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
     if (!confirm(`Change role to "${newRole}"?`)) return;
 
     try {
-      const { error } = await supabase
+      // First, check if user has an existing role record
+      const { data: existingRole, error: fetchError } = await supabase
         .from('user_roles')
-        .upsert({ 
-          user_id: userId, 
-          role: newRole as 'superadmin' | 'admin' | 'user'
-        });
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      let error;
+      if (existingRole) {
+        // Update existing role record
+        const result = await supabase
+          .from('user_roles')
+          .update({ 
+            role: newRole as 'superadmin' | 'admin' | 'user',
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId);
+        error = result.error;
+      } else {
+        // Insert new role record
+        const result = await supabase
+          .from('user_roles')
+          .insert({ 
+            user_id: userId, 
+            role: newRole as 'superadmin' | 'admin' | 'user'
+          });
+        error = result.error;
+      }
 
       if (error) {
         throw error;

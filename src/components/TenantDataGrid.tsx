@@ -265,27 +265,58 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
 
       // Get current session to store for later restoration
       const { data: currentSession } = await supabase.auth.getSession();
-      
-      // Call the impersonation edge function with retry logic
-      const attemptImpersonation = async (attempt = 1): Promise<any> => {
-        const { data: impersonationData, error } = await supabase.functions.invoke('impersonate-user', {
+
+      // First try the debug route to get detailed error information
+      const debugImpersonation = async (): Promise<any> => {
+        console.log('Attempting debug impersonation for:', tenant.email);
+        
+        const { data: debugData, error: debugError } = await supabase.functions.invoke('debug-impersonate', {
           body: {
-            targetUserId: tenant.user_id,
+            email: tenant.email,
             adminUserId: user.id
           }
         });
 
-        if (error && attempt === 1) {
-          // Retry once on failure
-          console.warn('First impersonation attempt failed, retrying...', error);
-          return attemptImpersonation(2);
+        if (debugError) {
+          console.error('Debug impersonation failed:', debugError);
+          throw new Error(`Debug impersonation failed: ${debugError.message}`);
         }
 
-        if (error) {
+        if (debugData?.impersonateResponse?.error) {
+          throw new Error(debugData.impersonateResponse.error.message || 'Impersonation failed');
+        }
+
+        return debugData?.impersonateResponse?.data;
+      };
+      
+      // Call the impersonation edge function with enhanced error handling
+      const attemptImpersonation = async (attempt = 1): Promise<any> => {
+        try {
+          // First try debug route
+          if (attempt === 1) {
+            return await debugImpersonation();
+          }
+          
+          // Fallback to normal route
+          const { data: impersonationData, error } = await supabase.functions.invoke('impersonate-user', {
+            body: {
+              targetUserId: tenant.user_id,
+              adminUserId: user.id
+            }
+          });
+
+          if (error) {
+            throw error;
+          }
+
+          return impersonationData;
+        } catch (error) {
+          if (attempt === 1) {
+            console.warn('First impersonation attempt failed, retrying with standard route...', error);
+            return attemptImpersonation(2);
+          }
           throw error;
         }
-
-        return impersonationData;
       };
 
       const impersonationData = await attemptImpersonation();
@@ -296,7 +327,8 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
         originalToken: currentSession.session?.access_token,
         originalRefreshToken: currentSession.session?.refresh_token,
         adminUserId: user.id,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        impersonatedUserId: tenant.user_id // Store for reliable session management
       };
 
       sessionStorage.setItem('impersonation_data', JSON.stringify(impersonationInfo));
@@ -342,14 +374,22 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
     } catch (error) {
       console.error('Error starting impersonation:', error);
       
-      // Extract error message from different error formats
+      // Enhanced error message extraction for better user feedback
       let errorMessage = "Failed to start impersonation session.";
+      
       if (error?.message) {
         errorMessage = error.message;
       } else if (typeof error === 'string') {
         errorMessage = error;
       } else if (error?.error) {
         errorMessage = error.error;
+      } else if (error?.details) {
+        errorMessage = `${errorMessage} Details: ${error.details}`;
+      }
+      
+      // Check for specific token extraction issues
+      if (errorMessage.includes('Failed to extract tokens')) {
+        errorMessage = `Token extraction failed. This may be due to Supabase configuration issues. Please check the debug logs for more details.`;
       }
       
       toast({

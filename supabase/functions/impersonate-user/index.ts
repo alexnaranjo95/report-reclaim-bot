@@ -7,6 +7,8 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
+  console.time('impersonate');
+  
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -29,7 +31,17 @@ serve(async (req) => {
       }
     })
 
-    const { targetUserId, adminUserId } = await req.json();
+    const reqBody = await req.json();
+    const { targetUserId, adminUserId } = reqBody;
+    
+    console.log('Impersonate request:', { 
+      reqBody, 
+      env: {
+        SUPABASE_URL: Deno.env.get('SUPABASE_URL') ? 'SET' : 'MISSING',
+        SUPABASE_SERVICE_ROLE_KEY: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ? 'SET' : 'MISSING',
+        SUPABASE_ANON_KEY: Deno.env.get('SUPABASE_ANON_KEY') ? 'SET' : 'MISSING'
+      }
+    });
 
     if (!targetUserId || !adminUserId) {
       return new Response(
@@ -83,85 +95,150 @@ serve(async (req) => {
     }
 
     // Log the action link for debugging
-    console.log({ action_link: magicLinkData.properties.action_link });
+    console.log('Magic link generated:', { 
+      action_link: magicLinkData.properties.action_link,
+      hasProperties: !!magicLinkData.properties,
+      linkType: typeof magicLinkData.properties.action_link
+    });
 
-    // Parse both query string and hash fragment for tokens
+    // Enhanced token extraction with better error handling
     try {
       const actionUrl = new URL(magicLinkData.properties.action_link);
+      console.log('Parsing URL:', {
+        href: actionUrl.href,
+        search: actionUrl.search,
+        hash: actionUrl.hash
+      });
+      
       let accessToken = actionUrl.searchParams.get('access_token');
       let refreshToken = actionUrl.searchParams.get('refresh_token');
 
+      console.log('Query string tokens:', { accessToken: !!accessToken, refreshToken: !!refreshToken });
+
       // If tokens not in query string, check hash fragment
       if (!accessToken || !refreshToken) {
-        const hashParams = new URLSearchParams(actionUrl.hash.substring(1));
-        accessToken = accessToken || hashParams.get('access_token');
-        refreshToken = refreshToken || hashParams.get('refresh_token');
+        const hashFragment = actionUrl.hash.substring(1); // Remove the #
+        console.log('Hash fragment:', hashFragment);
+        
+        if (hashFragment) {
+          const hashParams = new URLSearchParams(hashFragment);
+          accessToken = accessToken || hashParams.get('access_token');
+          refreshToken = refreshToken || hashParams.get('refresh_token');
+          
+          console.log('Hash tokens:', { accessToken: !!accessToken, refreshToken: !!refreshToken });
+        }
       }
 
-      // If still missing tokens, try token refresh endpoint
-      if (!refreshToken) {
-        console.error('No refresh token available for session creation');
-        return new Response(
-          JSON.stringify({ error: 'Failed to extract tokens from magic link' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // If access token is missing, refresh it using the refresh token
-      if (!accessToken && refreshToken) {
-      try {
-        const tokenRefreshResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/token?grant_type=refresh_token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': Deno.env.get('SUPABASE_ANON_KEY')!
-          },
-          body: JSON.stringify({
-            refresh_token: refreshToken
-          })
+      // Enhanced fallback: if either token is missing, try token refresh endpoint
+      if (!accessToken || !refreshToken) {
+        console.log('Missing tokens, attempting fallback. Available:', { 
+          accessToken: !!accessToken, 
+          refreshToken: !!refreshToken 
         });
-
-        if (tokenRefreshResponse.ok) {
-          const tokenData = await tokenRefreshResponse.json();
-          accessToken = tokenData.access_token;
-          refreshToken = tokenData.refresh_token;
-          
-          console.log('Successfully refreshed tokens for impersonation');
-          
+        
+        if (!refreshToken) {
+          console.error('No refresh token available for session creation');
           return new Response(
-            JSON.stringify({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-              expires_in: tokenData.expires_in || 3600,
-              user: {
-                id: targetUserId,
-                email: targetProfile.email,
-                display_name: targetProfile.display_name
+            JSON.stringify({ 
+              error: 'Failed to extract tokens from magic link',
+              debug: {
+                actionLink: magicLinkData.properties.action_link,
+                queryTokens: {
+                  access_token: !!actionUrl.searchParams.get('access_token'),
+                  refresh_token: !!actionUrl.searchParams.get('refresh_token')
+                },
+                hashTokens: actionUrl.hash ? {
+                  access_token: !!(new URLSearchParams(actionUrl.hash.substring(1))).get('access_token'),
+                  refresh_token: !!(new URLSearchParams(actionUrl.hash.substring(1))).get('refresh_token')
+                } : null
               }
             }),
-            { 
-              headers: { 
-                ...corsHeaders, 
-                'Content-Type': 'application/json' 
-              } 
-            }
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
-        } else {
-          console.error('Token refresh failed:', await tokenRefreshResponse.text());
         }
-      } catch (refreshError) {
-        console.error('Error refreshing token:', refreshError);
-      }
+
+        // Try to refresh tokens using refresh_token
+        try {
+          console.log('Attempting token refresh...');
+          const tokenRefreshResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/token?grant_type=refresh_token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': Deno.env.get('SUPABASE_ANON_KEY')!,
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`
+            },
+            body: JSON.stringify({
+              refresh_token: refreshToken
+            })
+          });
+
+          console.log('Token refresh response status:', tokenRefreshResponse.status);
+          const responseText = await tokenRefreshResponse.text();
+          console.log('Token refresh response:', responseText);
+
+          if (tokenRefreshResponse.ok) {
+            const tokenData = JSON.parse(responseText);
+            accessToken = tokenData.access_token;
+            refreshToken = tokenData.refresh_token;
+            
+            console.log('Successfully refreshed tokens for impersonation');
+            console.timeEnd('impersonate');
+            
+            return new Response(
+              JSON.stringify({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+                expires_in: tokenData.expires_in || 3600,
+                user: {
+                  id: targetUserId,
+                  email: targetProfile.email,
+                  display_name: targetProfile.display_name
+                },
+                source: 'token_refresh'
+              }),
+              { 
+                headers: { 
+                  ...corsHeaders, 
+                  'Content-Type': 'application/json' 
+                } 
+              }
+            );
+          } else {
+            console.error('Token refresh failed:', responseText);
+            return new Response(
+              JSON.stringify({ 
+                error: 'Token refresh failed',
+                details: responseText,
+                status: tokenRefreshResponse.status
+              }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+        } catch (refreshError) {
+          console.error('Error during token refresh:', refreshError);
+          return new Response(
+            JSON.stringify({ 
+              error: 'Token refresh error',
+              details: refreshError.message
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
       }
     } catch (tokenParsingError) {
       console.error('Error parsing tokens from action link:', tokenParsingError);
+      console.timeEnd('impersonate');
       return new Response(
-        JSON.stringify({ error: 'Failed to parse tokens from magic link' }),
+        JSON.stringify({ 
+          error: 'Failed to parse tokens from magic link',
+          details: tokenParsingError.message
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     console.log(`Generated impersonation tokens for user ${targetUserId}`);
+    console.timeEnd('impersonate');
 
     return new Response(
       JSON.stringify({
@@ -171,7 +248,8 @@ serve(async (req) => {
           id: targetUserId,
           email: targetProfile.email,
           display_name: targetProfile.display_name
-        }
+        },
+        source: 'magic_link'
       }),
       { 
         headers: { 
@@ -183,8 +261,15 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Function error:', error)
+    console.error('Error stack:', error.stack)
+    console.timeEnd('impersonate');
+    
     return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
+      JSON.stringify({ 
+        error: error.message || 'Internal server error',
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      }),
       { 
         status: 400,
         headers: { 

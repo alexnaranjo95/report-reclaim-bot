@@ -481,6 +481,21 @@ export type Database = {
           role: Database["public"]["Enums"]["app_role"]
         }[]
       }
+      get_user_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          user_id: string
+          display_name: string
+          email: string
+          total_sessions: number
+          total_letters: number
+          letters_sent: number
+          last_activity: string
+          status: string
+          active_rounds: number
+          user_created_at: string
+        }[]
+      }
       has_role: {
         Args: {
           _user_id: string

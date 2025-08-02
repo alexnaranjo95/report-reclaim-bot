@@ -63,39 +63,90 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
     try {
       setLoading(true);
       
-      // Fetch all users with real aggregated data
-      const { data: profilesWithStats, error } = await supabase.rpc('get_user_stats');
-      
-      if (error) {
-        console.error('Error fetching user stats:', error);
-        // Fallback to basic profiles query
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select(`
-            user_id,
-            display_name,
-            email,
-            created_at
-          `)
-          .order('created_at', { ascending: false });
+      // Fetch all profiles with aggregated data using manual queries
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select(`
+          user_id,
+          display_name,
+          email,
+          created_at
+        `)
+        .order('created_at', { ascending: false });
 
-        if (profiles) {
-          const tenantsData: TenantData[] = profiles.map(profile => ({
+      if (profiles) {
+        // Get session counts for each user
+        const { data: sessionCounts } = await supabase
+          .from('sessions')
+          .select('user_id');
+
+        // Get letter counts for each user
+        const { data: letterCounts } = await supabase
+          .from('letters')
+          .select('user_id, status');
+
+        // Get round counts for each user
+        const { data: roundCounts } = await supabase
+          .from('rounds')
+          .select('user_id, status');
+
+        // Process data to create tenant stats
+        const sessionStats = sessionCounts?.reduce((acc, session) => {
+          acc[session.user_id] = (acc[session.user_id] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>) || {};
+
+        const letterStats = letterCounts?.reduce((acc, letter) => {
+          if (!acc[letter.user_id]) {
+            acc[letter.user_id] = { total: 0, sent: 0 };
+          }
+          acc[letter.user_id].total++;
+          if (letter.status === 'sent') {
+            acc[letter.user_id].sent++;
+          }
+          return acc;
+        }, {} as Record<string, { total: number; sent: number }>) || {};
+
+        const roundStats = roundCounts?.reduce((acc, round) => {
+          if (!acc[round.user_id]) {
+            acc[round.user_id] = { total: 0, active: 0 };
+          }
+          acc[round.user_id].total++;
+          if (round.status === 'active') {
+            acc[round.user_id].active++;
+          }
+          return acc;
+        }, {} as Record<string, { total: number; active: number }>) || {};
+
+        const tenantsData: TenantData[] = profiles.map(profile => {
+          const userSessions = sessionStats[profile.user_id] || 0;
+          const userLetters = letterStats[profile.user_id] || { total: 0, sent: 0 };
+          const userRounds = roundStats[profile.user_id] || { total: 0, active: 0 };
+          
+          // Determine activity status
+          const daysSinceCreation = Math.floor((Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24));
+          let status: 'active' | 'inactive' | 'dormant' = 'dormant';
+          
+          if (userSessions > 0 || userLetters.total > 0) {
+            if (daysSinceCreation <= 7) status = 'active';
+            else if (daysSinceCreation <= 30) status = 'inactive';
+          }
+
+          return {
             user_id: profile.user_id,
             display_name: profile.display_name || 'Unknown User',
             email: profile.email || 'No email',
-            total_sessions: 0,
-            total_letters: 0,
-            letters_sent: 0,
+            total_sessions: userSessions,
+            total_letters: userLetters.total,
+            letters_sent: userLetters.sent,
             last_activity: profile.created_at,
-            status: 'active' as any,
-            active_rounds: 0,
+            status,
+            active_rounds: userRounds.active,
             user_created_at: profile.created_at
-          }));
-          setTenants(tenantsData);
-        }
-      } else if (profilesWithStats) {
-        setTenants(profilesWithStats);
+          };
+        });
+
+        setTenants(tenantsData);
       }
     } catch (error) {
       console.error('Error fetching tenants:', error);

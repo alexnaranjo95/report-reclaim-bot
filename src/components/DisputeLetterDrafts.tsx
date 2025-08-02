@@ -336,6 +336,11 @@ Enclosures: Copy of credit report, Copy of ID`;
                   Active Processing
                 </div>
               </div>
+              
+              {/* Loading Time Notice */}
+              <div className="text-center text-xs text-muted-foreground">
+                Loading can take up to 5 minutes for comprehensive analysis
+              </div>
             </div>
 
             {/* Current Stage Display */}

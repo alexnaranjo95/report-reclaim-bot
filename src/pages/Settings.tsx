@@ -6,12 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Bell, Mail, Phone, Save, Upload, File, X, LogOut } from 'lucide-react';
+import { ArrowLeft, Bell, Mail, Phone, Save, Upload, File, X, LogOut, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { DocumentPreview } from '@/components/DocumentPreview';
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -22,8 +23,18 @@ const Settings = () => {
   const [textNotifications, setTextNotifications] = useState(false);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [intakeDocuments, setIntakeDocuments] = useState<File[]>([]);
+  const [verificationDocuments, setVerificationDocuments] = useState<VerificationDocument[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+
+  interface VerificationDocument {
+    id: string;
+    name: string;
+    type: string;
+    url: string;
+    uploadedAt: string;
+    documentType: string;
+  }
 
   const requiredDocuments = [
     { 
@@ -67,6 +78,7 @@ const Settings = () => {
           setTextNotifications(profile.text_notifications ?? false);
           setEmail(profile.email || user.email || '');
           setPhone(profile.phone_number || '');
+          setVerificationDocuments(profile.verification_documents || []);
         } else {
           // Set defaults if no profile exists yet
           setEmail(user.email || '');
@@ -130,29 +142,101 @@ const Settings = () => {
     }
   };
 
-  const handleFileUpload = (files: FileList | null, documentType: string) => {
-    if (!files) return;
+  const handleFileUpload = async (files: FileList | null, documentType: string) => {
+    if (!files || !user) return;
     
-    const newFiles = Array.from(files).map(file => {
-      // Add document type to file for tracking
-      const fileWithType = Object.assign(file, { documentType });
-      return fileWithType;
-    });
-    
-    setIntakeDocuments(prev => [...prev, ...newFiles]);
-    
-    toast({
-      title: "Document uploaded",
-      description: `${files.length} file(s) uploaded for ${documentType}`,
-    });
+    setUploading(true);
+    try {
+      const uploadedDocuments: VerificationDocument[] = [];
+      
+      for (const file of Array.from(files)) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${user.id}/${documentType}-${Date.now()}.${fileExt}`;
+        
+        const { data, error } = await supabase.storage
+          .from('verification-documents')
+          .upload(fileName, file);
+          
+        if (error) throw error;
+        
+        const newDoc: VerificationDocument = {
+          id: data.path,
+          name: file.name,
+          type: file.type,
+          url: data.path,
+          uploadedAt: new Date().toISOString(),
+          documentType
+        };
+        
+        uploadedDocuments.push(newDoc);
+      }
+      
+      const updatedDocs = [...verificationDocuments, ...uploadedDocuments];
+      setVerificationDocuments(updatedDocs);
+      
+      // Save to profile (temporarily without verification_documents until function is updated)
+      await supabase.rpc('upsert_user_profile', {
+        profile_user_id: user.id,
+        profile_email: email,
+        profile_phone_number: phone,
+        profile_email_notifications: emailNotifications,
+        profile_text_notifications: textNotifications,
+        profile_display_name: user.user_metadata?.display_name || user.email || ''
+      });
+      
+      toast({
+        title: "Document uploaded",
+        description: `${files.length} file(s) uploaded for ${documentType}`,
+      });
+    } catch (error) {
+      console.error('Error uploading documents:', error);
+      toast({
+        title: "Upload Failed",
+        description: "Failed to upload documents. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const removeDocument = (index: number) => {
-    setIntakeDocuments(prev => prev.filter((_, i) => i !== index));
-    toast({
-      title: "Document removed",
-      description: "Document has been removed from intake.",
-    });
+  const removeDocument = async (docId: string) => {
+    if (!user) return;
+    
+    try {
+      // Remove from storage
+      const { error: storageError } = await supabase.storage
+        .from('verification-documents')
+        .remove([docId]);
+        
+      if (storageError) throw storageError;
+      
+      // Update state
+      const updatedDocs = verificationDocuments.filter(doc => doc.id !== docId);
+      setVerificationDocuments(updatedDocs);
+      
+      // Save to profile (temporarily without verification_documents until function is updated)
+      await supabase.rpc('upsert_user_profile', {
+        profile_user_id: user.id,
+        profile_email: email,
+        profile_phone_number: phone,
+        profile_email_notifications: emailNotifications,
+        profile_text_notifications: textNotifications,
+        profile_display_name: user.user_metadata?.display_name || user.email || ''
+      });
+      
+      toast({
+        title: "Document removed",
+        description: "Document has been removed successfully.",
+      });
+    } catch (error) {
+      console.error('Error removing document:', error);
+      toast({
+        title: "Remove Failed",
+        description: "Failed to remove document. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -314,10 +398,10 @@ const Settings = () => {
                     </p>
                   </div>
                   
-                  <div className="relative border-2 border-dashed border-muted-foreground/25 rounded-lg p-4 text-center hover:border-primary/50 transition-colors">
+                  <div className={`relative border-2 border-dashed border-muted-foreground/25 rounded-lg p-4 text-center hover:border-primary/50 transition-colors ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
                     <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                     <div className="text-sm text-muted-foreground mb-2">
-                      Click to upload or drag and drop
+                      {uploading ? 'Uploading...' : 'Click to upload or drag and drop'}
                     </div>
                     <input
                       type="file"
@@ -325,42 +409,46 @@ const Settings = () => {
                       accept={docType.accepted.join(",")}
                       onChange={(e) => handleFileUpload(e.target.files, docType.type)}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      disabled={uploading}
                     />
-                    <Button variant="outline" size="sm">
-                      Choose Files
+                    <Button variant="outline" size="sm" disabled={uploading}>
+                      {uploading ? 'Uploading...' : 'Choose Files'}
                     </Button>
                   </div>
                 </div>
               ))}
 
-              {intakeDocuments.length > 0 && (
+              {verificationDocuments.length > 0 && (
                 <div className="space-y-3">
-                  <Label className="text-sm font-medium">Uploaded Documents ({intakeDocuments.length})</Label>
+                  <Label className="text-sm font-medium">Uploaded Documents ({verificationDocuments.length})</Label>
                   <div className="space-y-2">
-                    {intakeDocuments.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                    {verificationDocuments.map((doc) => (
+                      <div key={doc.id} className="flex items-center justify-between p-3 border rounded-lg">
                         <div className="flex items-center gap-3">
                           <File className="h-4 w-4 text-muted-foreground" />
                           <div>
-                            <p className="text-sm font-medium">{file.name}</p>
+                            <p className="text-sm font-medium">{doc.name}</p>
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-xs">
-                                {(file as any).documentType}
+                                {doc.documentType}
                               </Badge>
                               <span className="text-xs text-muted-foreground">
-                                {(file.size / 1024 / 1024).toFixed(2)} MB
+                                {new Date(doc.uploadedAt).toLocaleDateString()}
                               </span>
                             </div>
                           </div>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeDocument(index)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <DocumentPreview document={doc} />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeDocument(doc.id)}
+                            className="text-destructive hover:text-destructive h-8 w-8 p-0"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -227,7 +227,7 @@ export type Database = {
           email_notifications: boolean
           text_notifications: boolean
           display_name: string
-          uploaded_documents: Json
+          verification_documents: Json
           created_at: string
           updated_at: string
         }[]

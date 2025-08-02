@@ -23,6 +23,8 @@ interface DisputeLetterDraftsProps {
 
 export const DisputeLetterDrafts = ({ creditItems, selectedSession }: DisputeLetterDraftsProps) => {
   const [letters, setLetters] = useState<DisputeLetter[]>([]);
+  const [draftsByRound, setDraftsByRound] = useState<Record<number, DisputeLetter[]>>({});
+  const [currentRound, setCurrentRound] = useState<number>(1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<string | null>(null);
@@ -33,6 +35,23 @@ export const DisputeLetterDrafts = ({ creditItems, selectedSession }: DisputeLet
   const [isLoadingApiKey, setIsLoadingApiKey] = useState(true);
   const [showCostConfirmation, setShowCostConfirmation] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Load drafts for current round
+  useEffect(() => {
+    if (draftsByRound[currentRound]) {
+      setLetters(draftsByRound[currentRound]);
+    }
+  }, [currentRound, draftsByRound]);
+
+  // Save drafts when letters change
+  useEffect(() => {
+    if (letters.length > 0) {
+      setDraftsByRound(prev => ({
+        ...prev,
+        [currentRound]: letters
+      }));
+    }
+  }, [letters, currentRound]);
 
   // Timer effect for loading state
   useEffect(() => {
@@ -193,7 +212,11 @@ export const DisputeLetterDrafts = ({ creditItems, selectedSession }: DisputeLet
 
       setGenerationStage('Finalizing letters...');
       setLetters(generatedLetters);
-      console.log(`Generated ${generatedLetters.length} enhanced dispute letters`);
+      setDraftsByRound(prev => ({
+        ...prev,
+        [currentRound]: generatedLetters
+      }));
+      console.log(`Generated ${generatedLetters.length} enhanced dispute letters for Round ${currentRound}`);
       
     } catch (error) {
       console.error('Error generating initial letters:', error);
@@ -262,11 +285,16 @@ Enclosures: Copy of credit report, Copy of ID`;
   };
 
   const handleSaveEdit = (letterId: string) => {
-    setLetters(prev => prev.map(letter => 
+    const updatedLetters = letters.map(letter => 
       letter.id === letterId 
-        ? { ...letter, content: editContent, status: 'ready' }
+        ? { ...letter, content: editContent, status: 'ready' as const }
         : letter
-    ));
+    );
+    setLetters(updatedLetters);
+    setDraftsByRound(prev => ({
+      ...prev,
+      [currentRound]: updatedLetters
+    }));
     setEditMode(null);
     setEditContent('');
     toast({
@@ -365,11 +393,31 @@ Enclosures: Copy of credit report, Copy of ID`;
     <Card className="bg-gradient-card shadow-card">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <div>
+          <div className="space-y-2">
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
-              Enhanced Dispute Letters ({letters.length})
+              Dispute Letters - Round {currentRound} of 12
             </CardTitle>
+            <div className="flex items-center gap-2">
+              <label htmlFor="round-selector" className="text-sm text-muted-foreground">
+                Select Round:
+              </label>
+              <select
+                id="round-selector"
+                value={currentRound}
+                onChange={(e) => setCurrentRound(Number(e.target.value))}
+                className="px-2 py-1 text-sm border border-border rounded bg-background"
+              >
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(round => (
+                  <option key={round} value={round}>
+                    Round {round}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">
+                ({letters.length} letters)
+              </span>
+            </div>
           </div>
           {letters.length > 0 && (
             <Badge variant="outline" className="px-3 py-1">

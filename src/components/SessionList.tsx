@@ -147,8 +147,8 @@ export const SessionList: React.FC<SessionListProps> = ({
                           {getStatusIcon(session.status)}
                           <h4 className="font-medium text-sm truncate">{session.name}</h4>
                         </div>
-                        <Badge variant="secondary" className="text-xs">
-                          Round {currentRound}
+                         <Badge variant="secondary" className="text-xs">
+                          Round {currentRound} of 12
                         </Badge>
                       </div>
                       

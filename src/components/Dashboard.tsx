@@ -147,7 +147,7 @@ export const Dashboard = ({ selectedSession, showCreateNew, onSessionCreated }: 
       <div className="container mx-auto px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Left Sidebar - Progress & Stats */}
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-4">
             <RoundTracker currentRound={currentRound} totalRounds={12} />
             
             {/* Quick Stats */}

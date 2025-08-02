@@ -24,7 +24,7 @@ export const RoundTracker = ({ currentRound, totalRounds }: RoundTrackerProps) =
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <div className="flex justify-between text-sm text-primary-foreground/80">
-            <span>Round {currentRound}</span>
+            <span>Round {currentRound} of {totalRounds}</span>
             <span>{Math.round(progressPercentage)}%</span>
           </div>
           <Progress 
@@ -36,12 +36,12 @@ export const RoundTracker = ({ currentRound, totalRounds }: RoundTrackerProps) =
         <div className="space-y-3 pt-2">
           <div className="flex items-center gap-2 text-sm">
             <Calendar className="h-4 w-4" />
-            <span>Month {currentRound} of 12</span>
+            <span>Round {currentRound} of {totalRounds}</span>
           </div>
           
           <div className="flex items-center gap-2 text-sm">
             <Target className="h-4 w-4" />
-            <span>Credit Repair Journey</span>
+            <span>Credit Repair Campaign</span>
           </div>
 
           {currentRound > 1 && (

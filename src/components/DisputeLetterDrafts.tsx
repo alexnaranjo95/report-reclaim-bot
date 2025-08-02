@@ -24,7 +24,8 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
   const [editContent, setEditContent] = useState<string>('');
   const [loadingTimer, setLoadingTimer] = useState(0);
   const [generationStage, setGenerationStage] = useState<string>('');
-  const [tinyMCEApiKey, setTinyMCEApiKey] = useState<string>('no-api-key');
+  const [tinyMCEApiKey, setTinyMCEApiKey] = useState<string | null>(null);
+  const [isLoadingApiKey, setIsLoadingApiKey] = useState(true);
   const { toast } = useToast();
 
   // Timer effect for loading state
@@ -57,17 +58,23 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
         
         if (error) {
           console.error('Error fetching TinyMCE API key:', error);
+          setTinyMCEApiKey('no-api-key'); // Fallback
+          setIsLoadingApiKey(false);
           return;
         }
         
         if (data?.apiKey) {
-          console.log('Setting TinyMCE API key');
+          console.log('Setting TinyMCE API key:', data.apiKey.substring(0, 10) + '...');
           setTinyMCEApiKey(data.apiKey);
         } else {
-          console.log('No API key in response');
+          console.log('No API key in response, using fallback');
+          setTinyMCEApiKey('no-api-key');
         }
       } catch (error) {
         console.error('Error fetching TinyMCE API key:', error);
+        setTinyMCEApiKey('no-api-key'); // Fallback
+      } finally {
+        setIsLoadingApiKey(false);
       }
     };
 
@@ -493,25 +500,46 @@ Enclosures: Copy of credit report, Copy of ID`;
                         <DialogTitle>Edit Dispute Letter - {letter.creditor}</DialogTitle>
                       </DialogHeader>
                       <div className="space-y-4">
-                        <Editor
-                          apiKey={tinyMCEApiKey}
-                          value={editContent}
-                          onEditorChange={(content) => setEditContent(content)}
-                          init={{
-                            height: 400,
-                            menubar: false,
-                            plugins: [
-                              'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
-                              'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
-                              'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount'
-                            ],
-                            toolbar: 'undo redo | blocks | ' +
-                              'bold italic forecolor | alignleft aligncenter ' +
-                              'alignright alignjustify | bullist numlist outdent indent | ' +
-                              'removeformat | help',
-                            content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.6; }'
-                          }}
-                        />
+                        {isLoadingApiKey ? (
+                          <div className="flex items-center justify-center h-96 bg-muted/30 rounded-md">
+                            <div className="text-center space-y-2">
+                              <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto"></div>
+                              <p className="text-sm text-muted-foreground">Loading TinyMCE editor...</p>
+                            </div>
+                          </div>
+                        ) : tinyMCEApiKey ? (
+                          <Editor
+                            apiKey={tinyMCEApiKey}
+                            value={editContent}
+                            onEditorChange={(content) => setEditContent(content)}
+                            init={{
+                              height: 400,
+                              menubar: false,
+                              plugins: [
+                                'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
+                                'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
+                                'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount'
+                              ],
+                              toolbar: 'undo redo | blocks | ' +
+                                'bold italic forecolor | alignleft aligncenter ' +
+                                'alignright alignjustify | bullist numlist outdent indent | ' +
+                                'removeformat | help',
+                              content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.6; }'
+                            }}
+                          />
+                        ) : (
+                          <div className="bg-muted/30 p-4 rounded-md">
+                            <p className="text-sm text-muted-foreground">
+                              TinyMCE editor unavailable. Using fallback text editor.
+                            </p>
+                            <Textarea
+                              value={editContent}
+                              onChange={(e) => setEditContent(e.target.value)}
+                              className="mt-2 min-h-96"
+                              placeholder="Edit your dispute letter content here..."
+                            />
+                          </div>
+                        )}
                         <div className="flex gap-2 justify-end">
                           <Button
                             variant="outline"

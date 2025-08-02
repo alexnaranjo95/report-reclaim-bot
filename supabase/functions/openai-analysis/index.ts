@@ -40,7 +40,9 @@ serve(async (req) => {
       } else if (action === 'generateDisputeLetter') {
         return await generateDisputeLetter(data.creditor, data.items, data.type);
       } else if (action === 'getTinyMCEKey') {
-        return new Response(JSON.stringify({ apiKey: tinyMCEApiKey }), {
+        console.log('TinyMCE API key request received');
+        console.log('TinyMCE API key configured:', !!tinyMCEApiKey);
+        return new Response(JSON.stringify({ apiKey: tinyMCEApiKey || 'no-api-key' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

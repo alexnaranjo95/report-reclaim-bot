@@ -95,7 +95,7 @@ export const DocumentPreview = ({ document, onEdit }: DocumentPreviewProps) => {
               {document.type.startsWith('image/') && onEdit && (
                 <Button
                   onClick={() => onEdit(document)}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground mr-12"
                   size="sm"
                 >
                   <Edit3 className="h-4 w-4 mr-2" />

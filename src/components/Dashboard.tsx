@@ -31,7 +31,8 @@ export const Dashboard = () => {
   const [draftsByRound, setDraftsByRound] = useState<Record<number, RoundData>>({});
   const { toast } = useToast();
   const { signOut } = useAuth();
-  const { isSuperAdmin } = useRole();
+  const roleData = useRole();
+  const { isSuperAdmin = false } = roleData || {};
 
   const handleLogout = async () => {
     try {

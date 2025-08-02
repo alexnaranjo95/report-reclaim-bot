@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_prompts: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          prompt_text: string
+          updated_at: string
+          updated_by: string | null
+          version_name: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          prompt_text: string
+          updated_at?: string
+          updated_by?: string | null
+          version_name?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          prompt_text?: string
+          updated_at?: string
+          updated_by?: string | null
+          version_name?: string | null
+        }
+        Relationships: []
+      }
       admin_settings: {
         Row: {
           created_at: string | null

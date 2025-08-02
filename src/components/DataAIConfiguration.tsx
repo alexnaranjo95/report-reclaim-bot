@@ -81,6 +81,8 @@ export const DataAIConfiguration = () => {
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
   const [promptBuilder, setPromptBuilder] = useState('');
+  const [savingPrompt, setSavingPrompt] = useState(false);
+  const [currentPrompt, setCurrentPrompt] = useState<any>(null);
   
   // Settings state
   const [settings, setSettings] = useState<AdminSetting[]>([]);
@@ -98,7 +100,24 @@ export const DataAIConfiguration = () => {
     loadAddresses();
     loadTemplates();
     loadSettings();
+    loadCurrentPrompt();
   }, []);
+
+  const loadCurrentPrompt = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-prompts', {
+        method: 'GET'
+      });
+
+      if (error) throw error;
+      if (data?.data) {
+        setCurrentPrompt(data.data);
+        setPromptBuilder(data.data.prompt_text || '');
+      }
+    } catch (error) {
+      console.error('Error loading current prompt:', error);
+    }
+  };
 
   const loadAddresses = async () => {
     try {
@@ -347,6 +366,48 @@ export const DataAIConfiguration = () => {
     }
   };
 
+  const handleSavePrompt = async () => {
+    if (!promptBuilder.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a prompt before saving",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSavingPrompt(true);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-prompts', {
+        method: 'POST',
+        body: {
+          prompt_text: promptBuilder,
+          version_name: `Version ${new Date().toLocaleDateString()}`,
+          description: 'Admin-configured AI prompt'
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: data.message || "Prompt saved & applied ✔︎",
+      });
+      
+      loadCurrentPrompt();
+    } catch (error) {
+      console.error('Error saving prompt:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save prompt",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingPrompt(false);
+    }
+  };
+
   const handleUpdatePreferences = async (key: string, value: boolean) => {
     try {
       const { error } = await supabase.functions.invoke('admin-settings', {
@@ -523,7 +584,7 @@ export const DataAIConfiguration = () => {
                   <CardContent className="space-y-4">
                     <input
                       type="file"
-                      accept=".docx,.md,.txt"
+                      accept=".txt,.docx,.md"
                       multiple
                       onChange={handleTemplateUpload}
                       className="hidden"
@@ -590,10 +651,21 @@ export const DataAIConfiguration = () => {
                     onChange={(e) => setPromptBuilder(e.target.value)}
                     rows={6}
                   />
-                  <Button className="flex items-center gap-2">
-                    <CheckCircle className="h-4 w-4" />
-                    Save Prompt Version
-                  </Button>
+                  <div className="flex items-center justify-between">
+                    <Button 
+                      onClick={handleSavePrompt}
+                      disabled={savingPrompt}
+                      className="flex items-center gap-2"
+                    >
+                      <CheckCircle className="h-4 w-4" />
+                      {savingPrompt ? 'Saving...' : 'Save Prompt Version'}
+                    </Button>
+                    {currentPrompt && (
+                      <p className="text-sm text-muted-foreground">
+                        Last saved: {new Date(currentPrompt.updated_at).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>

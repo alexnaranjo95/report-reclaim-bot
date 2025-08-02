@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,7 +36,7 @@ interface TenantData {
   total_letters: number;
   letters_sent: number;
   last_activity: string;
-  status: 'active' | 'inactive' | 'dormant';
+  status: 'active' | 'inactive' | 'dormant' | 'suspended';
   active_rounds: number;
   user_created_at: string;
 }
@@ -54,6 +55,7 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
   const pageSize = 20;
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth(); // Get current admin user
 
   useEffect(() => {
     fetchTenants();
@@ -149,7 +151,7 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
           
           // Check if this user has a manually set status in our local state
           const existingTenant = tenants.find(t => t.user_id === profile.user_id);
-          let status: 'active' | 'inactive' | 'dormant' = 'dormant';
+          let status: 'active' | 'inactive' | 'dormant' | 'suspended' = 'active'; // Default to active
           
           if (existingTenant?.status) {
             // Preserve manually set status
@@ -193,6 +195,15 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
   };
 
   const handleImpersonate = async (tenant: TenantData) => {
+    if (!user?.id) {
+      toast({
+        title: "Error",
+        description: "Admin user not found.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       // Store current admin state
       localStorage.setItem('admin_state', JSON.stringify({
@@ -205,18 +216,40 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
       // Get current session to store for later restoration
       const { data: currentSession } = await supabase.auth.getSession();
       
-      // In a real implementation, this would call an edge function to generate 
-      // a scoped token for the target user
-      const impersonationData = {
-        user: tenant,
+      // Call the impersonation edge function
+      const { data: impersonationData, error } = await supabase.functions.invoke('impersonate-user', {
+        body: {
+          targetUserId: tenant.user_id,
+          adminUserId: user.id
+        }
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      // Store the impersonation data including the original admin session
+      const impersonationInfo = {
+        targetUser: tenant,
         originalToken: currentSession.session?.access_token,
         originalRefreshToken: currentSession.session?.refresh_token,
+        adminUserId: user.id,
         timestamp: Date.now()
       };
 
-      sessionStorage.setItem('impersonation_data', JSON.stringify(impersonationData));
+      sessionStorage.setItem('impersonation_data', JSON.stringify(impersonationInfo));
       
-      // Simulate token swap - in real implementation this would use actual JWT
+      // Switch to the target user's session
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: impersonationData.access_token,
+        refresh_token: impersonationData.refresh_token
+      });
+
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      // Notify parent component about impersonation
       onImpersonate(tenant);
       
       toast({
@@ -229,40 +262,59 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
     } catch (error) {
       console.error('Error starting impersonation:', error);
       toast({
-        title: "Impersonation Failed",
-        description: "Failed to start impersonation session.",
+        title: "Impersonation Failed", 
+        description: error.message || "Failed to start impersonation session.",
         variant: "destructive",
       });
     }
   };
 
   const handleSuspend = async (tenantId: string, suspend: boolean) => {
+    if (!user?.id) {
+      toast({
+        title: "Error",
+        description: "Admin user not found.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      // Update user status in real-time
-      const newStatus = suspend ? 'inactive' : 'active';
+      // Determine the new status
+      const newStatus = suspend ? 'suspended' : 'active';
       
       // Update local state immediately for instant UI feedback
       setTenants(prev => prev.map(tenant => 
         tenant.user_id === tenantId 
-          ? { ...tenant, status: newStatus as 'active' | 'inactive' | 'dormant' }
+          ? { ...tenant, status: newStatus as 'active' | 'inactive' | 'dormant' | 'suspended' }
           : tenant
       ));
 
-      // TODO: In real implementation, update user status in database
-      // await supabase.from('profiles').update({ status: newStatus }).eq('user_id', tenantId);
+      // Call the edge function to update status in database
+      const { data, error } = await supabase.functions.invoke('update-user-status', {
+        body: {
+          targetUserId: tenantId,
+          status: newStatus,
+          adminUserId: user.id
+        }
+      });
+
+      if (error) {
+        throw error;
+      }
       
       toast({
         title: suspend ? "User Suspended" : "User Reactivated",
         description: `User has been ${suspend ? 'suspended' : 'reactivated'} successfully.`,
       });
       
-      // Do NOT refresh data automatically - preserve manual status changes
     } catch (error) {
+      console.error('Error updating user status:', error);
       // Revert local state on error by refetching
       fetchTenants();
       toast({
         title: "Error",
-        description: `Failed to ${suspend ? 'suspend' : 'reactivate'} user.`,
+        description: error.message || `Failed to ${suspend ? 'suspend' : 'reactivate'} user.`,
         variant: "destructive",
       });
     }
@@ -307,7 +359,8 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
   const getStatusBadge = (status: string) => {
     const variants = {
       active: { variant: 'default' as const, color: 'bg-green-100 text-green-800 border-green-300' },
-      inactive: { variant: 'secondary' as const, color: 'bg-red-100 text-red-800 border-red-300' },
+      suspended: { variant: 'destructive' as const, color: 'bg-red-100 text-red-800 border-red-300' },
+      inactive: { variant: 'secondary' as const, color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
       dormant: { variant: 'outline' as const, color: 'bg-gray-100 text-gray-800 border-gray-300' }
     };
     

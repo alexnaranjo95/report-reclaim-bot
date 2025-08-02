@@ -268,6 +268,7 @@ export type Database = {
           email_notifications: boolean | null
           id: string
           phone_number: string | null
+          status: string | null
           text_notifications: boolean | null
           updated_at: string
           uploaded_documents: Json | null
@@ -281,6 +282,7 @@ export type Database = {
           email_notifications?: boolean | null
           id?: string
           phone_number?: string | null
+          status?: string | null
           text_notifications?: boolean | null
           updated_at?: string
           uploaded_documents?: Json | null
@@ -294,6 +296,7 @@ export type Database = {
           email_notifications?: boolean | null
           id?: string
           phone_number?: string | null
+          status?: string | null
           text_notifications?: boolean | null
           updated_at?: string
           uploaded_documents?: Json | null

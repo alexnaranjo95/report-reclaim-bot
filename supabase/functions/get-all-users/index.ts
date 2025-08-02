@@ -39,7 +39,7 @@ serve(async (req) => {
     // Get all profiles
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
-      .select('*')
+      .select('*, status')
 
     if (profilesError) {
       console.error('Error fetching profiles:', profilesError);
@@ -94,14 +94,8 @@ serve(async (req) => {
       const userLetters = letterStats[authUser.id] || { total: 0, sent: 0 };
       const userRounds = roundStats[authUser.id] || { total: 0, active: 0 };
       
-      // Determine status based on activity
-      const daysSinceCreation = Math.floor((Date.now() - new Date(authUser.created_at).getTime()) / (1000 * 60 * 60 * 24));
-      let status = 'dormant';
-      
-      if (userSessions > 0 || userLetters.total > 0) {
-        if (daysSinceCreation <= 7) status = 'active';
-        else if (daysSinceCreation <= 30) status = 'inactive';
-      }
+      // Use database status if available, otherwise default to 'active'
+      const status = profile?.status || 'active';
 
       return {
         user_id: authUser.id,
@@ -114,7 +108,8 @@ serve(async (req) => {
         status,
         active_rounds: userRounds.active,
         user_created_at: authUser.created_at,
-        has_profile: !!profile
+        has_profile: !!profile,
+        database_status: profile?.status || null // Keep track of what's in the database
       };
     });
 

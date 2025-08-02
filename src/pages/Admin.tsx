@@ -76,7 +76,7 @@ const Admin = () => {
 
       const data = JSON.parse(impersonationData);
       
-      // Restore original token
+      // Restore original admin session
       const { error } = await supabase.auth.setSession({
         access_token: data.originalToken,
         refresh_token: data.originalRefreshToken

@@ -398,41 +398,26 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
     if (!confirm(`Change role to "${newRole}"?`)) return;
 
     try {
-      // First, check if user has an existing role record
-      const { data: existingRole, error: fetchError } = await supabase
+      // First, delete all existing role records for this user to clean up duplicates
+      const { error: deleteError } = await supabase
         .from('user_roles')
-        .select('id')
-        .eq('user_id', userId)
-        .maybeSingle();
+        .delete()
+        .eq('user_id', userId);
 
-      if (fetchError) {
-        throw fetchError;
+      if (deleteError) {
+        throw deleteError;
       }
 
-      let error;
-      if (existingRole) {
-        // Update existing role record
-        const result = await supabase
-          .from('user_roles')
-          .update({ 
-            role: newRole as 'superadmin' | 'admin' | 'user',
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', userId);
-        error = result.error;
-      } else {
-        // Insert new role record
-        const result = await supabase
-          .from('user_roles')
-          .insert({ 
-            user_id: userId, 
-            role: newRole as 'superadmin' | 'admin' | 'user'
-          });
-        error = result.error;
-      }
+      // Then, insert the new role record
+      const { error: insertError } = await supabase
+        .from('user_roles')
+        .insert({ 
+          user_id: userId, 
+          role: newRole as 'superadmin' | 'admin' | 'user'
+        });
 
-      if (error) {
-        throw error;
+      if (insertError) {
+        throw insertError;
       }
 
       // Update local state

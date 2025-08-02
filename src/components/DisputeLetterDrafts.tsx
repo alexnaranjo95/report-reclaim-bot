@@ -463,7 +463,7 @@ Enclosures: Copy of credit report, Copy of ID`;
                       </DialogHeader>
                       <div className="space-y-4">
                         <Editor
-                          apiKey="t8p7p5hvr1yuv0m60w9mwdzhu8shmwdpprxqteooesge4asl"
+                          apiKey="no-api-key"
                           value={editContent}
                           onEditorChange={(content) => setEditContent(content)}
                           init={{

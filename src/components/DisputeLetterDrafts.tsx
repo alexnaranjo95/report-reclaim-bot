@@ -12,6 +12,7 @@ import { Editor } from '@tinymce/tinymce-react';
 import { useToast } from '@/hooks/use-toast';
 import { postgridService, PostgridLetter } from '../services/PostgridService';
 import { supabase } from '@/integrations/supabase/client';
+import { LetterCostNotification } from './LetterCostNotification';
 
 interface DisputeLetterDraftsProps {
   creditItems: CreditItem[];
@@ -27,6 +28,7 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
   const [generationStage, setGenerationStage] = useState<string>('');
   const [tinyMCEApiKey, setTinyMCEApiKey] = useState<string | null>(null);
   const [isLoadingApiKey, setIsLoadingApiKey] = useState(true);
+  const [showCostConfirmation, setShowCostConfirmation] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Timer effect for loading state
@@ -349,11 +351,12 @@ Enclosures: Copy of credit report, Copy of ID`;
           <div className="text-center py-8 text-muted-foreground">
             <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>Upload and analyze a credit report to generate professional dispute letters.</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+        </div>
+      </CardContent>
+
+    </Card>
+  );
+}
 
   return (
     <Card className="bg-gradient-card shadow-card">
@@ -605,64 +608,10 @@ Enclosures: Copy of credit report, Copy of ID`;
                   <Button 
                     size="sm" 
                     className="bg-gradient-primary text-white"
-                    onClick={async () => {
-                      // For demo purposes - in production, you'd collect this info from user
-                      const sampleLetter: PostgridLetter = {
-                        to: {
-                          firstName: "Credit Bureau",
-                          lastName: "Department",
-                          companyName: letter.creditor,
-                          addressLine1: "123 Credit St",
-                          city: "Credit City",
-                          provinceOrState: "CA",
-                          postalOrZip: "90210",
-                          country: "US"
-                        },
-                        from: {
-                          firstName: "Your",
-                          lastName: "Name",
-                          addressLine1: "456 Your St",
-                          city: "Your City",
-                          provinceOrState: "CA",
-                          postalOrZip: "90211",
-                          country: "US"
-                        },
-                        content: letter.content,
-                        color: true,
-                        doubleSided: false,
-                        returnEnvelope: true
-                      };
-
-                      toast({
-                        title: "Sending Letter",
-                        description: "Processing letter through Postgrid mail service...",
-                      });
-
-                      try {
-                        const result = await postgridService.sendLetter(sampleLetter);
-                        if (result.error) {
-                          toast({
-                            title: "Send Failed",
-                            description: result.error,
-                            variant: "destructive"
-                          });
-                        } else {
-                          toast({
-                            title: "Letter Sent Successfully",
-                            description: `Letter ID: ${result.id}. Estimated delivery: ${result.estimatedDelivery || 'N/A'}`,
-                          });
-                        }
-                      } catch (error) {
-                        toast({
-                          title: "Send Failed",
-                          description: "Failed to send letter via Postgrid",
-                          variant: "destructive"
-                        });
-                      }
-                    }}
+                    onClick={() => setShowCostConfirmation(letter.id)}
                   >
                     <Send className="h-3 w-3 mr-1" />
-                    Send via Postgrid
+                    Send via Postgrid ($2.94)
                   </Button>
                 </div>
 
@@ -698,6 +647,73 @@ Enclosures: Copy of credit report, Copy of ID`;
             <p>✓ Copy, download, and send functionality ready</p>
           </div>
         </div>
+
+        {showCostConfirmation && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg max-w-md w-full">
+              <div className="p-6">
+                <LetterCostNotification
+                  onConfirm={async () => {
+                    const letter = letters.find(l => l.id === showCostConfirmation);
+                    if (!letter) return;
+
+                    const sampleLetter: PostgridLetter = {
+                      to: {
+                        firstName: "Credit Bureau",
+                        lastName: "Department", 
+                        companyName: letter.creditor,
+                        addressLine1: "123 Credit St",
+                        city: "Credit City",
+                        provinceOrState: "CA",
+                        postalOrZip: "90210",
+                        country: "US"
+                      },
+                      from: {
+                        firstName: "Your",
+                        lastName: "Name",
+                        addressLine1: "456 Your St",
+                        city: "Your City",
+                        provinceOrState: "CA",
+                        postalOrZip: "90211",
+                        country: "US"
+                      },
+                      content: letter.content,
+                      color: true,
+                      doubleSided: false,
+                      returnEnvelope: true
+                    };
+
+                    try {
+                      const result = await postgridService.sendLetter(sampleLetter);
+                      if (result.error) {
+                        toast({
+                          title: "Send Failed",
+                          description: result.error,
+                          variant: "destructive"
+                        });
+                      } else {
+                        toast({
+                          title: "Letter Sent Successfully",
+                          description: `Letter ID: ${result.id}. Estimated delivery: ${result.estimatedDelivery || 'N/A'}`,
+                        });
+                      }
+                    } catch (error) {
+                      toast({
+                        title: "Send Failed",
+                        description: "Failed to send letter via Postgrid",
+                        variant: "destructive"
+                      });
+                    } finally {
+                      setShowCostConfirmation(null);
+                    }
+                  }}
+                  onCancel={() => setShowCostConfirmation(null)}
+                  letterCount={1}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

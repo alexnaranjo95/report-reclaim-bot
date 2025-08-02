@@ -47,7 +47,7 @@ class PostgridService {
     try {
       const apiKey = await this.getPostgridApiKey();
       
-      // Create the request payload as JSON first
+      // Create the correct JSON payload according to PostGrid API docs
       const payload = {
         to: {
           firstName: letter.to.firstName,
@@ -71,11 +71,11 @@ class PostgridService {
           ...(letter.from.companyName && { companyName: letter.from.companyName }),
           ...(letter.from.addressLine2 && { addressLine2: letter.from.addressLine2 })
         },
-        // Use HTML content directly
         html: letter.content,
         color: letter.color || false,
         doubleSided: letter.doubleSided || false,
-        returnEnvelope: letter.returnEnvelope || false
+        returnEnvelope: letter.returnEnvelope || false,
+        addressPlacement: 'top_first_page'
       };
 
       console.log('Sending letter to PostGrid with payload:', JSON.stringify(payload, null, 2));
@@ -97,6 +97,7 @@ class PostgridService {
         try {
           const errorData = JSON.parse(responseText);
           errorMessage = errorData.message || errorData.error || errorMessage;
+          console.error('PostGrid error details:', errorData);
         } catch (e) {
           errorMessage = `HTTP ${response.status}: ${responseText}`;
         }

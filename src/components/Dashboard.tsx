@@ -7,10 +7,11 @@ import { UploadZone } from './UploadZone';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
-import { FileText, TrendingUp, Shield, Clock, Trash2, Bug, RefreshCw, Save } from 'lucide-react';
+import { FileText, TrendingUp, Shield, Clock, Trash2, Bug, RefreshCw, Save, LogOut } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 interface RoundData {
   draft: any;
@@ -28,6 +29,23 @@ export const Dashboard = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [draftsByRound, setDraftsByRound] = useState<Record<number, RoundData>>({});
   const { toast } = useToast();
+  const { signOut } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      toast({
+        title: "Logged out successfully",
+        description: "You have been logged out of your account.",
+      });
+    } catch (error) {
+      toast({
+        title: "Logout failed",
+        description: "There was an error logging out. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Load drafts data on component mount
   useEffect(() => {
@@ -254,6 +272,15 @@ export const Dashboard = () => {
                 onClick={() => window.location.href = '/settings'}
               >
                 Settings
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleLogout}
+                className="flex items-center gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
               </Button>
             </div>
           </div>

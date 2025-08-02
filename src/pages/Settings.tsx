@@ -326,15 +326,7 @@ const Settings = () => {
       
       setVerificationDocuments(updatedDocs);
       
-      // Update profile with the new document info and save categorized documents
-      await supabase
-        .from('profiles')
-        .update({ 
-          verification_documents: updatedDocs as any,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', user.id);
-      
+      // Update profile with the new document info
       await supabase.rpc('upsert_user_profile', {
         profile_user_id: user.id,
         profile_email: email,

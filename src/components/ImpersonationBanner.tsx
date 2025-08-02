@@ -12,11 +12,7 @@ export const ImpersonationBanner = () => {
   const location = useLocation();
   const { toast } = useToast();
 
-  // Conditional render check - exit early if not impersonating
-  if (!sessionStorage.getItem('impersonatedUserId')) {
-    return null;
-  }
-
+  // Move ALL hooks to the top - no early returns before hooks!
   useEffect(() => {
     // Check for impersonation data
     const impersonatedUserId = sessionStorage.getItem('impersonatedUserId');
@@ -43,6 +39,11 @@ export const ImpersonationBanner = () => {
     // Check on route changes
     checkImpersonationState();
   }, [location.pathname]);
+
+  // NOW we can safely do conditional returns AFTER all hooks
+  if (!impersonatedUser || !show) {
+    return null;
+  }
 
   const restoreAdminSession = async () => {
     try {
@@ -96,9 +97,6 @@ export const ImpersonationBanner = () => {
     }
   };
 
-  if (!impersonatedUser || !show) {
-    return null;
-  }
 
   return (
     <div className="impersonation-banner fixed top-0 left-0 w-full z-50 bg-warning/90 backdrop-blur-sm border-b border-warning-foreground/20">

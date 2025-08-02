@@ -137,25 +137,30 @@ export const ImageEditor = ({ isOpen, onClose, imageSrc, onSave, fileName }: Ima
   }, [completedCrop, brightness, contrast, saturation, isBlackAndWhite, sepia]);
 
   const handleSave = async () => {
-    const croppedCanvas = getCroppedImg();
-    if (!croppedCanvas) {
-      toast.error('Failed to process image. Please try again.');
-      return;
-    }
+    try {
+      const croppedCanvas = getCroppedImg();
+      if (!croppedCanvas) {
+        toast.error('Failed to process image. Please try again.');
+        return;
+      }
 
-    croppedCanvas.toBlob(
-      (blob) => {
-        if (blob) {
-          onSave(blob, fileName);
-          toast.success('Image saved successfully!');
-          onClose();
-        } else {
-          toast.error('Failed to save image. Please try again.');
-        }
-      },
-      'image/jpeg',
-      0.9
-    );
+      croppedCanvas.toBlob(
+        (blob) => {
+          if (blob) {
+            onSave(blob, fileName);
+            toast.success('Image saved successfully!');
+            onClose();
+          } else {
+            toast.error('Failed to save image. Please try again.');
+          }
+        },
+        'image/jpeg',
+        0.9
+      );
+    } catch (error) {
+      console.error('Error saving image:', error);
+      toast.error('Failed to save image due to security restrictions. Please try uploading the image again.');
+    }
   };
 
   const resetFilters = () => {
@@ -192,6 +197,7 @@ export const ImageEditor = ({ isOpen, onClose, imageSrc, onSave, fileName }: Ima
                   alt="Crop preview"
                   src={imageSrc}
                   onLoad={onImageLoad}
+                  crossOrigin="anonymous"
                   style={{
                     filter: [
                       `brightness(${brightness[0]}%)`,

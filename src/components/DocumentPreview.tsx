@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Eye, X } from 'lucide-react';
+import { Eye, X, Edit3 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface VerificationDocument {
@@ -10,13 +10,15 @@ interface VerificationDocument {
   type: string;
   url: string;
   uploadedAt: string;
+  documentType: string;
 }
 
 interface DocumentPreviewProps {
   document: VerificationDocument;
+  onEdit?: (document: VerificationDocument) => void;
 }
 
-export const DocumentPreview = ({ document }: DocumentPreviewProps) => {
+export const DocumentPreview = ({ document, onEdit }: DocumentPreviewProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -88,7 +90,19 @@ export const DocumentPreview = ({ document }: DocumentPreviewProps) => {
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>{document.name}</DialogTitle>
+            <DialogTitle className="flex items-center justify-between">
+              <span>{document.name}</span>
+              {document.type.startsWith('image/') && onEdit && (
+                <Button
+                  onClick={() => onEdit(document)}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  size="sm"
+                >
+                  <Edit3 className="h-4 w-4 mr-2" />
+                  Edit Image
+                </Button>
+              )}
+            </DialogTitle>
           </DialogHeader>
           <div className="overflow-auto">
             {renderPreview()}

@@ -559,18 +559,7 @@ const Settings = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <DocumentPreview document={doc} />
-                          {doc.type.startsWith('image/') && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditImage(doc)}
-                              className="h-8 w-8 p-0"
-                              title="Edit Image"
-                            >
-                              <Edit3 className="h-4 w-4" />
-                            </Button>
-                          )}
+                          <DocumentPreview document={doc} onEdit={handleEditImage} />
                           <Button
                             variant="ghost"
                             size="sm"

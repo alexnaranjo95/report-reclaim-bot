@@ -72,11 +72,35 @@ export const ImageEditor = ({ isOpen, onClose, imageSrc, onSave, fileName }: Ima
   }, [brightness, contrast, saturation, isBlackAndWhite, sepia]);
 
   const getCroppedImg = useCallback(() => {
-    if (!imgRef.current || !canvasRef.current || !completedCrop) return null;
+    if (!imgRef.current || !completedCrop) {
+      // If no crop, apply filters to full image
+      if (!imgRef.current || !canvasRef.current) return null;
+      
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      const img = imgRef.current;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+
+      // Apply filters
+      const filters = [
+        `brightness(${brightness[0]}%)`,
+        `contrast(${contrast[0]}%)`,
+        `saturate(${saturation[0]}%)`,
+        isBlackAndWhite ? 'grayscale(100%)' : '',
+        sepia ? 'sepia(100%)' : ''
+      ].filter(Boolean).join(' ');
+
+      ctx.filter = filters;
+      ctx.drawImage(img, 0, 0);
+      return canvas;
+    }
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+    if (!ctx || !canvas) return null;
 
     const img = imgRef.current;
     const scaleX = img.naturalWidth / img.width;

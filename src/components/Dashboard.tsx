@@ -276,6 +276,13 @@ export const Dashboard = () => {
               <Button 
                 variant="outline" 
                 size="sm"
+                onClick={() => window.location.href = '/admin'}
+              >
+                Admin
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
                 onClick={handleLogout}
                 className="flex items-center gap-2"
               >

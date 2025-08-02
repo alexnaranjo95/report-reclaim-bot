@@ -1,0 +1,3 @@
+-- This will show the user a form to enter the TinyMCE API key
+-- Note: This is just to demonstrate the migration functionality
+-- The actual secret will be added through the UI form

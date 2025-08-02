@@ -52,15 +52,19 @@ export class SessionService {
       .insert([
         {
           name,
-          status: 'active',
-          analysis_data: analysisData
+          status: 'active' as const,
+          analysis_data: analysisData as any
         }
       ])
       .select()
       .single();
 
     if (error) throw error;
-    return data;
+    return {
+      ...data,
+      status: data.status as Session['status'],
+      analysis_data: data.analysis_data as any as CreditAnalysisResult
+    };
   }
 
   static async getSessions(): Promise<Session[]> {
@@ -70,7 +74,11 @@ export class SessionService {
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+    return (data || []).map(session => ({
+      ...session,
+      status: session.status as Session['status'],
+      analysis_data: session.analysis_data as any as CreditAnalysisResult
+    }));
   }
 
   static async getSession(id: string): Promise<Session | null> {
@@ -81,13 +89,20 @@ export class SessionService {
       .single();
 
     if (error) return null;
-    return data;
+    return {
+      ...data,
+      status: data.status as Session['status'],
+      analysis_data: data.analysis_data as any as CreditAnalysisResult
+    };
   }
 
   static async updateSession(id: string, updates: Partial<Session>): Promise<void> {
     const { error } = await supabase
       .from('sessions')
-      .update(updates)
+      .update({
+        ...updates,
+        analysis_data: updates.analysis_data as any
+      })
       .eq('id', id);
 
     if (error) throw error;
@@ -107,7 +122,10 @@ export class SessionService {
       .single();
 
     if (error) throw error;
-    return data;
+    return {
+      ...data,
+      status: data.status as Round['status']
+    };
   }
 
   static async getRounds(sessionId: string): Promise<Round[]> {
@@ -118,7 +136,10 @@ export class SessionService {
       .order('round_number', { ascending: true });
 
     if (error) throw error;
-    return data || [];
+    return (data || []).map(round => ({
+      ...round,
+      status: round.status as Round['status']
+    }));
   }
 
   static async getCurrentRound(sessionId: string): Promise<Round | null> {
@@ -130,7 +151,10 @@ export class SessionService {
       .single();
 
     if (error) return null;
-    return data;
+    return data ? {
+      ...data,
+      status: data.status as Round['status']
+    } : null;
   }
 
   static async completeRound(roundId: string): Promise<void> {
@@ -176,7 +200,10 @@ export class SessionService {
       .single();
 
     if (error) throw error;
-    return data;
+    return {
+      ...data,
+      status: data.status as Letter['status']
+    };
   }
 
   static async updateLetter(id: string, updates: Partial<Letter>): Promise<void> {
@@ -196,7 +223,10 @@ export class SessionService {
       .order('created_at', { ascending: true });
 
     if (error) throw error;
-    return data || [];
+    return (data || []).map(letter => ({
+      ...letter,
+      status: letter.status as Letter['status']
+    }));
   }
 
   static async markLetterAsSent(letterId: string): Promise<void> {

@@ -14,13 +14,14 @@ import { postgridService, PostgridLetter } from '../services/PostgridService';
 import { supabase } from '@/integrations/supabase/client';
 import { LetterCostNotification } from './LetterCostNotification';
 
+import { Session } from '../services/SessionService';
+
 interface DisputeLetterDraftsProps {
   creditItems: CreditItem[];
-  currentRound?: any;
-  sessionId?: string;
+  selectedSession?: Session | null;
 }
 
-export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) => {
+export const DisputeLetterDrafts = ({ creditItems, selectedSession }: DisputeLetterDraftsProps) => {
   const [letters, setLetters] = useState<DisputeLetter[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);

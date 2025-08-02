@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -11,14 +11,34 @@ import { FileText, TrendingUp, Shield, Clock, Trash2, Bug } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { useToast } from '@/hooks/use-toast';
+import { Session, SessionService } from '../services/SessionService';
 
-export const Dashboard = () => {
+interface DashboardProps {
+  selectedSession: Session | null;
+  showCreateNew: boolean;
+  onSessionCreated: (session: Session) => void;
+}
+
+export const Dashboard = ({ selectedSession, showCreateNew, onSessionCreated }: DashboardProps) => {
   const [currentRound, setCurrentRound] = useState(1);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<CreditAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { toast } = useToast();
+
+  // Load session data when selectedSession changes
+  useEffect(() => {
+    if (selectedSession?.analysis_data) {
+      setAnalysisResults(selectedSession.analysis_data);
+      setAnalysisComplete(true);
+      setUploadedFile(null);
+    } else if (showCreateNew) {
+      setAnalysisResults(null);
+      setAnalysisComplete(false);
+      setUploadedFile(null);
+    }
+  }, [selectedSession, showCreateNew]);
 
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
@@ -37,6 +57,27 @@ export const Dashboard = () => {
       
       setAnalysisResults(results);
       setAnalysisComplete(true);
+
+      // Create a new session if creating new
+      if (showCreateNew) {
+        try {
+          const sessionName = `Credit Repair - ${new Date().toLocaleDateString()}`;
+          const newSession = await SessionService.createSession(sessionName, results);
+          onSessionCreated(newSession);
+          
+          toast({
+            title: "Session Created",
+            description: `New session "${sessionName}" created successfully.`,
+          });
+        } catch (error) {
+          console.error('Failed to create session:', error);
+          toast({
+            title: "Session Creation Failed",
+            description: "Analysis completed but failed to save session.",
+            variant: "destructive",
+          });
+        }
+      }
       
       toast({
         title: "Analysis Complete",
@@ -207,7 +248,10 @@ export const Dashboard = () => {
 
                 {/* Dispute Letters Section */}
                 {analysisComplete && analysisResults && (
-                  <DisputeLetterDrafts creditItems={analysisResults.items} />
+                <DisputeLetterDrafts 
+                  creditItems={analysisResults.items} 
+                  selectedSession={selectedSession}
+                />
                 )}
               </div>
             )}

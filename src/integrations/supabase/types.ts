@@ -14,7 +14,162 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      letters: {
+        Row: {
+          bureau: string
+          content: string
+          created_at: string
+          creditor: string
+          id: string
+          items: string[]
+          round_id: string
+          sent_at: string | null
+          status: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          bureau: string
+          content: string
+          created_at?: string
+          creditor: string
+          id?: string
+          items?: string[]
+          round_id: string
+          sent_at?: string | null
+          status?: string
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          bureau?: string
+          content?: string
+          created_at?: string
+          creditor?: string
+          id?: string
+          items?: string[]
+          round_id?: string
+          sent_at?: string | null
+          status?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "letters_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      response_logs: {
+        Row: {
+          created_at: string
+          creditor: string
+          documents: string[] | null
+          id: string
+          received_response: boolean
+          response_content: string | null
+          response_summary: string | null
+          round_id: string
+        }
+        Insert: {
+          created_at?: string
+          creditor: string
+          documents?: string[] | null
+          id?: string
+          received_response?: boolean
+          response_content?: string | null
+          response_summary?: string | null
+          round_id: string
+        }
+        Update: {
+          created_at?: string
+          creditor?: string
+          documents?: string[] | null
+          id?: string
+          received_response?: boolean
+          response_content?: string | null
+          response_summary?: string | null
+          round_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "response_logs_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rounds: {
+        Row: {
+          can_start_at: string | null
+          completed_at: string | null
+          created_at: string
+          id: string
+          round_number: number
+          session_id: string
+          status: string
+        }
+        Insert: {
+          can_start_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          round_number: number
+          session_id: string
+          status?: string
+        }
+        Update: {
+          can_start_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          round_number?: number
+          session_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rounds_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sessions: {
+        Row: {
+          analysis_data: Json | null
+          created_at: string
+          id: string
+          name: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          analysis_data?: Json | null
+          created_at?: string
+          id?: string
+          name: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          analysis_data?: Json | null
+          created_at?: string
+          id?: string
+          name?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

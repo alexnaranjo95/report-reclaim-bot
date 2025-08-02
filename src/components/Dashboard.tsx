@@ -12,6 +12,7 @@ import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { useRole } from '@/hooks/useRole';
 
 interface RoundData {
   draft: any;
@@ -30,6 +31,7 @@ export const Dashboard = () => {
   const [draftsByRound, setDraftsByRound] = useState<Record<number, RoundData>>({});
   const { toast } = useToast();
   const { signOut } = useAuth();
+  const { isSuperAdmin } = useRole();
 
   const handleLogout = async () => {
     try {
@@ -273,13 +275,15 @@ export const Dashboard = () => {
               >
                 Settings
               </Button>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => window.location.href = '/admin'}
-              >
-                Admin
-              </Button>
+              {isSuperAdmin && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => window.location.href = '/admin'}
+                >
+                  Admin
+                </Button>
+              )}
               <Button 
                 variant="outline" 
                 size="sm"

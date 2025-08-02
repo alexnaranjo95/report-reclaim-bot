@@ -27,7 +27,7 @@ export type Database = {
           status: string
           type: string
           updated_at: string
-          user_id: string | null
+          user_id: string
         }
         Insert: {
           bureau: string
@@ -41,7 +41,7 @@ export type Database = {
           status?: string
           type: string
           updated_at?: string
-          user_id?: string | null
+          user_id: string
         }
         Update: {
           bureau?: string
@@ -55,9 +55,16 @@ export type Database = {
           status?: string
           type?: string
           updated_at?: string
-          user_id?: string | null
+          user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_letters_round_id"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "rounds"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "letters_round_id_fkey"
             columns: ["round_id"]
@@ -119,7 +126,7 @@ export type Database = {
           response_content: string | null
           response_summary: string | null
           round_id: string
-          user_id: string | null
+          user_id: string
         }
         Insert: {
           created_at?: string
@@ -130,7 +137,7 @@ export type Database = {
           response_content?: string | null
           response_summary?: string | null
           round_id: string
-          user_id?: string | null
+          user_id: string
         }
         Update: {
           created_at?: string
@@ -141,9 +148,16 @@ export type Database = {
           response_content?: string | null
           response_summary?: string | null
           round_id?: string
-          user_id?: string | null
+          user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_response_logs_round_id"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "rounds"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "response_logs_round_id_fkey"
             columns: ["round_id"]
@@ -162,7 +176,7 @@ export type Database = {
           round_number: number
           session_id: string
           status: string
-          user_id: string | null
+          user_id: string
         }
         Insert: {
           can_start_at?: string | null
@@ -172,7 +186,7 @@ export type Database = {
           round_number: number
           session_id: string
           status?: string
-          user_id?: string | null
+          user_id: string
         }
         Update: {
           can_start_at?: string | null
@@ -182,9 +196,16 @@ export type Database = {
           round_number?: number
           session_id?: string
           status?: string
-          user_id?: string | null
+          user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_rounds_session_id"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "rounds_session_id_fkey"
             columns: ["session_id"]
@@ -202,7 +223,7 @@ export type Database = {
           name: string
           status: string
           updated_at: string
-          user_id: string | null
+          user_id: string
         }
         Insert: {
           analysis_data?: Json | null
@@ -211,7 +232,7 @@ export type Database = {
           name: string
           status?: string
           updated_at?: string
-          user_id?: string | null
+          user_id: string
         }
         Update: {
           analysis_data?: Json | null
@@ -220,7 +241,7 @@ export type Database = {
           name?: string
           status?: string
           updated_at?: string
-          user_id?: string | null
+          user_id?: string
         }
         Relationships: []
       }

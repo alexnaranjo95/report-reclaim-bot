@@ -1,4 +1,5 @@
 import { DisputeLetter } from '@/types/CreditTypes';
+import { secureStorage } from '@/utils/SecureStorage';
 
 export interface LetterBatch {
   round: number;

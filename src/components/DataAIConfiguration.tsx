@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
+import { TemplateViewerModal } from '@/components/TemplateViewerModal';
 import { 
   Table, 
   TableBody, 
@@ -90,6 +91,7 @@ export const DataAIConfiguration = () => {
   const [isPromptLive, setIsPromptLive] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [originalPromptText, setOriginalPromptText] = useState('');
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   
   // Settings state
   const [settings, setSettings] = useState<AdminSetting[]>([]);
@@ -110,7 +112,7 @@ export const DataAIConfiguration = () => {
     loadCurrentPrompt();
   }, []);
 
-  // Add effect to reload prompt when activeTab changes to templates
+  // Reload prompt when component mounts or tab becomes active
   useEffect(() => {
     if (activeTab === 'templates') {
       loadCurrentPrompt();
@@ -120,7 +122,7 @@ export const DataAIConfiguration = () => {
   // Add effect to reload prompt when page becomes visible again (tab changes, navigation)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden && activeTab === 'templates') {
+      if (!document.hidden) {
         loadCurrentPrompt();
       }
     };
@@ -132,7 +134,7 @@ export const DataAIConfiguration = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleVisibilityChange);
     };
-  }, [activeTab]);
+  }, []);
 
   const loadCurrentPrompt = async () => {
     try {
@@ -793,7 +795,7 @@ export const DataAIConfiguration = () => {
                      
                       <button 
                         className="text-sm text-blue-600 hover:text-blue-800 underline cursor-pointer"
-                        onClick={() => {/* Template viewer modal - placeholder for now */}}
+                        onClick={() => setIsTemplateModalOpen(true)}
                       >
                         Templates: {templates.length} | Active: {templates.filter(t => t.is_active).length}
                       </button>
@@ -1001,6 +1003,12 @@ export const DataAIConfiguration = () => {
           </Tabs>
         </CardContent>
       </Card>
+
+      <TemplateViewerModal
+        isOpen={isTemplateModalOpen}
+        onClose={() => setIsTemplateModalOpen(false)}
+        templates={templates}
+      />
     </div>
   );
 };

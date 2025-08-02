@@ -45,7 +45,14 @@ class PostgridService {
 
   async sendLetter(letter: PostgridLetter): Promise<PostgridResponse> {
     try {
+      console.log('🔑 Getting Postgrid API key...');
       const apiKey = await this.getPostgridApiKey();
+      
+      if (!apiKey) {
+        throw new Error('Postgrid API key is not available');
+      }
+      
+      console.log('✅ API key retrieved successfully');
       
       // Create the correct JSON payload according to PostGrid API docs
       const payload = {
@@ -78,7 +85,17 @@ class PostgridService {
         addressPlacement: 'top_first_page'
       };
 
-      console.log('Sending letter to PostGrid with payload:', JSON.stringify(payload, null, 2));
+      console.log('📤 Sending letter to PostGrid API...');
+      console.log('Payload preview:', {
+        to: payload.to.firstName + ' ' + payload.to.lastName,
+        from: payload.from.firstName + ' ' + payload.from.lastName,
+        contentLength: payload.html.length,
+        options: {
+          color: payload.color,
+          doubleSided: payload.doubleSided,
+          returnEnvelope: payload.returnEnvelope
+        }
+      });
       
       const response = await fetch('https://api.postgrid.com/print-mail/v1/letters', {
         method: 'POST',
@@ -90,21 +107,30 @@ class PostgridService {
       });
       
       const responseText = await response.text();
-      console.log('PostGrid API response:', response.status, responseText);
+      console.log('📨 PostGrid API response status:', response.status);
+      console.log('📨 PostGrid API response body:', responseText);
       
       if (!response.ok) {
-        let errorMessage = 'Failed to send letter via Postgrid';
+        let errorMessage = `PostGrid API Error (${response.status})`;
         try {
           const errorData = JSON.parse(responseText);
-          errorMessage = errorData.message || errorData.error || errorMessage;
-          console.error('PostGrid error details:', errorData);
+          if (errorData.message) {
+            errorMessage = errorData.message;
+          } else if (errorData.error) {
+            errorMessage = typeof errorData.error === 'string' ? errorData.error : JSON.stringify(errorData.error);
+          } else if (errorData.errors && Array.isArray(errorData.errors)) {
+            errorMessage = errorData.errors.map(e => typeof e === 'string' ? e : e.message || JSON.stringify(e)).join(', ');
+          }
+          console.error('❌ PostGrid detailed error:', errorData);
         } catch (e) {
           errorMessage = `HTTP ${response.status}: ${responseText}`;
+          console.error('❌ PostGrid raw error:', responseText);
         }
         throw new Error(errorMessage);
       }
       
       const responseData = JSON.parse(responseText);
+      console.log('✅ Letter sent successfully:', responseData.id);
       
       return {
         id: responseData.id,
@@ -115,11 +141,14 @@ class PostgridService {
       };
       
     } catch (error) {
-      console.error('Error sending letter via Postgrid:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error('❌ Error sending letter via Postgrid:', errorMessage);
+      console.error('Full error details:', error);
+      
       return {
         id: '',
         status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        error: errorMessage,
       };
     }
   }

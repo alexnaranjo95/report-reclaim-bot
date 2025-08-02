@@ -254,8 +254,11 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
       return;
     }
 
-    try {
-      // Store current admin state
+    // Enhanced loginAsUser function with fail-safe mechanisms
+    const loginAsUser = async (email: string): Promise<void> => {
+      console.log('STARTING IMPERSONATION:', { email, adminUserId: user.id });
+
+      // Store current admin state for restoration
       localStorage.setItem('admin_state', JSON.stringify({
         searchQuery: externalSearchQuery,
         currentPage,
@@ -266,137 +269,120 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
       // Get current session to store for later restoration
       const { data: currentSession } = await supabase.auth.getSession();
 
-      // First try the debug route to get detailed error information
-      const debugImpersonation = async (): Promise<any> => {
-        console.log('Attempting debug impersonation for:', tenant.email);
-        
-        const { data: debugData, error: debugError } = await supabase.functions.invoke('debug-impersonate', {
-          body: {
-            email: tenant.email,
-            adminUserId: user.id
-          }
+      // Step 1: POST to debug route exactly like the UI
+      try {
+        console.log('CALLING DEBUG ROUTE...');
+        const { data: debugData, error: debugError } = await supabase.functions.invoke('admin-debug-impersonate', {
+          body: { email }
         });
 
         if (debugError) {
-          console.error('Debug impersonation failed:', debugError);
-          throw new Error(`Debug impersonation failed: ${debugError.message}`);
+          console.error('DEBUG ROUTE ERROR:', debugError);
+          throw new Error(`Debug route failed: ${debugError.message}`);
         }
 
-        if (debugData?.impersonateResponse?.error) {
-          throw new Error(debugData.impersonateResponse.error.message || 'Impersonation failed');
+        if (!debugData?.impersonateFunction?.data) {
+          console.error('DEBUG ROUTE: No impersonation data received');
+          throw new Error(debugData?.impersonateFunction?.error?.message || 'No impersonation data received');
         }
 
-        return debugData?.impersonateResponse?.data;
-      };
-      
-      // Call the impersonation edge function with enhanced error handling
-      const attemptImpersonation = async (attempt = 1): Promise<any> => {
+        const impersonationData = debugData.impersonateFunction.data;
+        console.log('DEBUG ROUTE SUCCESS:', { hasData: !!impersonationData });
+
+        // Step 2: Attempt session setting with fail-safe mechanisms
         try {
-          // First try debug route
-          if (attempt === 1) {
-            return await debugImpersonation();
-          }
-          
-          // Fallback to normal route
-          const { data: impersonationData, error } = await supabase.functions.invoke('impersonate-user', {
-            body: {
-              targetUserId: tenant.user_id,
-              adminUserId: user.id
-            }
+          console.log('ATTEMPTING setSession...');
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: impersonationData.access_token,
+            refresh_token: impersonationData.refresh_token
           });
 
-          if (error) {
-            throw error;
+          if (sessionError) {
+            throw sessionError;
           }
-
-          return impersonationData;
-        } catch (error) {
-          if (attempt === 1) {
-            console.warn('First impersonation attempt failed, retrying with standard route...', error);
-            return attemptImpersonation(2);
-          }
-          throw error;
-        }
-      };
-
-      const impersonationData = await attemptImpersonation();
-
-      // Store the impersonation data including the original admin session
-      const impersonationInfo = {
-        targetUser: tenant,
-        originalToken: currentSession.session?.access_token,
-        originalRefreshToken: currentSession.session?.refresh_token,
-        adminUserId: user.id,
-        timestamp: Date.now(),
-        impersonatedUserId: tenant.user_id // Store for reliable session management
-      };
-
-      sessionStorage.setItem('impersonation_data', JSON.stringify(impersonationInfo));
-      
-      // Switch to the target user's session with retry logic
-      try {
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token: impersonationData.access_token,
-          refresh_token: impersonationData.refresh_token
-        });
-
-        if (sessionError) {
-          throw sessionError;
-        }
-      } catch (sessionError) {
-        // If session setting fails, try refreshing the session and retry once
-        console.warn('Session setting failed, trying refresh...', sessionError);
-        try {
-          const { error: refreshError } = await supabase.auth.refreshSession();
-          if (!refreshError) {
-            await supabase.auth.setSession({
+          
+          console.log('SESSION SET SUCCESS');
+        } catch (sessionError) {
+          console.warn('setSession failed, trying refreshSession...', sessionError);
+          
+          try {
+            const { error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError) {
+              throw refreshError;
+            }
+            
+            // Retry setSession after refresh
+            const { error: retrySessionError } = await supabase.auth.setSession({
               access_token: impersonationData.access_token,
               refresh_token: impersonationData.refresh_token
             });
-          } else {
-            throw sessionError;
+            
+            if (retrySessionError) {
+              throw retrySessionError;
+            }
+            
+            console.log('SESSION SET SUCCESS (after refresh)');
+          } catch (refreshError) {
+            console.error('Both setSession and refreshSession failed:', refreshError);
+            throw new Error(`Session setting failed: ${sessionError.message}. Refresh also failed: ${refreshError.message}`);
           }
-        } catch (retryError) {
-          throw sessionError;
         }
+
+        // Store the impersonation data including the original admin session
+        const impersonationInfo = {
+          targetUser: tenant,
+          originalToken: currentSession.session?.access_token,
+          originalRefreshToken: currentSession.session?.refresh_token,
+          adminUserId: user.id,
+          timestamp: Date.now(),
+          impersonatedUserId: tenant.user_id // Store for reliable session management
+        };
+
+        sessionStorage.setItem('impersonation_data', JSON.stringify(impersonationInfo));
+        // Notify parent component about impersonation
+        onImpersonate(tenant);
+        
+        toast({
+          title: "Impersonation Started",
+          description: `Now viewing as ${tenant.display_name || tenant.email}`,
+        });
+
+        // Navigate to portal (client view) as the impersonated user
+        navigate('/');
+        
+      } catch (error) {
+        console.error('IMPERSONATION ERROR:', error);
+        
+        // Enhanced error message extraction for better user feedback
+        let errorMessage = "Failed to start impersonation session.";
+        
+        if (error?.message) {
+          errorMessage = error.message;
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        } else if (error?.error) {
+          errorMessage = error.error;
+        } else if (error?.details) {
+          errorMessage = `${errorMessage} Details: ${error.details}`;
+        }
+        
+        // Surface exact Edge error and abort navigation
+        toast({
+          title: "Impersonation Failed", 
+          description: `Exact Edge Error: ${errorMessage}`,
+          variant: "destructive",
+        });
+        
+        // Do not navigate on failure
+        throw error;
       }
+    };
 
-      // Notify parent component about impersonation
-      onImpersonate(tenant);
-      
-      toast({
-        title: "Impersonation Started",
-        description: `Now viewing as ${tenant.display_name || tenant.email}`,
-      });
-
-      // Navigate to portal (client view) as the impersonated user
-      navigate('/');
+    try {
+      await loginAsUser(tenant.email);
     } catch (error) {
-      console.error('Error starting impersonation:', error);
-      
-      // Enhanced error message extraction for better user feedback
-      let errorMessage = "Failed to start impersonation session.";
-      
-      if (error?.message) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      } else if (error?.error) {
-        errorMessage = error.error;
-      } else if (error?.details) {
-        errorMessage = `${errorMessage} Details: ${error.details}`;
-      }
-      
-      // Check for specific token extraction issues
-      if (errorMessage.includes('Failed to extract tokens')) {
-        errorMessage = `Token extraction failed. This may be due to Supabase configuration issues. Please check the debug logs for more details.`;
-      }
-      
-      toast({
-        title: "Impersonation Failed", 
-        description: errorMessage,
-        variant: "destructive",
-      });
+      // Error handling is already done within loginAsUser function
+      console.error('Final impersonation error:', error);
     }
   };
 

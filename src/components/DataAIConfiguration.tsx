@@ -138,14 +138,33 @@ export const DataAIConfiguration = () => {
 
   const loadCurrentPrompt = async () => {
     try {
-      const prompt = await AIPromptService.getCurrentPrompt();
-      if (prompt) {
-        setCurrentPrompt(prompt);
-        setPromptBuilder(prompt.prompt_text || '');
-        setOriginalPromptText(prompt.prompt_text || '');
-        // Check if prompt is live when loading
-        const { isLive } = await AIPromptService.verifyPromptIsLive();
-        setIsPromptLive(isLive);
+      // Load directly from admin_prompts table
+      const { data, error } = await supabase
+        .from('admin_prompts')
+        .select('*')
+        .eq('is_active', true)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error loading current prompt:', error);
+        return;
+      }
+
+      if (data) {
+        setCurrentPrompt(data);
+        setPromptBuilder(data.prompt_text || '');
+        setOriginalPromptText(data.prompt_text || '');
+        setIsPromptLive(true);
+        console.log('Prompt loaded successfully:', data.prompt_text);
+      } else {
+        // No active prompt found, reset states
+        setCurrentPrompt(null);
+        setPromptBuilder('');
+        setOriginalPromptText('');
+        setIsPromptLive(false);
+        console.log('No active prompt found in database');
       }
     } catch (error) {
       console.error('Error loading current prompt:', error);
@@ -503,28 +522,35 @@ export const DataAIConfiguration = () => {
       setSavingPrompt(true);
       setIsCheckingStatus(true);
       
-      const result = await AIPromptService.savePromptVersion(
-        promptBuilder,
-        `Version ${new Date().toLocaleDateString()}`,
-        'Admin-configured AI prompt'
-      );
+      // Deactivate any existing active prompts
+      await supabase
+        .from('admin_prompts')
+        .update({ is_active: false })
+        .eq('is_active', true);
 
-      if (result) {
-        setCurrentPrompt({
-          ...result,
+      // Insert new prompt as active
+      const { data, error } = await supabase
+        .from('admin_prompts')
+        .insert({
           prompt_text: promptBuilder,
-          updated_at: new Date().toISOString()
-        });
-        setOriginalPromptText(promptBuilder);
-        
-        // Start polling for live status
-        pollForLiveStatus();
-        
-        toast({
-          title: "Success",
-          description: "Saved and Trained",
-        });
-      }
+          version_name: `Version ${new Date().toLocaleDateString()}`,
+          description: 'Admin-configured AI prompt',
+          is_active: true
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setCurrentPrompt(data);
+      setOriginalPromptText(promptBuilder);
+      setIsPromptLive(true);
+      setIsCheckingStatus(false);
+      
+      toast({
+        title: "Success",
+        description: "Saved and Trained ✅",
+      });
     } catch (error) {
       console.error('Error saving prompt:', error);
       toast({

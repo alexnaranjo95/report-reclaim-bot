@@ -27,6 +27,7 @@ export type Database = {
           status: string
           type: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           bureau: string
@@ -40,6 +41,7 @@ export type Database = {
           status?: string
           type: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           bureau?: string
@@ -53,6 +55,7 @@ export type Database = {
           status?: string
           type?: string
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -116,6 +119,7 @@ export type Database = {
           response_content: string | null
           response_summary: string | null
           round_id: string
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -126,6 +130,7 @@ export type Database = {
           response_content?: string | null
           response_summary?: string | null
           round_id: string
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -136,6 +141,7 @@ export type Database = {
           response_content?: string | null
           response_summary?: string | null
           round_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -156,6 +162,7 @@ export type Database = {
           round_number: number
           session_id: string
           status: string
+          user_id: string | null
         }
         Insert: {
           can_start_at?: string | null
@@ -165,6 +172,7 @@ export type Database = {
           round_number: number
           session_id: string
           status?: string
+          user_id?: string | null
         }
         Update: {
           can_start_at?: string | null
@@ -174,6 +182,7 @@ export type Database = {
           round_number?: number
           session_id?: string
           status?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -193,6 +202,7 @@ export type Database = {
           name: string
           status: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           analysis_data?: Json | null
@@ -201,6 +211,7 @@ export type Database = {
           name: string
           status?: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           analysis_data?: Json | null
@@ -209,6 +220,7 @@ export type Database = {
           name?: string
           status?: string
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }

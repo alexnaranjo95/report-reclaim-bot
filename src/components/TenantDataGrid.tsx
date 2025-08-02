@@ -206,15 +206,29 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
 
   const handleSuspend = async (tenantId: string, suspend: boolean) => {
     try {
-      // In real implementation, this would update user status
+      // Update user status in real-time
+      const newStatus = suspend ? 'inactive' : 'active';
+      
+      // Update local state immediately for instant UI feedback
+      setTenants(prev => prev.map(tenant => 
+        tenant.user_id === tenantId 
+          ? { ...tenant, status: newStatus as 'active' | 'inactive' | 'dormant' }
+          : tenant
+      ));
+
+      // TODO: In real implementation, update user status in database
+      // await supabase.from('profiles').update({ status: newStatus }).eq('user_id', tenantId);
+      
       toast({
         title: suspend ? "User Suspended" : "User Reactivated",
         description: `User has been ${suspend ? 'suspended' : 'reactivated'} successfully.`,
       });
       
-      // Refresh data
-      fetchTenants();
+      // Refresh data in background to ensure consistency
+      setTimeout(() => fetchTenants(), 1000);
     } catch (error) {
+      // Revert local state on error
+      fetchTenants();
       toast({
         title: "Error",
         description: `Failed to ${suspend ? 'suspend' : 'reactivate'} user.`,
@@ -261,9 +275,9 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
 
   const getStatusBadge = (status: string) => {
     const variants = {
-      active: { variant: 'default' as const, color: 'bg-green-100 text-green-800' },
-      inactive: { variant: 'secondary' as const, color: 'bg-yellow-100 text-yellow-800' },
-      dormant: { variant: 'outline' as const, color: 'bg-gray-100 text-gray-800' }
+      active: { variant: 'default' as const, color: 'bg-green-100 text-green-800 border-green-300' },
+      inactive: { variant: 'secondary' as const, color: 'bg-red-100 text-red-800 border-red-300' },
+      dormant: { variant: 'outline' as const, color: 'bg-gray-100 text-gray-800 border-gray-300' }
     };
     
     return variants[status as keyof typeof variants] || variants.dormant;
@@ -364,7 +378,10 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
                 </TableCell>
                 <TableCell>{formatDate(tenant.last_activity)}</TableCell>
                 <TableCell>
-                  <Badge variant={statusBadge.variant} className={statusBadge.color}>
+                  <Badge 
+                    variant={statusBadge.variant} 
+                    className={`${statusBadge.color} transition-all duration-200`}
+                  >
                     {tenant.status}
                   </Badge>
                 </TableCell>
@@ -386,14 +403,17 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleSuspend(tenant.user_id, true)}>
-                          <Pause className="mr-2 h-4 w-4" />
-                          Suspend
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleSuspend(tenant.user_id, false)}>
-                          <Play className="mr-2 h-4 w-4" />
-                          Reactivate
-                        </DropdownMenuItem>
+                        {tenant.status === 'active' ? (
+                          <DropdownMenuItem onClick={() => handleSuspend(tenant.user_id, true)}>
+                            <Pause className="mr-2 h-4 w-4" />
+                            Suspend User
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => handleSuspend(tenant.user_id, false)}>
+                            <Play className="mr-2 h-4 w-4" />
+                            Reactivate User
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

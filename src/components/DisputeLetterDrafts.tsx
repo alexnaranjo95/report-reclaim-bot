@@ -21,7 +21,23 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<string | null>(null);
   const [editContent, setEditContent] = useState<string>('');
+  const [loadingTimer, setLoadingTimer] = useState(0);
+  const [generationStage, setGenerationStage] = useState<string>('');
   const { toast } = useToast();
+
+  // Timer effect for loading state
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isGenerating) {
+      setLoadingTimer(0);
+      interval = setInterval(() => {
+        setLoadingTimer(prev => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isGenerating]);
 
   useEffect(() => {
     generateInitialLetters();
@@ -31,9 +47,13 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
     if (creditItems.length === 0) return;
     
     setIsGenerating(true);
+    setLoadingTimer(0);
+    setGenerationStage('Analyzing credit items...');
     const generatedLetters: DisputeLetter[] = [];
 
     try {
+      setGenerationStage('Grouping items by creditor and bureau...');
+      
       // Group items by creditor and bureau for targeted letters
       const creditorGroups = creditItems.reduce((groups, item) => {
         const key = item.creditor;
@@ -42,12 +62,22 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
         return groups;
       }, {} as Record<string, typeof creditItems>);
 
+      setGenerationStage('Generating dispute letters...');
+
       // Generate letters for each creditor
+      let letterCount = 0;
+      const totalLetters = Object.values(creditorGroups).reduce((total, items) => 
+        total + [...new Set(items.flatMap(item => item.bureau))].length, 0
+      );
+      
       for (const [creditor, items] of Object.entries(creditorGroups)) {
         const bureausAffected = [...new Set(items.flatMap(item => item.bureau))];
         
         // Generate separate letters for each bureau
         for (const bureau of bureausAffected) {
+          letterCount++;
+          setGenerationStage(`Generating letter ${letterCount}/${totalLetters} for ${creditor} - ${bureau}...`);
+          
           const bureauItems = items.filter(item => item.bureau.includes(bureau));
           const itemDescriptions = bureauItems.map(item => `${item.issue} (Account: ${item.account})`);
           
@@ -90,6 +120,8 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
       // Generate additional specialized letters
       const highImpactItems = creditItems.filter(item => item.impact === 'high');
       if (highImpactItems.length > 0) {
+        setGenerationStage('Generating comprehensive letter for high-impact items...');
+        
         // Generate a comprehensive letter for all high-impact items
         try {
           const comprehensiveContent = await OpenAIService.generateDisputeLetter(
@@ -112,13 +144,17 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
         }
       }
 
+      setGenerationStage('Finalizing letters...');
       setLetters(generatedLetters);
       console.log(`Generated ${generatedLetters.length} enhanced dispute letters`);
       
     } catch (error) {
       console.error('Error generating initial letters:', error);
+      setGenerationStage('Error occurred during generation');
     } finally {
       setIsGenerating(false);
+      setGenerationStage('');
+      setLoadingTimer(0);
     }
   };
 
@@ -274,16 +310,98 @@ Enclosures: Copy of credit report, Copy of ID`;
       </CardHeader>
       <CardContent>
         {isGenerating ? (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
-              Generating enhanced dispute letters with multiple AI calls for maximum accuracy...
+          <div className="space-y-6 py-8">
+            {/* Enhanced Loading Header with Timer */}
+            <div className="text-center space-y-4">
+              <div className="flex items-center justify-center gap-3">
+                <div className="relative">
+                  <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-2 w-2 bg-primary rounded-full animate-pulse"></div>
+                  </div>
+                </div>
+                <div className="text-lg font-semibold text-foreground">
+                  Generating Enhanced Dispute Letters
+                </div>
+              </div>
+              
+              {/* Active Timer Display */}
+              <div className="flex items-center justify-center gap-4 text-sm">
+                <div className="bg-primary/10 px-3 py-1 rounded-full border border-primary/20">
+                  <span className="text-primary font-mono">
+                    ⏱️ {Math.floor(loadingTimer / 60)}:{(loadingTimer % 60).toString().padStart(2, '0')}
+                  </span>
+                </div>
+                <div className="text-muted-foreground">
+                  Active Processing
+                </div>
+              </div>
             </div>
-            <div className="text-xs text-muted-foreground space-y-1">
-              <p>✓ Analyzing credit items and grouping by creditor/bureau</p>
-              <p>✓ Generating FCRA-compliant main letters</p>
-              <p>✓ Creating documentation requirements</p>
-              <p>✓ Enhancing letters with legal citations</p>
+
+            {/* Current Stage Display */}
+            <div className="bg-muted/30 rounded-lg p-4 border border-muted">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground mb-2">
+                <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                Current Stage:
+              </div>
+              <div className="text-sm text-muted-foreground">
+                {generationStage || 'Initializing AI analysis...'}
+              </div>
+            </div>
+
+            {/* Process Steps */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="space-y-2">
+                <div className="font-medium text-foreground">AI Enhancement Process:</div>
+                <div className="space-y-1 text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-success rounded-full"></div>
+                    Multiple OpenAI API calls per letter
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-success rounded-full"></div>
+                    FCRA-compliant template generation
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-success rounded-full"></div>
+                    Legal citation integration
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-success rounded-full"></div>
+                    Documentation requirements
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="font-medium text-foreground">Letter Organization:</div>
+                <div className="space-y-1 text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-warning rounded-full"></div>
+                    Grouping by creditor & bureau
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-warning rounded-full"></div>
+                    Individual targeted letters
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-warning rounded-full"></div>
+                    Comprehensive high-impact letters
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-warning rounded-full"></div>
+                    Professional formatting
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress Indicator */}
+            <div className="bg-primary/5 rounded-lg p-3 border border-primary/10">
+              <div className="flex items-center gap-2 text-xs text-primary">
+                <div className="animate-bounce">💳</div>
+                <span>Using premium AI models for maximum accuracy</span>
+                <div className="ml-auto animate-pulse">🔄</div>
+              </div>
             </div>
           </div>
         ) : letters.length > 0 ? (

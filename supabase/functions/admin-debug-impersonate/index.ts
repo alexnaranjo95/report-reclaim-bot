@@ -13,19 +13,25 @@ serve(async (req) => {
   }
 
   try {
-    // Only allow GET requests for debug
-    if (req.method !== 'GET') {
+    // Handle both GET and POST requests for debugging
+    let email: string;
+    
+    if (req.method === 'GET') {
+      const url = new URL(req.url);
+      email = url.searchParams.get('email') || '';
+    } else if (req.method === 'POST') {
+      const body = await req.json();
+      email = body.email || '';
+    } else {
       return new Response('Method not allowed', { status: 405, headers: corsHeaders });
     }
-
-    const url = new URL(req.url);
-    const email = url.searchParams.get('email');
 
     if (!email) {
       return new Response(
         JSON.stringify({ 
-          error: 'email query parameter is required',
-          example: '/admin-debug-impersonate?email=user@example.com'
+          error: 'email parameter is required',
+          example_get: '/admin-debug-impersonate?email=user@example.com',
+          example_post: '{ "email": "user@example.com" }'
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

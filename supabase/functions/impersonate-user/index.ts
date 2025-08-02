@@ -68,33 +68,65 @@ serve(async (req) => {
       );
     }
 
-    // Generate access token for the target user
-    const { data: tokenData, error: tokenError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
+    // Generate a session for the target user using admin.createUser approach
+    const { data: sessionData, error: sessionError } = await supabase.auth.admin.generateLink({
+      type: 'signup',
       email: targetProfile.email,
       options: {
-        redirectTo: `${req.headers.get('origin') || 'https://lovableproject.com'}/`
+        data: {
+          impersonated: true,
+          impersonated_by: adminUserId
+        }
       }
     });
 
-    if (tokenError) {
-      console.error('Error generating impersonation token:', tokenError);
+    if (sessionError) {
+      console.error('Error generating session link:', sessionError);
       return new Response(
-        JSON.stringify({ error: 'Failed to generate impersonation token' }),
+        JSON.stringify({ error: 'Failed to generate session link' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Extract access and refresh tokens from the magic link
-    const url = new URL(tokenData.properties.action_link);
-    const accessToken = url.searchParams.get('access_token');
-    const refreshToken = url.searchParams.get('refresh_token');
+    // Try to create a session directly using the admin API
+    const { data: userSession, error: userSessionError } = await supabase.auth.admin.generateLink({
+      type: 'recovery',
+      email: targetProfile.email
+    });
+
+    if (userSessionError) {
+      console.error('Error generating recovery link:', userSessionError);
+      return new Response(
+        JSON.stringify({ error: 'Failed to generate user session' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Extract tokens from the recovery link
+    const recoveryUrl = new URL(userSession.properties.action_link);
+    const accessToken = recoveryUrl.searchParams.get('access_token');
+    const refreshToken = recoveryUrl.searchParams.get('refresh_token');
 
     if (!accessToken || !refreshToken) {
-      console.error('Failed to extract tokens from magic link');
+      console.error('Failed to extract tokens from recovery link');
+      console.log('Recovery URL:', userSession.properties.action_link);
+      
+      // Fallback: return a simpler response that the client can handle
       return new Response(
-        JSON.stringify({ error: 'Failed to extract impersonation tokens' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ 
+          impersonation_url: userSession.properties.action_link,
+          user: {
+            id: targetUserId,
+            email: targetProfile.email,
+            display_name: targetProfile.display_name
+          }
+        }),
+        { 
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json' 
+          } 
+        }
       );
     }
 

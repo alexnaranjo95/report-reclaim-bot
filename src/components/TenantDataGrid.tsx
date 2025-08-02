@@ -46,6 +46,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { DashboardStats } from '@/components/DashboardStats';
 import Papa from 'papaparse';
 import useSWR from 'swr';
+import { useRole } from '@/hooks/useRole';
 
 interface TenantData {
   user_id: string;
@@ -78,6 +79,7 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth(); // Get current admin user
+  const { isSuperAdmin } = useRole();
 
   // Fetch metrics data with SWR
   const { data: metricsData, error: metricsError } = useSWR(
@@ -392,6 +394,43 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
     }
   };
 
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    if (!confirm(`Change role to "${newRole}"?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('user_roles')
+        .upsert({ 
+          user_id: userId, 
+          role: newRole as 'superadmin' | 'admin' | 'user'
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      // Update local state
+      setTenants(prev => prev.map(tenant => 
+        tenant.user_id === userId 
+          ? { ...tenant, role: newRole as 'superadmin' | 'admin' | 'user' }
+          : tenant
+      ));
+
+      toast({
+        title: "Role Updated",
+        description: `Role changed to ${newRole} successfully.`,
+      });
+      
+    } catch (error) {
+      console.error('Error updating role:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update role.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSort = (field: keyof TenantData) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
@@ -651,14 +690,30 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
                 </TableCell>
                 <TableCell>{tenant.email}</TableCell>
                 <TableCell>
-                  {(() => {
-                    const roleBadge = getRoleBadge(tenant.role);
-                    return (
-                      <Badge variant={roleBadge.variant} className={roleBadge.className}>
-                        {roleBadge.text}
-                      </Badge>
-                    );
-                  })()}
+                  {isSuperAdmin ? (
+                    <Select 
+                      value={tenant.role || 'user'} 
+                      onValueChange={(newRole) => handleRoleChange(tenant.user_id, newRole)}
+                    >
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="user">User</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="superadmin">Super Admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    (() => {
+                      const roleBadge = getRoleBadge(tenant.role);
+                      return (
+                        <Badge variant={roleBadge.variant} className={roleBadge.className}>
+                          {roleBadge.text}
+                        </Badge>
+                      );
+                    })()
+                  )}
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">Basic</Badge>

@@ -32,6 +32,7 @@ import { AdminMetrics } from '@/components/AdminMetrics';
 import { TenantDataGrid } from '@/components/TenantDataGrid';
 import { ImpersonationBanner } from '@/components/ImpersonationBanner';
 import { DataAIConfiguration } from '@/components/DataAIConfiguration';
+import { LogOut } from 'lucide-react';
 
 const Admin = () => {
   const navigate = useNavigate();
@@ -110,6 +111,21 @@ const Admin = () => {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      sessionStorage.clear();
+      navigate('/auth');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      toast({
+        title: "Error",
+        description: "Failed to log out. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (roleLoading) {
     return (
       <div className="min-h-screen bg-gradient-dashboard flex items-center justify-center">
@@ -135,9 +151,15 @@ const Admin = () => {
               </h1>
               <p className="text-muted-foreground">Monitor and control all customer instances</p>
             </div>
-            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-              Super Admin Access
-            </Badge>
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                Super Admin Access
+              </Badge>
+              <Button variant="outline" onClick={handleLogout} className="flex items-center gap-2">
+                <LogOut className="h-4 w-4" />
+                Log Out
+              </Button>
+            </div>
           </div>
         </div>
       </header>

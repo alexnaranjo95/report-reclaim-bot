@@ -110,6 +110,30 @@ export const DataAIConfiguration = () => {
     loadCurrentPrompt();
   }, []);
 
+  // Add effect to reload prompt when activeTab changes to templates
+  useEffect(() => {
+    if (activeTab === 'templates') {
+      loadCurrentPrompt();
+    }
+  }, [activeTab]);
+
+  // Add effect to reload prompt when page becomes visible again (tab changes, navigation)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && activeTab === 'templates') {
+        loadCurrentPrompt();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [activeTab]);
+
   const loadCurrentPrompt = async () => {
     try {
       const prompt = await AIPromptService.getCurrentPrompt();
@@ -328,7 +352,9 @@ export const DataAIConfiguration = () => {
     setAddingQuickTemplate(true);
     
     try {
-      const { error } = await supabase
+      console.log('Attempting to add quick template:', quickAddTemplate.trim());
+      
+      const { data, error } = await supabase
         .from('dispute_templates')
         .insert({
           name: `Quick Template ${new Date().toLocaleString()}`,
@@ -337,22 +363,28 @@ export const DataAIConfiguration = () => {
           tags: [],
           is_active: true,
           preference_weight: 1.0
-        });
+        })
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log('Template added successfully:', data);
 
       toast({
-        title: "Success",
+        title: "Success", 
         description: "Template added successfully",
       });
       
       setQuickAddTemplate('');
-      loadTemplates();
+      await loadTemplates(); // Wait for templates to reload
     } catch (error) {
       console.error('Error adding quick template:', error);
       toast({
         title: "Error",
-        description: "Failed to add template",
+        description: `Failed to add template: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       });
     } finally {
@@ -486,8 +518,15 @@ export const DataAIConfiguration = () => {
     if (!confirmed) return;
 
     try {
-      // Clear from database by saving empty prompt
-      await AIPromptService.savePromptVersion('', 'Reset', 'Prompt cleared by admin');
+      // Clear from database by deactivating current prompt
+      if (currentPrompt?.id) {
+        const { error } = await supabase
+          .from('admin_prompts')
+          .update({ is_active: false })
+          .eq('id', currentPrompt.id);
+        
+        if (error) throw error;
+      }
       
       setPromptBuilder('');
       setOriginalPromptText('');
@@ -752,9 +791,12 @@ export const DataAIConfiguration = () => {
                        </Button>
                      </div>
                      
-                     <p className="text-sm text-muted-foreground">
-                       Templates: {templates.length} | Active: {templates.filter(t => t.is_active).length}
-                     </p>
+                      <button 
+                        className="text-sm text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                        onClick={() => {/* Template viewer modal - placeholder for now */}}
+                      >
+                        Templates: {templates.length} | Active: {templates.filter(t => t.is_active).length}
+                      </button>
                    </CardContent>
                 </Card>
 

@@ -37,7 +37,7 @@ const Admin = () => {
   const navigate = useNavigate();
   const { isSuperAdmin, loading: roleLoading } = useRole();
   const { toast } = useToast();
-  const [activeView, setActiveView] = useState('overview');
+  const [activeView, setActiveView] = useState('clients');
   const [searchQuery, setSearchQuery] = useState('');
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [impersonatedUser, setImpersonatedUser] = useState<any>(null);
@@ -165,14 +165,6 @@ const Admin = () => {
         {/* Navigation Tabs */}
         <div className="flex items-center gap-4 border-b">
           <Button
-            variant={activeView === 'overview' ? 'default' : 'ghost'}
-            onClick={() => setActiveView('overview')}
-            className="flex items-center gap-2"
-          >
-            <TrendingUp className="h-4 w-4" />
-            Overview
-          </Button>
-          <Button
             variant={activeView === 'clients' ? 'default' : 'ghost'}
             onClick={() => setActiveView('clients')}
             className="flex items-center gap-2"
@@ -190,77 +182,14 @@ const Admin = () => {
           </Button>
         </div>
 
-        {/* Overview Tab */}
-        {activeView === 'overview' && (
-          <>
-            {/* System Metrics Dashboard */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <Card className="bg-gradient-card shadow-card">
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-primary/10 rounded-full">
-                      <Users className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Total Clients</p>
-                      <p className="text-2xl font-bold">247</p>
-                      <p className="text-xs text-green-600">+12 this month</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gradient-card shadow-card">
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-blue-500/10 rounded-full">
-                      <FileText className="h-6 w-6 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Letters Sent</p>
-                      <p className="text-2xl font-bold">1,847</p>
-                      <p className="text-xs text-green-600">+156 this week</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gradient-card shadow-card">
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-green-500/10 rounded-full">
-                      <DollarSign className="h-6 w-6 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Revenue (MTD)</p>
-                      <p className="text-2xl font-bold">$12,450</p>
-                      <p className="text-xs text-green-600">+8.2% from last month</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gradient-card shadow-card">
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-orange-500/10 rounded-full">
-                      <TrendingUp className="h-6 w-6 text-orange-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Success Rate</p>
-                      <p className="text-2xl font-bold">73%</p>
-                      <p className="text-xs text-green-600">+5% this quarter</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </>
-        )}
-
         {/* Client Management Tab */}
         {activeView === 'clients' && (
-          <Card className="bg-gradient-card shadow-card">
+          <>
+            {/* System Metrics Dashboard */}
+            <AdminMetrics />
+            
+            {/* Client Management Portal */}
+            <Card className="bg-gradient-card shadow-card">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -298,7 +227,8 @@ const Admin = () => {
                 }}
               />
             </CardContent>
-          </Card>
+            </Card>
+          </>
         )}
 
         {/* Data & AI Configuration Tab */}

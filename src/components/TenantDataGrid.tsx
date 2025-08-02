@@ -63,33 +63,39 @@ export const TenantDataGrid = ({ searchQuery, onImpersonate }: TenantDataGridPro
     try {
       setLoading(true);
       
-      // Fetch tenant data - in real implementation this would be a more complex query
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select(`
-          user_id,
-          display_name,
-          email,
-          created_at
-        `)
-        .limit(100);
+      // Fetch all users with real aggregated data
+      const { data: profilesWithStats, error } = await supabase.rpc('get_user_stats');
+      
+      if (error) {
+        console.error('Error fetching user stats:', error);
+        // Fallback to basic profiles query
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select(`
+            user_id,
+            display_name,
+            email,
+            created_at
+          `)
+          .order('created_at', { ascending: false });
 
-      if (profiles) {
-        // Simulate tenant data with some real and some mock data
-        const tenantsData: TenantData[] = profiles.map(profile => ({
-          user_id: profile.user_id,
-          display_name: profile.display_name || 'Unknown User',
-          email: profile.email || 'No email',
-          total_sessions: Math.floor(Math.random() * 5) + 1,
-          total_letters: Math.floor(Math.random() * 15) + 2,
-          letters_sent: Math.floor(Math.random() * 10) + 1,
-          last_activity: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
-          status: ['active', 'inactive', 'dormant'][Math.floor(Math.random() * 3)] as any,
-          active_rounds: Math.floor(Math.random() * 3),
-          user_created_at: profile.created_at
-        }));
-
-        setTenants(tenantsData);
+        if (profiles) {
+          const tenantsData: TenantData[] = profiles.map(profile => ({
+            user_id: profile.user_id,
+            display_name: profile.display_name || 'Unknown User',
+            email: profile.email || 'No email',
+            total_sessions: 0,
+            total_letters: 0,
+            letters_sent: 0,
+            last_activity: profile.created_at,
+            status: 'active' as any,
+            active_rounds: 0,
+            user_created_at: profile.created_at
+          }));
+          setTenants(tenantsData);
+        }
+      } else if (profilesWithStats) {
+        setTenants(profilesWithStats);
       }
     } catch (error) {
       console.error('Error fetching tenants:', error);

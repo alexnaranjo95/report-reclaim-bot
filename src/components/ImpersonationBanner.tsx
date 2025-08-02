@@ -79,8 +79,8 @@ export const ImpersonationBanner = () => {
         return;
       }
 
-      // Navigate back to admin
-      navigate('/admin');
+      // Navigate back to admin dashboard
+      navigate('/admin?tab=dashboard', { replace: true });
       
       toast({
         title: "Success",

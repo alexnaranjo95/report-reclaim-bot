@@ -462,6 +462,14 @@ export const DataAIConfiguration = () => {
                     <Upload className="h-4 w-4" />
                     {uploadingAddresses ? 'Uploading...' : 'Upload CSV'}
                   </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => window.open('/static/creditor_addresses_template.csv', '_blank')}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Template
+                  </Button>
                   <Button variant="outline" size="sm" className="flex items-center gap-2">
                     <Download className="h-4 w-4" />
                     Export

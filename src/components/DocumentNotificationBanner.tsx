@@ -143,7 +143,7 @@ export const DocumentNotificationBanner = () => {
           onClick={handleDismiss}
           className="h-8 w-8 p-0 text-amber-600 hover:text-amber-800"
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </Button>
       </div>
     </Alert>

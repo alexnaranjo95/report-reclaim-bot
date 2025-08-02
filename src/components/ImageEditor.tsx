@@ -35,7 +35,7 @@ export const ImageEditor = ({ isOpen, onClose, imageSrc, onSave, fileName }: Ima
       makeAspectCrop(
         {
           unit: '%',
-          width: 90,
+          width: 100,
         },
         1,
         width,

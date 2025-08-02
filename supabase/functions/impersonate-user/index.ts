@@ -96,7 +96,7 @@ serve(async (req) => {
     }
 
     // Extract OTP from the magic link data - skip parsing the URL entirely
-    const otp = linkData.properties?.otp;
+    const otp = linkData.properties?.email_otp || linkData.properties?.otp;
 
     if (!otp) {
       console.error('No OTP found in magic link data:', linkData);

@@ -63,11 +63,14 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
           return;
         }
         
-        if (data?.apiKey) {
-          console.log('Setting TinyMCE API key:', data.apiKey.substring(0, 10) + '...');
+        if (data?.apiKey && data.apiKey !== 'no-api-key') {
+          console.log('✅ Successfully retrieved TinyMCE API key:', data.apiKey.substring(0, 10) + '...');
           setTinyMCEApiKey(data.apiKey);
         } else {
-          console.log('No API key in response, using fallback');
+          console.log('❌ TinyMCE API key not available in response:', data);
+          if (data?.error) {
+            console.error('TinyMCE API key error:', data.error);
+          }
           setTinyMCEApiKey('no-api-key');
         }
       } catch (error) {

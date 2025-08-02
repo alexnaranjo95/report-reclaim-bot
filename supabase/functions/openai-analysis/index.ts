@@ -7,6 +7,10 @@ const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 const tinyMCEApiKey = Deno.env.get('TINYMCE_API_KEY');
 
 console.log('OpenAI API Key configured:', !!openAIApiKey);
+console.log('TinyMCE API Key configured:', !!tinyMCEApiKey);
+if (tinyMCEApiKey) {
+  console.log('TinyMCE API Key preview:', tinyMCEApiKey.substring(0, 10) + '...');
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,7 +46,19 @@ serve(async (req) => {
       } else if (action === 'getTinyMCEKey') {
         console.log('TinyMCE API key request received');
         console.log('TinyMCE API key configured:', !!tinyMCEApiKey);
-        return new Response(JSON.stringify({ apiKey: tinyMCEApiKey || 'no-api-key' }), {
+        console.log('TinyMCE API key value:', tinyMCEApiKey ? tinyMCEApiKey.substring(0, 10) + '...' : 'not found');
+        
+        if (!tinyMCEApiKey) {
+          console.error('TinyMCE API key not found in environment variables');
+          return new Response(JSON.stringify({ 
+            apiKey: 'no-api-key',
+            error: 'TinyMCE API key not configured'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        return new Response(JSON.stringify({ apiKey: tinyMCEApiKey }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

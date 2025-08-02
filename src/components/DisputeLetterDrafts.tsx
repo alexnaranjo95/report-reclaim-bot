@@ -16,6 +16,8 @@ import { LetterCostNotification } from './LetterCostNotification';
 
 interface DisputeLetterDraftsProps {
   creditItems: CreditItem[];
+  currentRound?: any;
+  sessionId?: string;
 }
 
 export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) => {

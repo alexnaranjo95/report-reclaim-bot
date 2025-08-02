@@ -538,7 +538,7 @@ Enclosures: Copy of credit report, Copy of ID`;
                             value={editContent}
                             onEditorChange={(content) => setEditContent(content)}
                             init={{
-                              height: 400,
+                              height: 600,
                               menubar: false,
                               plugins: [
                                 'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
@@ -606,13 +606,13 @@ Enclosures: Copy of credit report, Copy of ID`;
                     className="bg-gradient-primary text-white"
                     onClick={() => {
                       toast({
-                        title: "Send via Mail",
-                        description: "Mail sending integration ready for setup.",
+                        title: "Send Letter",
+                        description: "Postgrid mail service ready. Configure sender/recipient addresses to send.",
                       });
                     }}
                   >
                     <Send className="h-3 w-3 mr-1" />
-                    Send Letter
+                    Send via Postgrid
                   </Button>
                 </div>
 

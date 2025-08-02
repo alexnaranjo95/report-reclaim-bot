@@ -47,13 +47,17 @@ export interface ResponseLog {
 
 export class SessionService {
   static async createSession(name: string, analysisData: CreditAnalysisResult): Promise<Session> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     const { data, error } = await supabase
       .from('sessions')
       .insert([
         {
           name,
           status: 'active' as const,
-          analysis_data: analysisData as any
+          analysis_data: analysisData as any,
+          user_id: user.id
         }
       ])
       .select()
@@ -109,13 +113,17 @@ export class SessionService {
   }
 
   static async createRound(sessionId: string, roundNumber: number): Promise<Round> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     const { data, error } = await supabase
       .from('rounds')
       .insert([
         {
           session_id: sessionId,
           round_number: roundNumber,
-          status: 'active'
+          status: 'active',
+          user_id: user.id
         }
       ])
       .select()
@@ -179,6 +187,9 @@ export class SessionService {
       .single();
 
     if (currentRound) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+      
       await supabase
         .from('rounds')
         .insert([
@@ -186,16 +197,23 @@ export class SessionService {
             session_id: currentRound.session_id,
             round_number: currentRound.round_number + 1,
             status: 'waiting',
-            can_start_at: nextStartDate.toISOString()
+            can_start_at: nextStartDate.toISOString(),
+            user_id: user.id
           }
         ]);
     }
   }
 
   static async saveLetter(letter: Omit<Letter, 'id' | 'created_at' | 'updated_at'>): Promise<Letter> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     const { data, error } = await supabase
       .from('letters')
-      .insert([letter])
+      .insert([{
+        ...letter,
+        user_id: user.id
+      }])
       .select()
       .single();
 
@@ -242,9 +260,15 @@ export class SessionService {
   }
 
   static async saveResponseLog(log: Omit<ResponseLog, 'id' | 'created_at'>): Promise<ResponseLog> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     const { data, error } = await supabase
       .from('response_logs')
-      .insert([log])
+      .insert([{
+        ...log,
+        user_id: user.id
+      }])
       .select()
       .single();
 

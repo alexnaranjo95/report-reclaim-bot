@@ -1,7 +1,7 @@
 project_id = "rcrpqdhfawtpjicttgvx"
 
 [functions.openai-analysis]
-verify_jwt = false
+verify_jwt = true
 
 [functions.get-postgrid-key]
-verify_jwt = false
+verify_jwt = true

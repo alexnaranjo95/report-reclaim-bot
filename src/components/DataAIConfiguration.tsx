@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { AIPromptService } from '@/services/AIPromptService';
 import { 
   Upload, 
   Database, 
@@ -86,6 +87,8 @@ export const DataAIConfiguration = () => {
   const [quickAddTemplate, setQuickAddTemplate] = useState('');
   const [addingQuickTemplate, setAddingQuickTemplate] = useState(false);
   const [lastTrainedAt, setLastTrainedAt] = useState<string | null>(null);
+  const [isPromptLive, setIsPromptLive] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   
   // Settings state
   const [settings, setSettings] = useState<AdminSetting[]>([]);
@@ -108,15 +111,15 @@ export const DataAIConfiguration = () => {
 
   const loadCurrentPrompt = async () => {
     try {
-      const { data, error } = await supabase.functions.invoke('admin-prompts', {
-        method: 'GET'
-      });
-
-      if (error) throw error;
-      if (data?.data) {
-        setCurrentPrompt(data.data);
-        setPromptBuilder(data.data.prompt_text || '');
+      const currentPrompt = await AIPromptService.getCurrentPrompt();
+      if (currentPrompt) {
+        setCurrentPrompt(currentPrompt);
+        setPromptBuilder(currentPrompt.prompt_text || '');
       }
+      
+      // Check if prompt is live
+      const { isLive } = await AIPromptService.verifyPromptIsLive();
+      setIsPromptLive(isLive);
     } catch (error) {
       console.error('Error loading current prompt:', error);
     }
@@ -439,24 +442,20 @@ export const DataAIConfiguration = () => {
     }
 
     setSavingPrompt(true);
+    setIsCheckingStatus(true);
     
     try {
-      const { data, error } = await supabase.functions.invoke('admin-prompts', {
-        method: 'POST',
-        body: {
-          prompt_text: promptBuilder,
-          version_name: `Version ${new Date().toLocaleDateString()}`,
-          description: 'Admin-configured AI prompt'
-        }
-      });
-
-      if (error) throw error;
+      await AIPromptService.savePromptVersion(promptBuilder);
 
       toast({
         title: "Success",
         description: "Prompt saved & applied ✔︎",
         className: "bg-green-50 border-green-200 text-green-800",
       });
+      
+      // Poll for verification
+      const isLive = await AIPromptService.pollPromptStatus();
+      setIsPromptLive(isLive);
       
       loadCurrentPrompt();
     } catch (error) {
@@ -468,6 +467,7 @@ export const DataAIConfiguration = () => {
       });
     } finally {
       setSavingPrompt(false);
+      setIsCheckingStatus(false);
     }
   };
 
@@ -744,7 +744,21 @@ export const DataAIConfiguration = () => {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Prompt Builder</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    Prompt Builder
+                    {isPromptLive && (
+                      <Badge variant="default" className="bg-green-100 text-green-800 border-green-200 flex items-center gap-1">
+                        <CheckCircle className="h-3 w-3" />
+                        Prompt uploaded
+                      </Badge>
+                    )}
+                    {isCheckingStatus && (
+                      <Badge variant="outline" className="flex items-center gap-1">
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                        Saved, training...
+                      </Badge>
+                    )}
+                  </CardTitle>
                   <CardDescription>
                     Customize the AI prompt with additional rules and guidelines
                   </CardDescription>

@@ -26,25 +26,35 @@ interface MetricsData {
 }
 
 const fetcher = async (url: string): Promise<MetricsData> => {
-  // Simulate API call - in real implementation this would call the edge function
+  // Get real data from database
   const { data: sessions } = await supabase.from('sessions').select('*');
   const { data: letters } = await supabase.from('letters').select('*');
   const { data: rounds } = await supabase.from('rounds').select('*');
+  const { data: profiles } = await supabase.from('profiles').select('*');
   
   const lettersSent = letters?.filter(l => l.status === 'sent').length || 0;
-  const activeUsers = sessions?.length || 0;
+  const activeUsers = profiles?.length || 0; // Use total registered users
   const disputesDrafted = letters?.filter(l => l.status === 'draft').length || 0;
-  const disputesResolved = Math.floor(lettersSent * 0.7); // 70% success rate simulation
+  const disputesResolved = rounds?.filter(r => r.status === 'completed').length || 0;
   
-  // Generate mock daily revenue data for the last 30 days
-  const dailyRevenue = Array.from({ length: 30 }, (_, i) => {
+  // Generate real daily data based on actual letter creation dates
+  const last30Days = Array.from({ length: 30 }, (_, i) => {
     const date = new Date();
     date.setDate(date.getDate() - (29 - i));
-    const letters = Math.floor(Math.random() * 20) + 5;
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+    
+    const dailyLetters = letters?.filter(l => {
+      const letterDate = new Date(l.created_at);
+      return letterDate >= dayStart && letterDate <= dayEnd;
+    }).length || 0;
+    
     return {
       date: date.toISOString().split('T')[0],
-      revenue: letters * 2.5, // $2.50 per letter
-      letters
+      revenue: dailyLetters * 2.5, // $2.50 per letter
+      letters: dailyLetters
     };
   });
 
@@ -62,7 +72,7 @@ const fetcher = async (url: string): Promise<MetricsData> => {
     disputesResolved,
     activeUsers,
     totalRevenue: lettersSent * 2.5,
-    dailyRevenue,
+    dailyRevenue: last30Days,
     disputeStatus
   };
 };
@@ -120,42 +130,42 @@ export const AdminMetrics = () => {
     {
       title: "Total Revenue",
       value: `$${metrics?.totalRevenue?.toFixed(2) || '0.00'}`,
-      change: "+12.5%",
+      change: metrics?.totalRevenue ? `$${metrics.totalRevenue.toFixed(2)} total` : "No data",
       icon: DollarSign,
       color: "text-green-600"
     },
     {
       title: "Letters Sent",
       value: metrics?.lettersSent?.toString() || '0',
-      change: "+8.2%",
+      change: `${metrics?.disputesDrafted || 0} drafts`,
       icon: Mail,
       color: "text-blue-600"
     },
     {
-      title: "Active Users",
+      title: "Active Users", 
       value: metrics?.activeUsers?.toString() || '0',
-      change: "+5.7%",
+      change: "Total registered",
       icon: Users,
       color: "text-purple-600"
     },
     {
       title: "Draft Rounds",
       value: metrics?.disputesDrafted?.toString() || '0',
-      change: "+3.1%",
+      change: "Awaiting review",
       icon: FileText,
       color: "text-orange-600"
     },
     {
-      title: "Avg. Time-to-Send",
-      value: "2.3 days",
-      change: "-0.5 days",
+      title: "Resolved Cases",
+      value: metrics?.disputesResolved?.toString() || '0',
+      change: "Completed rounds",
       icon: Clock,
       color: "text-emerald-600"
     },
     {
       title: "Success Rate",
-      value: metrics ? `${Math.round((metrics.disputesResolved / metrics.lettersSent) * 100)}%` : '0%',
-      change: "+2.1%",
+      value: metrics && metrics.lettersSent > 0 ? `${Math.round((metrics.disputesResolved / metrics.lettersSent) * 100)}%` : '0%',
+      change: `${metrics?.disputesResolved || 0}/${metrics?.lettersSent || 0} resolved`,
       icon: TrendingUp,
       color: "text-rose-600"
     }
@@ -172,8 +182,8 @@ export const AdminMetrics = () => {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">{kpi.title}</p>
                   <p className="text-2xl font-bold">{kpi.value}</p>
-                  <p className={`text-xs ${kpi.change.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
-                    {kpi.change} from last month
+                  <p className="text-xs text-muted-foreground">
+                    {kpi.change}
                   </p>
                 </div>
                 <kpi.icon className={`h-8 w-8 ${kpi.color}`} />

@@ -37,7 +37,7 @@ const Admin = () => {
   const navigate = useNavigate();
   const { isSuperAdmin, loading: roleLoading } = useRole();
   const { toast } = useToast();
-  const [activeView, setActiveView] = useState('clients');
+  const [activeView, setActiveView] = useState('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [isImpersonating, setIsImpersonating] = useState(false);
   const [impersonatedUser, setImpersonatedUser] = useState<any>(null);
@@ -136,23 +136,11 @@ const Admin = () => {
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => navigate('/')}
-                className="flex items-center gap-2"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back to Dashboard
-              </Button>
-              <div className="h-6 w-px bg-border" />
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                  Super Admin Portal
-                </h1>
-                <p className="text-muted-foreground">Monitor and control all customer instances</p>
-              </div>
+            <div>
+              <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                Super Admin Portal
+              </h1>
+              <p className="text-muted-foreground">Monitor and control all customer instances</p>
             </div>
             <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
               Super Admin Access
@@ -164,6 +152,14 @@ const Admin = () => {
       <div className="container mx-auto px-6 py-8 space-y-6">
         {/* Navigation Tabs */}
         <div className="flex items-center gap-4 border-b">
+          <Button
+            variant={activeView === 'dashboard' ? 'default' : 'ghost'}
+            onClick={() => setActiveView('dashboard')}
+            className="flex items-center gap-2"
+          >
+            <TrendingUp className="h-4 w-4" />
+            Dashboard
+          </Button>
           <Button
             variant={activeView === 'clients' ? 'default' : 'ghost'}
             onClick={() => setActiveView('clients')}
@@ -182,12 +178,14 @@ const Admin = () => {
           </Button>
         </div>
 
+        {/* Dashboard Tab */}
+        {activeView === 'dashboard' && (
+          <AdminMetrics />
+        )}
+
         {/* Client Management Tab */}
         {activeView === 'clients' && (
           <>
-            {/* System Metrics Dashboard */}
-            <AdminMetrics />
-            
             {/* Client Management Portal */}
             <Card className="bg-gradient-card shadow-card">
             <CardHeader>

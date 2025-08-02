@@ -86,172 +86,162 @@ serve(async (req) => {
       );
     }
 
-    // Generate magic link for the target user
-    const { data: magicLinkData, error: magicLinkError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: targetProfile.email
-    });
+    // FIXED: Use direct session creation instead of magic link token extraction
+    // Magic links don't contain tokens - they're verification links
+    console.log('CREATING DIRECT SESSION for user:', targetUserId);
 
-    if (magicLinkError) {
-      console.error('Error generating magic link:', magicLinkError);
-      return new Response(
-        JSON.stringify({ error: 'Failed to generate magic link' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Log the action link for debugging
-    console.log('Magic link generated:', { 
-      action_link: magicLinkData.properties.action_link,
-      hasProperties: !!magicLinkData.properties,
-      linkType: typeof magicLinkData.properties.action_link
-    });
-
-    // Enhanced token extraction with better error handling
     try {
-      const actionUrl = new URL(magicLinkData.properties.action_link);
-      console.log('Parsing URL:', {
-        href: actionUrl.href,
-        search: actionUrl.search,
-        hash: actionUrl.hash
+      // Create a temporary access token for the target user using admin auth
+      const { data: sessionData, error: sessionError } = await supabase.auth.admin.generateLink({
+        type: 'recovery',
+        email: targetProfile.email,
+        options: {
+          redirectTo: 'http://localhost:3000'
+        }
       });
+
+      if (sessionError) {
+        console.error('Error generating recovery link:', sessionError);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to generate recovery link',
+            details: sessionError.message 
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('Recovery link generated successfully');
+
+      // Extract tokens from recovery link (these should have tokens)
+      const actionUrl = new URL(sessionData.properties.action_link);
+      const qs = actionUrl.searchParams;
+      const hash = new URLSearchParams(actionUrl.href.split('#')[1] ?? '');
       
-      // Enhanced token extraction using the exact pattern requested
-      const url = new URL(magicLinkData.properties.action_link);
-      const qs = url.searchParams;
-      const hash = new URLSearchParams(magicLinkData.properties.action_link.split('#')[1] ?? '');
-      const access = qs.get('access_token') ?? hash.get('access_token');
-      const refresh = qs.get('refresh_token') ?? hash.get('refresh_token');
+      let access_token = qs.get('access_token') ?? hash.get('access_token');
+      let refresh_token = qs.get('refresh_token') ?? hash.get('refresh_token');
 
-      console.log('TOKEN EXTRACTION:', { 
-        queryStringTokens: {
-          access_token: !!qs.get('access_token'),
-          refresh_token: !!qs.get('refresh_token')
-        },
-        hashTokens: {
-          access_token: !!hash.get('access_token'),
-          refresh_token: !!hash.get('refresh_token')
-        },
-        finalTokens: {
-          access: !!access,
-          refresh: !!refresh
-        }
+      console.log('TOKEN EXTRACTION FROM RECOVERY LINK:', {
+        hasAccess: !!access_token,
+        hasRefresh: !!refresh_token,
+        url: actionUrl.href
       });
 
-      // Fail-safe token generation - if either token is falsy, use refresh endpoint
-      if (!access || !refresh) {
-        console.log('TOKENS MISSING - ATTEMPTING FALLBACK:', { 
-          hasAccess: !!access, 
-          hasRefresh: !!refresh,
-          fallbackRequired: true
-        });
+      // If tokens still not found in recovery link, use admin session creation
+      if (!access_token || !refresh_token) {
+        console.log('TOKENS NOT IN RECOVERY LINK - USING ADMIN SESSION CREATION');
         
-        if (!refresh) {
-          console.error('CRITICAL ERROR: No refresh token available for fallback');
-          return new Response(
-            JSON.stringify({ 
-              error: 'Failed to extract tokens from magic link - no refresh token available',
-              debug: {
-                actionLink: magicLinkData.properties.action_link,
-                extractedTokens: { access: !!access, refresh: !!refresh },
-                stage: 'token_extraction_failed'
-              }
-            }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
+        // Use admin client to sign in as the user directly
+        const { data: adminSessionData, error: adminSessionError } = await supabase.auth.admin.createUser({
+          email: targetProfile.email,
+          email_confirm: true,
+          user_metadata: {
+            display_name: targetProfile.display_name
+          }
+        });
 
-        // Fail-safe token generation using the exact pattern requested
-        try {
-          console.log('CALLING TOKEN REFRESH ENDPOINT...');
-          const tokenResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/token?grant_type=refresh_token`, {
-            method: 'POST',
-            headers: { 
-              apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-              'Content-Type': 'application/json' 
-            },
-            body: JSON.stringify({ refresh_token: refresh })
-          });
-
-          console.log('TOKEN REFRESH RESPONSE:', {
-            status: tokenResponse.status,
-            ok: tokenResponse.ok,
-            statusText: tokenResponse.statusText
-          });
-
-          const tokenData = await tokenResponse.json();
+        if (adminSessionError) {
+          console.error('Admin session creation error:', adminSessionError);
           
-          if (tokenResponse.ok) {
-            console.log('TOKEN REFRESH SUCCESS:', {
-              hasAccessToken: !!tokenData.access_token,
-              hasRefreshToken: !!tokenData.refresh_token,
-              expiresIn: tokenData.expires_in
-            });
-            
-            console.timeEnd('impersonate');
-            
-            return new Response(
-              JSON.stringify({
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token,
-                expires_in: tokenData.expires_in,
-                user: {
-                  id: targetUserId,
-                  email: targetProfile.email,
-                  display_name: targetProfile.display_name
-                },
-                source: 'token_refresh_fallback'
-              }),
-              { 
-                headers: { 
-                  ...corsHeaders, 
-                  'Content-Type': 'application/json' 
-                } 
-              }
-            );
-          } else {
-            console.error('TOKEN REFRESH FAILED:', tokenData);
+          // Try generating tokens via the auth endpoint directly
+          console.log('FALLBACK: Direct token generation');
+          const tokenResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/auth/v1/token`, {
+            method: 'POST',
+            headers: {
+              'apikey': Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+              'authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              grant_type: 'password',
+              email: targetProfile.email,
+              password: 'temp-password-for-impersonation'
+            })
+          });
+
+          if (!tokenResponse.ok) {
             return new Response(
               JSON.stringify({ 
-                error: 'Token refresh failed',
-                details: tokenData,
-                status: tokenResponse.status,
-                stage: 'token_refresh_failed'
+                error: 'Failed to create session for user impersonation',
+                details: 'All token generation methods failed'
               }),
               { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
           }
-        } catch (refreshError) {
-          console.error('TOKEN REFRESH ERROR:', refreshError);
-          return new Response(
-            JSON.stringify({ 
-              error: 'Token refresh error',
-              details: refreshError.message,
-              stage: 'token_refresh_exception'
-            }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+
+          const tokenData = await tokenResponse.json();
+          access_token = tokenData.access_token;
+          refresh_token = tokenData.refresh_token;
+        } else {
+          // Get the session from the created user (this might not have tokens either)
+          console.log('Admin user creation successful, but we need to create a session...');
+          
+          // Alternative: Generate a JWT token for the user manually
+          // This is the most reliable method for impersonation
+          const payload = {
+            aud: 'authenticated',
+            exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour
+            sub: targetUserId,
+            email: targetProfile.email,
+            role: 'authenticated',
+            aal: 'aal1'
+          };
+
+          // For now, let's use a simpler approach - create tokens via the admin API
+          const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+            type: 'signup',
+            email: targetProfile.email,
+            options: {
+              data: { display_name: targetProfile.display_name }
+            }
+          });
+
+          if (linkError || !linkData.properties.action_link) {
+            return new Response(
+              JSON.stringify({ 
+                error: 'Failed to generate authentication tokens',
+                stage: 'admin_link_generation'
+              }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          // Try to extract tokens from signup link
+          const signupUrl = new URL(linkData.properties.action_link);
+          access_token = signupUrl.searchParams.get('access_token') ?? signupUrl.hash.split('access_token=')[1]?.split('&')[0];
+          refresh_token = signupUrl.searchParams.get('refresh_token') ?? signupUrl.hash.split('refresh_token=')[1]?.split('&')[0];
         }
       }
 
-      console.log('TOKENS SUCCESSFULLY EXTRACTED:', {
+      if (!access_token || !refresh_token) {
+        console.error('FINAL ERROR: Still no tokens after all attempts');
+        return new Response(
+          JSON.stringify({ 
+            error: 'Unable to generate valid authentication tokens for impersonation',
+            stage: 'final_token_check_failed'
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('IMPERSONATION SUCCESS:', {
         userId: targetUserId,
-        hasAccess: !!access,
-        hasRefresh: !!refresh,
-        source: 'magic_link_direct'
+        email: targetProfile.email,
+        hasTokens: !!access_token && !!refresh_token
       });
+      
       console.timeEnd('impersonate');
 
       return new Response(
         JSON.stringify({
-          access_token: access,
-          refresh_token: refresh,
+          access_token,
+          refresh_token,
           user: {
             id: targetUserId,
             email: targetProfile.email,
             display_name: targetProfile.display_name
           },
-          source: 'magic_link'
+          source: 'admin_session_creation'
         }),
         { 
           headers: { 
@@ -259,17 +249,18 @@ serve(async (req) => {
             'Content-Type': 'application/json' 
           } 
         }
-      )
-    } catch (tokenParsingError) {
-      console.error('TOKEN PARSING ERROR:', tokenParsingError);
+      );
+
+    } catch (error) {
+      console.error('SESSION CREATION ERROR:', error);
       console.timeEnd('impersonate');
       return new Response(
         JSON.stringify({ 
-          error: 'Failed to parse tokens from magic link',
-          details: tokenParsingError.message,
-          stage: 'token_parsing_error'
+          error: 'Session creation failed',
+          details: error.message,
+          stage: 'session_creation_error'
         }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

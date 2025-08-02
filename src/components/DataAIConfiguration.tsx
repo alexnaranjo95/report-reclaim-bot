@@ -361,8 +361,8 @@ export const DataAIConfiguration = () => {
         .insert({
           name: `Quick Template ${new Date().toLocaleString()}`,
           content: quickAddTemplate.trim(),
-          file_type: 'text',
-          tags: [],
+          file_type: 'txt',
+          tags: ['quick_add'],
           is_active: true,
           preference_weight: 1.0
         })

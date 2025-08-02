@@ -21,73 +21,140 @@ export const DisputeLetterDrafts = ({ creditItems }: DisputeLetterDraftsProps) =
   }, [creditItems]);
 
   const generateInitialLetters = async () => {
-    setIsGenerating(true);
+    if (creditItems.length === 0) return;
     
+    setIsGenerating(true);
+    const generatedLetters: DisputeLetter[] = [];
+
     try {
-      // Group items by creditor
-      const itemsByCreditor = creditItems.reduce((acc, item) => {
-        if (!acc[item.creditor]) {
-          acc[item.creditor] = [];
-        }
-        acc[item.creditor].push(item);
-        return acc;
-      }, {} as Record<string, CreditItem[]>);
+      // Group items by creditor and bureau for targeted letters
+      const creditorGroups = creditItems.reduce((groups, item) => {
+        const key = item.creditor;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(item);
+        return groups;
+      }, {} as Record<string, typeof creditItems>);
 
-      const newLetters: DisputeLetter[] = [];
-
-      for (const [creditor, items] of Object.entries(itemsByCreditor)) {
-        const bureaus = [...new Set(items.flatMap(item => item.bureau))];
+      // Generate letters for each creditor
+      for (const [creditor, items] of Object.entries(creditorGroups)) {
+        const bureausAffected = [...new Set(items.flatMap(item => item.bureau))];
         
-        for (const bureau of bureaus) {
+        // Generate separate letters for each bureau
+        for (const bureau of bureausAffected) {
           const bureauItems = items.filter(item => item.bureau.includes(bureau));
+          const itemDescriptions = bureauItems.map(item => `${item.issue} (Account: ${item.account})`);
           
-          let content = '';
           try {
-            content = await OpenAIService.generateDisputeLetter(
+            console.log(`Generating enhanced letter for ${creditor} - ${bureau}`);
+            
+            // Use multiple AI calls for better results
+            const letterContent = await OpenAIService.generateDisputeLetter(
               creditor,
-              bureauItems.map(item => item.issue),
+              itemDescriptions,
               'validation'
             );
-          } catch (error) {
-            console.error('AI letter generation failed:', error);
-            content = generateFallbackLetter(creditor, bureauItems);
-          }
 
-          newLetters.push({
-            id: `${creditor}-${bureau}`.toLowerCase().replace(/\s+/g, '-'),
-            creditor,
-            bureau,
-            items: bureauItems.map(item => item.issue),
-            content,
-            status: 'draft',
-            type: 'validation'
-          });
+            generatedLetters.push({
+              id: `letter-${creditor}-${bureau}-${Date.now()}`,
+              creditor,
+              bureau,
+              items: itemDescriptions,
+              content: letterContent,
+              status: 'ready',
+              type: 'validation'
+            });
+
+          } catch (error) {
+            console.error(`Error generating letter for ${creditor} - ${bureau}:`, error);
+            // Provide fallback letter if API fails
+            generatedLetters.push({
+              id: `letter-${creditor}-${bureau}-${Date.now()}`,
+              creditor,
+              bureau,
+              items: itemDescriptions,
+              content: generateFallbackLetter(creditor, bureauItems),
+              status: 'ready',
+              type: 'validation'
+            });
+          }
         }
       }
 
-      setLetters(newLetters);
+      // Generate additional specialized letters
+      const highImpactItems = creditItems.filter(item => item.impact === 'high');
+      if (highImpactItems.length > 0) {
+        // Generate a comprehensive letter for all high-impact items
+        try {
+          const comprehensiveContent = await OpenAIService.generateDisputeLetter(
+            'Multiple Creditors',
+            highImpactItems.map(item => `${item.creditor}: ${item.issue}`),
+            'comprehensive'
+          );
+
+          generatedLetters.push({
+            id: `comprehensive-${Date.now()}`,
+            creditor: 'Multiple Creditors',
+            bureau: 'All Bureaus',
+            items: highImpactItems.map(item => `${item.creditor}: ${item.issue}`),
+            content: comprehensiveContent,
+            status: 'ready',
+            type: 'comprehensive'
+          });
+        } catch (error) {
+          console.error('Error generating comprehensive letter:', error);
+        }
+      }
+
+      setLetters(generatedLetters);
+      console.log(`Generated ${generatedLetters.length} enhanced dispute letters`);
+      
     } catch (error) {
-      console.error('Error generating letters:', error);
+      console.error('Error generating initial letters:', error);
     } finally {
       setIsGenerating(false);
     }
   };
 
   const generateFallbackLetter = (creditor: string, items: CreditItem[]): string => {
-    return `Dear ${creditor},
+    return `[DATE]
 
-I am writing to formally dispute inaccurate information on my credit report. Upon reviewing my credit report, I have identified several items that are incorrectly reported and are negatively impacting my credit score.
+${creditor}
+Dispute Department
+[CREDITOR_ADDRESS]
 
-The following items require immediate attention and correction:
+RE: FCRA Section 623 Dispute - Request for Investigation and Validation
 
+Dear ${creditor} Dispute Department,
+
+I am writing to formally dispute the following inaccurate information that you have furnished to the credit reporting agencies regarding my account(s):
+
+DISPUTED ITEMS:
 ${items.map((item, index) => `${index + 1}. ${item.issue} - Account: ${item.account}`).join('\n')}
 
-I am requesting that you investigate these matters and provide proper documentation to support these claims. Under the Fair Credit Reporting Act (FCRA), I have the right to dispute inaccurate information and request validation.
+Pursuant to the Fair Credit Reporting Act (FCRA) Section 623(b), upon notification of a dispute, you are required to:
 
-Please remove or correct these items within 30 days as required by law.
+1. Conduct a reasonable investigation with respect to the disputed information
+2. Review all relevant information provided by the consumer
+3. Report the results of the investigation to the credit reporting agency
+4. Modify, delete, or permanently block the reporting of the information if found to be incomplete or inaccurate
+
+I am requesting that you:
+• Immediately investigate the above-mentioned items
+• Provide complete documentation supporting these entries
+• Remove these items if verification cannot be provided
+• Confirm in writing the actions taken within 30 days
+
+Please note that under FCRA Section 623(a)(1)(A), you are prohibited from furnishing information to credit reporting agencies that you know or have reasonable cause to believe is inaccurate.
+
+I look forward to your prompt attention to this matter. Please send your response to the address below within thirty (30) days of receipt of this letter.
 
 Sincerely,
-[Your Name]`;
+
+[YOUR_NAME]
+[YOUR_ADDRESS]
+[PHONE_NUMBER]
+
+Enclosures: Copy of credit report, Copy of ID`;
   };
 
   const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
@@ -103,16 +170,52 @@ Sincerely,
   };
 
   const getTypeColor = (type: string) => {
-    return type === 'bureau' ? 'bg-primary/10 text-primary' : 'bg-success/10 text-success';
+    switch (type) {
+      case 'validation': return 'bg-primary/10 text-primary';
+      case 'verification': return 'bg-secondary/10 text-secondary';
+      case 'goodwill': return 'bg-success/10 text-success';
+      case 'cease_and_desist': return 'bg-danger/10 text-danger';
+      case 'comprehensive': return 'bg-warning/10 text-warning';
+      case 'follow_up': return 'bg-info/10 text-info';
+      default: return 'bg-muted/10 text-muted-foreground';
+    }
   };
 
+  if (creditItems.length === 0) {
+    return (
+      <Card className="bg-gradient-card shadow-card">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            Enhanced Dispute Letter Generation
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8 text-muted-foreground">
+            <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p>Upload and analyze a credit report to generate professional dispute letters.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card className="bg-gradient-card shadow-elevated animate-fade-in">
+    <Card className="bg-gradient-card shadow-card">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="h-5 w-5 text-primary" />
-          Dispute Letters {isGenerating && '(Generating...)'}
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              Enhanced Dispute Letters ({letters.length})
+            </CardTitle>
+          </div>
+          {letters.length > 0 && (
+            <Badge variant="outline" className="px-3 py-1">
+              {isGenerating ? 'Generating...' : 'Ready to Send'}
+            </Badge>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">

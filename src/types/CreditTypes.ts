@@ -68,5 +68,5 @@ export interface DisputeLetter {
   items: string[];
   content: string;
   status: 'draft' | 'ready' | 'sent';
-  type: 'validation' | 'verification' | 'goodwill' | 'cease_and_desist';
+  type: 'validation' | 'verification' | 'goodwill' | 'cease_and_desist' | 'comprehensive' | 'follow_up';
 }

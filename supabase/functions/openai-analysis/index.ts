@@ -243,52 +243,167 @@ ${reportText}
 }
 
 async function generateDisputeLetter(creditor: string, items: string[], type: string) {
-  const prompt = `
-Generate a professional dispute letter for credit repair. 
+  // Enhanced dispute letter generation with multiple calls for accuracy
+  console.log('Generating enhanced dispute letter for:', { creditor, items, type });
+  
+  // First call: Generate the main dispute letter
+  const mainLetterPrompt = `
+Generate a professional, FCRA-compliant dispute letter for credit repair.
 
 Creditor: ${creditor}
 Items to dispute: ${items.join(', ')}
 Letter type: ${type}
 
-The letter should be:
-- Professional and formal
-- Specific about the disputed items
-- Request proper documentation/validation
-- Include consumer rights references
-- Be under 500 words
+REQUIREMENTS:
+- Professional business letter format
+- Reference FCRA Section 611 for investigations
+- Reference FCRA Section 623 for data furnisher responsibilities  
+- Include specific account details and dispute reasons
+- Request validation and verification
+- Set 30-day investigation timeline
+- Include consumer rights statements
+- Be assertive but professional
+- 400-600 words maximum
 
-Format as a complete business letter with proper headers and closing.
+Format as a complete business letter with:
+- Date placeholder: [DATE]
+- Address placeholders: [CONSUMER_NAME], [CONSUMER_ADDRESS]
+- Bureau/Creditor address placeholder: [BUREAU_ADDRESS]
+- Account-specific details
+- Professional closing
 `;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${openAIApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a credit repair expert who writes effective dispute letters that comply with FCRA regulations.'
+  // Second call: Generate supporting documentation requirements
+  const documentationPrompt = `
+For a credit dispute regarding ${creditor} with issues: ${items.join(', ')}, generate a list of supporting documentation that should be requested and included.
+
+Provide:
+1. Documents to request from creditor
+2. Documents consumer should gather
+3. Legal citations to include
+4. Timeline expectations
+5. Follow-up actions if no response
+
+Format as a structured list.
+`;
+
+  try {
+    // Multiple API calls for comprehensive results
+    const [mainLetterResponse, documentationResponse] = await Promise.all([
+      fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAIApiKey}`,
+          'Content-Type': 'application/json',
         },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
-      temperature: 0.3,
-      max_tokens: 1000
-    }),
-  });
+        body: JSON.stringify({
+          model: 'gpt-4.1-2025-04-14',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert credit repair attorney with 20+ years of experience writing FCRA-compliant dispute letters. Generate professional, legally sound letters that achieve maximum results.'
+            },
+            {
+              role: 'user',
+              content: mainLetterPrompt
+            }
+          ],
+          temperature: 0.3,
+          max_tokens: 1500
+        }),
+      }),
+      
+      fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAIApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1-2025-04-14',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a credit repair specialist who knows exactly what documentation and legal requirements are needed for successful disputes.'
+            },
+            {
+              role: 'user',
+              content: documentationPrompt
+            }
+          ],
+          temperature: 0.2,
+          max_tokens: 800
+        }),
+      })
+    ]);
 
-  const data = await response.json();
-  const letter = data.choices[0]?.message?.content || 'Error generating letter';
+    const [mainLetterData, documentationData] = await Promise.all([
+      mainLetterResponse.json(),
+      documentationResponse.json()
+    ]);
 
-  return new Response(JSON.stringify({ letter }), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+    const mainLetter = mainLetterData.choices[0]?.message?.content || 'Error generating main letter';
+    const documentation = documentationData.choices[0]?.message?.content || 'Error generating documentation list';
+
+    // Third call: Enhance and finalize the letter
+    const enhancementPrompt = `
+Take this dispute letter and enhance it with the documentation requirements. Make it more powerful and legally precise:
+
+MAIN LETTER:
+${mainLetter}
+
+DOCUMENTATION REQUIREMENTS:
+${documentation}
+
+Combine these into one comprehensive, professional dispute letter that includes:
+1. The main letter content
+2. Documentation requirements section
+3. Legal citations
+4. Timeline expectations
+5. Consequences of non-compliance
+
+Keep it under 800 words but make it highly effective.
+`;
+
+    const enhancementResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-2025-04-14',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a master credit repair expert. Create the most effective dispute letter possible by combining all provided elements into one powerful, professional document.'
+          },
+          {
+            role: 'user',
+            content: enhancementPrompt
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 2000
+      }),
+    });
+
+    const enhancementData = await enhancementResponse.json();
+    const finalLetter = enhancementData.choices[0]?.message?.content || mainLetter;
+
+    console.log('Enhanced dispute letter generated successfully');
+    return new Response(JSON.stringify({ letter: finalLetter }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+
+  } catch (error) {
+    console.error('Enhanced letter generation error:', error);
+    return new Response(JSON.stringify({ 
+      letter: `Professional Dispute Letter Template\n\n[This would be a comprehensive dispute letter for ${creditor} regarding: ${items.join(', ')}]\n\nDue to API limitations, please use the debug function to check logs for detailed error information.` 
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 }
 
 async function analyzePDFFile(file: File) {

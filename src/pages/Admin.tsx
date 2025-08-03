@@ -3,43 +3,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '@/components/ui/table';
-import { 
-  ArrowLeft, 
-  Search, 
-  Download, 
-  Play, 
-  Pause, 
-  Users, 
-  Mail, 
-  DollarSign, 
-  TrendingUp,
-  Clock,
-  FileText,
-  Brain
-} from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ArrowLeft, Search, Download, Play, Pause, Users, Mail, DollarSign, TrendingUp, Clock, FileText, Brain } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRole } from '@/hooks/useRole';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { AdminMetrics } from '@/components/AdminMetrics';
 import { TenantDataGrid } from '@/components/TenantDataGrid';
-
 import { DataAIConfiguration } from '@/components/DataAIConfiguration';
 import TemplateManager from '@/components/TemplateManager';
 import { LogOut } from 'lucide-react';
-
 const Admin = () => {
   const navigate = useNavigate();
-  const { isSuperAdmin, loading: roleLoading } = useRole();
-  const { toast } = useToast();
+  const {
+    isSuperAdmin,
+    loading: roleLoading
+  } = useRole();
+  const {
+    toast
+  } = useToast();
   const [activeView, setActiveView] = useState('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [isImpersonating, setIsImpersonating] = useState(false);
@@ -64,37 +47,35 @@ const Admin = () => {
         toast({
           title: "Access Denied",
           description: "You don't have permission to access the admin portal.",
-          variant: "destructive",
+          variant: "destructive"
         });
         navigate('/');
       }, 200);
       return () => clearTimeout(timer);
     }
   }, [isSuperAdmin, roleLoading, navigate, toast, isImpersonating]);
-
   const handleRevertImpersonation = async () => {
     try {
       const impersonationData = sessionStorage.getItem('impersonation_data');
       if (!impersonationData) return;
-
       const data = JSON.parse(impersonationData);
-      
+
       // Restore original admin session
-      const { error } = await supabase.auth.setSession({
+      const {
+        error
+      } = await supabase.auth.setSession({
         access_token: data.originalToken,
         refresh_token: data.originalRefreshToken
       });
-
       if (error) throw error;
 
       // Clear impersonation data
       sessionStorage.removeItem('impersonation_data');
       setIsImpersonating(false);
       setImpersonatedUser(null);
-
       toast({
         title: "Impersonation Ended",
-        description: "You've been returned to your admin account.",
+        description: "You've been returned to your admin account."
       });
 
       // Restore admin state if available
@@ -108,11 +89,10 @@ const Admin = () => {
       toast({
         title: "Error",
         description: "Failed to revert impersonation. Please refresh the page.",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -123,25 +103,19 @@ const Admin = () => {
       toast({
         title: "Error",
         description: "Failed to log out. Please try again.",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   if (roleLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-dashboard flex items-center justify-center">
+    return <div className="min-h-screen bg-gradient-dashboard flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
-      </div>
-    );
+      </div>;
   }
-
   if (!isSuperAdmin && !isImpersonating) {
     return null; // Will redirect via useEffect
   }
-
-  return (
-    <div className="min-h-screen bg-gradient-dashboard">
+  return <div className="min-h-screen bg-gradient-dashboard">
 
       {/* Header */}
       <header className="border-b bg-card/80 backdrop-blur-sm">
@@ -169,48 +143,29 @@ const Admin = () => {
       <div className="container mx-auto px-6 py-8 space-y-6">
         {/* Navigation Tabs */}
         <div className="flex items-center gap-4 border-b">
-          <Button
-            variant={activeView === 'dashboard' ? 'default' : 'ghost'}
-            onClick={() => setActiveView('dashboard')}
-            className="flex items-center gap-2"
-          >
+          <Button variant={activeView === 'dashboard' ? 'default' : 'ghost'} onClick={() => setActiveView('dashboard')} className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
             Dashboard
           </Button>
-          <Button
-            variant={activeView === 'clients' ? 'default' : 'ghost'}
-            onClick={() => setActiveView('clients')}
-            className="flex items-center gap-2"
-          >
+          <Button variant={activeView === 'clients' ? 'default' : 'ghost'} onClick={() => setActiveView('clients')} className="flex items-center gap-2">
             <Users className="h-4 w-4" />
             Client Management
           </Button>
-          <Button
-            variant={activeView === 'templates' ? 'default' : 'ghost'}
-            onClick={() => setActiveView('templates')}
-            className="flex items-center gap-2"
-          >
+          <Button variant={activeView === 'templates' ? 'default' : 'ghost'} onClick={() => setActiveView('templates')} className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
             Templates
           </Button>
-          <Button
-            variant={activeView === 'ai' ? 'default' : 'ghost'}
-            onClick={() => setActiveView('ai')}
-            className="flex items-center gap-2"
-          >
+          <Button variant={activeView === 'ai' ? 'default' : 'ghost'} onClick={() => setActiveView('ai')} className="flex items-center gap-2">
             <Brain className="h-4 w-4" />
             AI Training
           </Button>
         </div>
 
         {/* Dashboard Tab */}
-        {activeView === 'dashboard' && (
-          <AdminMetrics />
-        )}
+        {activeView === 'dashboard' && <AdminMetrics />}
 
         {/* Client Management Tab */}
-        {activeView === 'clients' && (
-          <>
+        {activeView === 'clients' && <>
             {/* Client Management Portal */}
             <Card className="bg-gradient-card shadow-card">
             <CardHeader>
@@ -227,40 +182,25 @@ const Admin = () => {
               </div>
             </CardHeader>
             <CardContent>
-              <TenantDataGrid 
-                searchQuery={searchQuery}
-                onImpersonate={(user) => {
-                  setIsImpersonating(true);
-                  setImpersonatedUser(user);
-                }}
-              />
+              <TenantDataGrid searchQuery={searchQuery} onImpersonate={user => {
+              setIsImpersonating(true);
+              setImpersonatedUser(user);
+            }} />
             </CardContent>
             </Card>
-          </>
-        )}
+          </>}
 
         {/* Templates Tab */}
-        {activeView === 'templates' && (
-          <Card className="bg-gradient-card shadow-card">
-            <CardHeader>
-              <CardTitle>Template Management System</CardTitle>
-              <CardDescription>
-                Manage letter layouts and round-specific templates with placeholder support
-              </CardDescription>
-            </CardHeader>
+        {activeView === 'templates' && <Card className="bg-gradient-card shadow-card">
+            
             <CardContent>
               <TemplateManager />
             </CardContent>
-          </Card>
-        )}
+          </Card>}
 
         {/* AI Training Tab */}
-        {activeView === 'ai' && (
-          <DataAIConfiguration />
-        )}
+        {activeView === 'ai' && <DataAIConfiguration />}
       </div>
-    </div>
-  );
+    </div>;
 };
-
 export default Admin;

@@ -185,44 +185,40 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
 
   const handleForceReparse = async () => {
     try {
-      toast.info('Running complete pipeline audit...');
+      toast.info('Processing credit report...');
       setLoading(true);
       
-      const { CompletePipelineAudit } = await import('@/services/CompletePipelineAudit');
-      
-      // Run complete audit with processing
-      const { processingResult, auditResults } = await CompletePipelineAudit.triggerProcessingAndAudit(reportId);
-      
-      // Display audit results
-      console.log('=== COMPLETE PIPELINE AUDIT RESULTS ===');
-      auditResults.forEach(result => {
-        console.log(`${result.phase}: ${result.success ? '✅' : '❌'} ${result.details}`);
-        if (result.data) {
-          console.log('Data:', result.data);
-        }
-      });
-      
-      // Check overall success
-      const failedPhases = auditResults.filter(r => !r.success);
-      
-      if (failedPhases.length === 0) {
-        toast.success('All phases successful! Data should now be visible.');
-        setTimeout(() => loadAnalysisData(), 1000);
-      } else {
-        console.log('=== FAILED PHASES ===');
-        failedPhases.forEach(phase => {
-          console.log(`❌ ${phase.phase}: ${phase.details}`);
-        });
-        
-        toast.error(`Pipeline audit found ${failedPhases.length} failed phases. Check console for details.`);
-        
-        // Still reload to show any partial success
-        setTimeout(() => loadAnalysisData(), 2000);
+      // Use the new working processing function
+      const { data: report } = await supabase
+        .from('credit_reports')
+        .select('file_path')
+        .eq('id', reportId)
+        .single();
+
+      if (!report?.file_path) {
+        toast.error('No file found to process');
+        return;
       }
+
+      // Call the new working processing function
+      const { data, error } = await supabase.functions.invoke('process-credit-report', {
+        body: { reportId, filePath: report.file_path }
+      });
+
+      if (error) {
+        toast.error(`Processing failed: ${error.message}`);
+        return;
+      }
+
+      toast.success('Processing completed! Data extracted successfully.');
+      console.log('Processing result:', data);
+      
+      // Wait a moment then reload data
+      setTimeout(() => loadAnalysisData(), 2000);
       
     } catch (error) {
-      console.error('Pipeline audit failed:', error);
-      toast.error('Pipeline audit failed');
+      console.error('Processing failed:', error);
+      toast.error('Processing failed');
     } finally {
       setLoading(false);
     }

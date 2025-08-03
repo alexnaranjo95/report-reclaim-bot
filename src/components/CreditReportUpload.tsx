@@ -170,8 +170,8 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
       // Trigger Adobe PDF extraction for PDF files
       if (uploadFile.file.type === 'application/pdf') {
         try {
-          console.log('Triggering Adobe extraction for report:', reportRecord.id);
-          const { data, error: extractError } = await supabase.functions.invoke('adobe-pdf-extract', {
+          console.log('Triggering credit report processing for report:', reportRecord.id);
+          const { data, error: extractError } = await supabase.functions.invoke('process-credit-report', {
             body: {
               reportId: reportRecord.id,
               filePath: storagePath,
@@ -179,26 +179,27 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
           });
 
           if (extractError) {
-            console.error('Adobe extraction error:', extractError);
+            console.error('Processing error:', extractError);
             // Update status to failed
             await supabase
               .from('credit_reports')
               .update({
                 extraction_status: 'failed',
-                processing_errors: extractError.message || 'Adobe extraction failed',
+                processing_errors: extractError.message || 'Processing failed',
               })
               .eq('id', reportRecord.id);
           } else {
-            console.log('Adobe extraction initiated successfully:', data);
+            console.log('Processing completed successfully:', data);
+            // Processing function handles status updates internally
           }
         } catch (extractError) {
-          console.error('Failed to trigger Adobe extraction:', extractError);
+          console.error('Failed to trigger processing:', extractError);
           // Update status to failed
           await supabase
             .from('credit_reports')
             .update({
               extraction_status: 'failed',
-              processing_errors: `Failed to trigger extraction: ${extractError.message}`,
+              processing_errors: `Failed to trigger processing: ${extractError.message}`,
             })
             .eq('id', reportRecord.id);
         }

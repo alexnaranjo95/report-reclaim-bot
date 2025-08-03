@@ -6,12 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { templateService, type TemplateLayout, type RoundTemplate } from '@/services/TemplateService';
-import { Plus, Edit, Trash2, Eye, Save, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, Save, X, FileText, Settings } from 'lucide-react';
 
 const TemplateManager: React.FC = () => {
   const [layouts, setLayouts] = useState<TemplateLayout[]>([]);
@@ -115,15 +116,17 @@ const TemplateManager: React.FC = () => {
     }
   };
 
-  const handlePreviewTemplate = (layout: TemplateLayout, content?: string) => {
+  const handlePreviewTemplate = (layout: TemplateLayout, content?: string, roundTemplate?: RoundTemplate) => {
     const sampleData = {
       date: new Date().toLocaleDateString(),
-      round: 1,
+      round: roundTemplate?.round_number || 1,
       client_name: 'John Doe',
       creditor_name: 'Sample Creditor',
       account_number: 'ACC123456',
       bureaus: 'Experian, Equifax, TransUnion',
-      body: content || 'Sample content body...'
+      body: content || 'Sample content body...',
+      reference_number: 'REF123456',
+      previous_date: '01/15/2024'
     };
 
     const compiled = templateService.compileTemplate(layout.content, content || 'Sample content', sampleData);
@@ -143,7 +146,7 @@ const TemplateManager: React.FC = () => {
       <Tabs defaultValue="layouts" className="space-y-6">
         <TabsList>
           <TabsTrigger value="layouts">Template Layouts</TabsTrigger>
-          <TabsTrigger value="rounds">Round Templates</TabsTrigger>
+          <TabsTrigger value="rounds">Round Templates (1-12)</TabsTrigger>
         </TabsList>
 
         <TabsContent value="layouts" className="space-y-4">
@@ -180,7 +183,7 @@ const TemplateManager: React.FC = () => {
 
         <TabsContent value="rounds" className="space-y-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold">Round Templates</h3>
+            <h3 className="text-lg font-semibold">Round Templates (1-12)</h3>
             <Button onClick={() => setIsCreatingRoundTemplate(true)}>
               <Plus className="w-4 h-4 mr-2" />
               Create Round Template
@@ -188,19 +191,26 @@ const TemplateManager: React.FC = () => {
           </div>
 
           <div className="grid gap-4">
-            {roundTemplates.map(template => (
-              <RoundTemplateCard
-                key={template.id}
-                template={template}
-                layouts={layouts}
-                isEditing={editingRoundTemplate?.id === template.id}
-                onEdit={() => setEditingRoundTemplate(template)}
-                onSave={(updates) => handleUpdateRoundTemplate(template.id, updates)}
-                onCancel={() => setEditingRoundTemplate(null)}
-                onDelete={() => handleDeleteRoundTemplate(template.id)}
-                onPreview={() => template.layout && handlePreviewTemplate(template.layout, template.content_template)}
-              />
-            ))}
+            {[...Array(12)].map((_, index) => {
+              const roundNumber = index + 1;
+              const template = roundTemplates.find(t => t.round_number === roundNumber);
+              
+              return (
+                <RoundTemplateCard
+                  key={roundNumber}
+                  template={template}
+                  roundNumber={roundNumber}
+                  layouts={layouts}
+                  isEditing={editingRoundTemplate?.id === template?.id}
+                  onEdit={() => template && setEditingRoundTemplate(template)}
+                  onSave={(updates) => template && handleUpdateRoundTemplate(template.id, updates)}
+                  onCancel={() => setEditingRoundTemplate(null)}
+                  onDelete={() => template && handleDeleteRoundTemplate(template.id)}
+                  onPreview={() => template?.layout && handlePreviewTemplate(template.layout, template.content_template, template)}
+                  onCreate={(templateData) => handleCreateRoundTemplate({ ...templateData, round_number: roundNumber })}
+                />
+              );
+            })}
           </div>
 
           {isCreatingRoundTemplate && (
@@ -214,21 +224,28 @@ const TemplateManager: React.FC = () => {
       </Tabs>
 
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Template Preview</DialogTitle>
-            <DialogDescription>Preview of compiled template with sample data</DialogDescription>
+            <DialogTitle>Document Preview</DialogTitle>
+            <DialogDescription>Preview of how the compiled template will appear when printed and sent via PostGrid</DialogDescription>
           </DialogHeader>
-          <div 
-            className="border rounded-lg p-4 bg-white text-black min-h-[400px]"
-            dangerouslySetInnerHTML={{ __html: previewTemplate }}
-          />
+          <div className="border rounded-lg bg-white shadow-lg">
+            <div className="bg-gray-50 px-4 py-2 border-b text-sm text-gray-600">
+              Print Preview - Letter Size (8.5" x 11")
+            </div>
+            <div 
+              className="p-8 bg-white text-black min-h-[800px] max-w-[680px] mx-auto"
+              style={{ fontFamily: 'Times, serif', fontSize: '12pt', lineHeight: '1.6' }}
+              dangerouslySetInnerHTML={{ __html: previewTemplate }}
+            />
+          </div>
         </DialogContent>
       </Dialog>
     </div>
   );
 };
 
+// Layout Card Component
 interface LayoutCardProps {
   layout: TemplateLayout;
   isEditing: boolean;
@@ -276,7 +293,7 @@ const LayoutCard: React.FC<LayoutCardProps> = ({ layout, isEditing, onEdit, onSa
               id="content"
               value={editData.content}
               onChange={(e) => setEditData({ ...editData, content: e.target.value })}
-              rows={10}
+              rows={12}
               placeholder="Use {{placeholders}} for dynamic content"
             />
           </div>
@@ -341,8 +358,10 @@ const LayoutCard: React.FC<LayoutCardProps> = ({ layout, isEditing, onEdit, onSa
   );
 };
 
+// Round Template Card Component
 interface RoundTemplateCardProps {
-  template: RoundTemplate;
+  template?: RoundTemplate;
+  roundNumber: number;
   layouts: TemplateLayout[];
   isEditing: boolean;
   onEdit: () => void;
@@ -350,41 +369,71 @@ interface RoundTemplateCardProps {
   onCancel: () => void;
   onDelete: () => void;
   onPreview: () => void;
+  onCreate: (templateData: Omit<RoundTemplate, 'id' | 'created_at' | 'updated_at' | 'round_number'>) => void;
 }
 
 const RoundTemplateCard: React.FC<RoundTemplateCardProps> = ({ 
   template, 
+  roundNumber,
   layouts, 
   isEditing, 
   onEdit, 
   onSave, 
   onCancel, 
   onDelete, 
-  onPreview 
+  onPreview,
+  onCreate
 }) => {
   const [editData, setEditData] = useState({
-    round_number: template.round_number,
-    layout_id: template.layout_id,
-    content_template: template.content_template,
-    is_active: template.is_active
+    layout_id: template?.layout_id || '',
+    content_template: template?.content_template || '',
+    is_active: template?.is_active ?? true,
+    tone_settings: template?.tone_settings || { aggression_level: 'standard' as const, tone: 'professional' as const },
+    append_documents: template?.append_documents || { proof_of_address: false, identity: false, social_security: false }
   });
 
-  if (isEditing) {
+  const [showCreateForm, setShowCreateForm] = useState(false);
+
+  const aggressionLevels = [
+    { value: 'polite', label: 'Polite & Respectful' },
+    { value: 'standard', label: 'Standard Professional' },
+    { value: 'firm', label: 'Firm & Direct' },
+    { value: 'aggressive', label: 'Aggressive & Legal' }
+  ] as const;
+
+  const toneOptions = [
+    { value: 'professional', label: 'Professional' },
+    { value: 'assertive', label: 'Assertive' },
+    { value: 'legal', label: 'Legal Notice' }
+  ] as const;
+
+  if (!template && !showCreateForm) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center justify-center py-8">
+          <FileText className="w-12 h-12 text-muted-foreground mb-4" />
+          <h3 className="font-semibold text-lg mb-2">Round {roundNumber}</h3>
+          <p className="text-muted-foreground text-center mb-4">No template configured for this round</p>
+          <Button onClick={() => setShowCreateForm(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Create Template
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (showCreateForm || isEditing) {
     return (
       <Card>
         <CardHeader>
+          <CardTitle>Round {roundNumber} Template</CardTitle>
+          <CardDescription>Configure template content and document append settings</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="round">Round Number</Label>
-              <Input
-                id="round"
-                type="number"
-                value={editData.round_number}
-                onChange={(e) => setEditData({ ...editData, round_number: parseInt(e.target.value) })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="layout">Layout</Label>
+              <Label htmlFor="layout">Layout Template</Label>
               <Select value={editData.layout_id} onValueChange={(value) => setEditData({ ...editData, layout_id: value })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select layout" />
@@ -398,17 +447,16 @@ const RoundTemplateCard: React.FC<RoundTemplateCardProps> = ({
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex items-center space-x-2 pt-6">
+              <Checkbox
+                id="active"
+                checked={editData.is_active}
+                onCheckedChange={(checked) => setEditData({ ...editData, is_active: !!checked })}
+              />
+              <Label htmlFor="active">Active template</Label>
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="active"
-              checked={editData.is_active}
-              onCheckedChange={(checked) => setEditData({ ...editData, is_active: !!checked })}
-            />
-            <Label htmlFor="active">Active template</Label>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+
           <div>
             <Label htmlFor="content">Template Content</Label>
             <Textarea
@@ -419,12 +467,118 @@ const RoundTemplateCard: React.FC<RoundTemplateCardProps> = ({
               placeholder="Use {{placeholders}} for dynamic content"
             />
           </div>
+
+          <div className="space-y-4">
+            <Label className="text-base font-semibold">Tone & Aggression Settings</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="aggression">Aggression Level</Label>
+                <Select 
+                  value={editData.tone_settings.aggression_level} 
+                  onValueChange={(value) => setEditData({ 
+                    ...editData, 
+                    tone_settings: { ...editData.tone_settings, aggression_level: value as any }
+                  })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {aggressionLevels.map(level => (
+                      <SelectItem key={level.value} value={level.value}>
+                        {level.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="tone">Tone Style</Label>
+                <Select 
+                  value={editData.tone_settings.tone} 
+                  onValueChange={(value) => setEditData({ 
+                    ...editData, 
+                    tone_settings: { ...editData.tone_settings, tone: value as any }
+                  })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {toneOptions.map(tone => (
+                      <SelectItem key={tone.value} value={tone.value}>
+                        {tone.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-4">
+            <Label className="text-base font-semibold">Document Attachments</Label>
+            <p className="text-sm text-muted-foreground">
+              Select which documents to automatically append to letters sent via PostGrid
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="proof_address"
+                  checked={editData.append_documents.proof_of_address}
+                  onCheckedChange={(checked) => setEditData({ 
+                    ...editData, 
+                    append_documents: { ...editData.append_documents, proof_of_address: !!checked }
+                  })}
+                />
+                <Label htmlFor="proof_address" className="text-sm">Proof of Address</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="identity"
+                  checked={editData.append_documents.identity}
+                  onCheckedChange={(checked) => setEditData({ 
+                    ...editData, 
+                    append_documents: { ...editData.append_documents, identity: !!checked }
+                  })}
+                />
+                <Label htmlFor="identity" className="text-sm">Identity Document</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="social_security"
+                  checked={editData.append_documents.social_security}
+                  onCheckedChange={(checked) => setEditData({ 
+                    ...editData, 
+                    append_documents: { ...editData.append_documents, social_security: !!checked }
+                  })}
+                />
+                <Label htmlFor="social_security" className="text-sm">Social Security</Label>
+              </div>
+            </div>
+          </div>
+
           <div className="flex gap-2">
-            <Button onClick={() => onSave(editData)} size="sm">
+            <Button onClick={() => {
+              if (template) {
+                onSave(editData);
+              } else {
+                onCreate(editData);
+                setShowCreateForm(false);
+              }
+            }} size="sm">
               <Save className="w-4 h-4 mr-1" />
-              Save
+              {template ? 'Save' : 'Create'}
             </Button>
-            <Button onClick={onCancel} variant="outline" size="sm">
+            <Button onClick={() => {
+              if (template) {
+                onCancel();
+              } else {
+                setShowCreateForm(false);
+              }
+            }} variant="outline" size="sm">
               <X className="w-4 h-4 mr-1" />
               Cancel
             </Button>
@@ -442,6 +596,12 @@ const RoundTemplateCard: React.FC<RoundTemplateCardProps> = ({
             <CardTitle className="flex items-center gap-2">
               Round {template.round_number}
               {template.is_active && <Badge variant="secondary">Active</Badge>}
+              <Badge variant="outline" className="text-xs">
+                {template.tone_settings?.aggression_level || 'standard'}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {template.tone_settings?.tone || 'professional'}
+              </Badge>
             </CardTitle>
             <CardDescription>
               Layout: {template.layout?.name || 'Unknown'} | 
@@ -462,14 +622,39 @@ const RoundTemplateCard: React.FC<RoundTemplateCardProps> = ({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-sm text-muted-foreground max-h-24 overflow-hidden">
-          {template.content_template.substring(0, 200)}...
+        <div className="space-y-4">
+          <div className="text-sm text-muted-foreground max-h-24 overflow-hidden">
+            {template.content_template.substring(0, 200)}...
+          </div>
+          
+          {template.append_documents && (
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Auto-Append Documents:</Label>
+              <div className="flex flex-wrap gap-2">
+                {template.append_documents.proof_of_address && (
+                  <Badge variant="outline" className="text-xs">Proof of Address</Badge>
+                )}
+                {template.append_documents.identity && (
+                  <Badge variant="outline" className="text-xs">Identity</Badge>
+                )}
+                {template.append_documents.social_security && (
+                  <Badge variant="outline" className="text-xs">Social Security</Badge>
+                )}
+                {!template.append_documents.proof_of_address && 
+                 !template.append_documents.identity && 
+                 !template.append_documents.social_security && (
+                  <span className="text-sm text-muted-foreground">None</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
   );
 };
 
+// Create Layout Dialog Component  
 interface CreateLayoutDialogProps {
   onSave: (data: Omit<TemplateLayout, 'id' | 'created_at' | 'updated_at'>) => void;
   onCancel: () => void;
@@ -519,7 +704,7 @@ const CreateLayoutDialog: React.FC<CreateLayoutDialogProps> = ({ onSave, onCance
               id="content"
               value={formData.content}
               onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-              rows={10}
+              rows={12}
               required
             />
           </div>
@@ -541,6 +726,7 @@ const CreateLayoutDialog: React.FC<CreateLayoutDialogProps> = ({ onSave, onCance
   );
 };
 
+// Create Round Template Dialog Component
 interface CreateRoundTemplateDialogProps {
   layouts: TemplateLayout[];
   onSave: (data: Omit<RoundTemplate, 'id' | 'created_at' | 'updated_at'>) => void;
@@ -552,7 +738,9 @@ const CreateRoundTemplateDialog: React.FC<CreateRoundTemplateDialogProps> = ({ l
     round_number: 1,
     layout_id: '',
     content_template: '',
-    is_active: true
+    is_active: true,
+    tone_settings: { aggression_level: 'standard' as const, tone: 'professional' as const },
+    append_documents: { proof_of_address: false, identity: false, social_security: false }
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -573,6 +761,8 @@ const CreateRoundTemplateDialog: React.FC<CreateRoundTemplateDialogProps> = ({ l
               <Input
                 id="round"
                 type="number"
+                min="1"
+                max="12"
                 value={formData.round_number}
                 onChange={(e) => setFormData({ ...formData, round_number: parseInt(e.target.value) })}
                 required

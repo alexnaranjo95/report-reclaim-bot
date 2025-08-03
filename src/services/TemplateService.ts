@@ -21,6 +21,15 @@ export interface RoundTemplate {
   updated_at: string;
   created_by?: string;
   layout?: TemplateLayout;
+  tone_settings?: {
+    aggression_level: 'polite' | 'standard' | 'firm' | 'aggressive';
+    tone: 'professional' | 'assertive' | 'legal';
+  };
+  append_documents?: {
+    proof_of_address: boolean;
+    identity: boolean;
+    social_security: boolean;
+  };
 }
 
 export interface TemplateData {
@@ -80,7 +89,7 @@ class TemplateService {
       throw error;
     }
 
-    return data || [];
+    return (data || []).map(this.transformRoundTemplate);
   }
 
   async getRoundTemplate(roundNumber: number): Promise<RoundTemplate | null> {
@@ -99,7 +108,7 @@ class TemplateService {
       return null;
     }
 
-    return data;
+    return data ? this.transformRoundTemplate(data) : null;
   }
 
   async createTemplateLayout(layout: Omit<TemplateLayout, 'id' | 'created_at' | 'updated_at'>): Promise<TemplateLayout> {
@@ -157,7 +166,7 @@ class TemplateService {
       throw error;
     }
 
-    return data;
+    return this.transformRoundTemplate(data);
   }
 
   async updateRoundTemplate(id: string, updates: Partial<RoundTemplate>): Promise<RoundTemplate> {
@@ -173,7 +182,7 @@ class TemplateService {
       throw error;
     }
 
-    return data;
+    return this.transformRoundTemplate(data);
   }
 
   async deleteRoundTemplate(id: string): Promise<void> {
@@ -211,6 +220,14 @@ class TemplateService {
     return matches
       .map(match => match.replace(/\{\{|\}\}/g, '').trim())
       .filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+  }
+
+  private transformRoundTemplate(data: any): RoundTemplate {
+    return {
+      ...data,
+      tone_settings: data.tone_settings || { aggression_level: 'standard', tone: 'professional' },
+      append_documents: data.append_documents || { proof_of_address: false, identity: false, social_security: false }
+    };
   }
 
   async getCompiledLetterForRound(roundNumber: number, data: TemplateData): Promise<string | null> {

@@ -81,7 +81,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     if (!template?.id) return;
     
     try {
-      const settings = await DocumentAppendService.loadRoundAppendSettings(template.id);
+      const settings = await DocumentAppendService.loadTemplateAppendSettings(template.id);
       setDocumentSettings(settings);
     } catch (error) {
       console.error('Error loading document settings:', error);

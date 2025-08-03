@@ -155,7 +155,15 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
       setIsSaving(prev => ({ ...prev, [key]: true }));
       
       try {
-        await DocumentAppendService.saveRoundAppendSettings(roundId, newSettings);
+        // Check if this is a template ID (for template editor) or round ID
+        // Template IDs are passed as roundId in template editor context
+        if (isAdmin) {
+          // In template editor, save to template settings
+          await DocumentAppendService.saveTemplateAppendSettings(roundId, newSettings);
+        } else {
+          // In round editor, save to round settings
+          await DocumentAppendService.saveRoundAppendSettings(roundId, newSettings);
+        }
         toast.success(`Document setting saved`, { duration: 2000 });
       } catch (error) {
         // Revert the change on error

@@ -54,6 +54,64 @@ export class DocumentAppendService {
   }
 
   /**
+   * Save append settings for a template (for template editor)
+   */
+  static async saveTemplateAppendSettings(
+    templateId: string, 
+    settings: DocumentAppendSettings
+  ): Promise<void> {
+    // Store template append settings in a separate table or as metadata
+    // Since we don't have a specific template append settings table, 
+    // we'll create one or use admin_settings
+    const settingKey = `template_append_settings_${templateId}`;
+    
+    const { error } = await supabase
+      .from('admin_settings')
+      .upsert({
+        setting_key: settingKey,
+        setting_value: settings as any,
+        description: `Document append settings for template ${templateId}`
+      }, { onConflict: 'setting_key' });
+
+    if (error) {
+      throw new Error(`Failed to save template append settings: ${error.message}`);
+    }
+  }
+
+  /**
+   * Load append settings for a template (for template editor)
+   */
+  static async loadTemplateAppendSettings(templateId: string): Promise<DocumentAppendSettings> {
+    const settingKey = `template_append_settings_${templateId}`;
+    
+    const { data, error } = await supabase
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', settingKey)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Failed to load template append settings: ${error.message}`);
+    }
+
+    if (!data?.setting_value) {
+      // Return default settings if none exist
+      return {
+        includeGovId: false,
+        includeProofOfAddress: false,
+        includeSSN: false
+      };
+    }
+
+    const settings = data.setting_value as any;
+    return {
+      includeGovId: settings?.includeGovId || false,
+      includeProofOfAddress: settings?.includeProofOfAddress || false,
+      includeSSN: settings?.includeSSN || false
+    };
+  }
+
+  /**
    * Get stored admin example documents
    */
   static async getAdminExampleDocs(): Promise<AdminExampleDoc[]> {

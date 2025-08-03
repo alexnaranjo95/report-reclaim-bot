@@ -66,6 +66,14 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
 
   useEffect(() => {
     loadAnalysisData();
+    
+    // Auto-refresh every 3 seconds to catch newly processed data
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing credit report data...');
+      loadAnalysisData();
+    }, 3000);
+    
+    return () => clearInterval(interval);
   }, [reportId]);
 
   const loadAnalysisData = async () => {

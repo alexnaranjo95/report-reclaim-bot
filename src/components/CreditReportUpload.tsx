@@ -170,7 +170,15 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
       // Trigger Adobe PDF extraction for PDF files
       if (uploadFile.file.type === 'application/pdf') {
         try {
-          console.log('Triggering credit report processing for report:', reportRecord.id);
+          console.log('=== TRIGGERING AUTOMATIC PROCESSING ===');
+          console.log('Report ID:', reportRecord.id);
+          console.log('File Path:', storagePath);
+          
+          // Update UI to show processing
+          setUploadFiles(prev => 
+            prev.map(f => f.id === uploadFile.id ? { ...f, status: 'processing', progress: 50 } : f)
+          );
+
           const { data, error: extractError } = await supabase.functions.invoke('process-credit-report', {
             body: {
               reportId: reportRecord.id,

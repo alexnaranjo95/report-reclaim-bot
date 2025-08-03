@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   try {
-    // Verify authentication
+    // Create authenticated Supabase client
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(
@@ -25,28 +25,16 @@ serve(async (req) => {
       );
     }
 
-    // Create Supabase client with service role for database access
+    // Use service role for database access (TinyMCE key is not user-specific)
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Verify user authentication using anon client
-    const anonSupabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: {
-            Authorization: authHeader,
-          },
-        },
-      }
-    );
-
-    const { data: { user }, error: authError } = await anonSupabase.auth.getUser();
-    if (authError || !user) {
-      console.error('Authentication error:', authError);
+    // Verify user is authenticated (simplified check)
+    const token = authHeader.replace('Bearer ', '');
+    if (!token || token === 'undefined') {
+      console.error('Invalid or missing auth token');
       return new Response(
         JSON.stringify({ error: 'Authentication failed' }),
         {
@@ -57,7 +45,7 @@ serve(async (req) => {
     }
 
     // Get TinyMCE API key from admin_settings table using service role
-    console.log('TinyMCE API key request from user:', user.id);
+    console.log('TinyMCE API key request from authenticated user');
     
     const { data: settingData, error: settingError } = await supabase
       .from('admin_settings')

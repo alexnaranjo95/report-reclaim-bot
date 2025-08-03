@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import CreditReportUpload from '@/components/CreditReportUpload';
 import { CreditReportCard } from '@/components/CreditReportCard';
 import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
@@ -17,7 +17,10 @@ import {
   Upload, 
   Filter,
   Plus,
-  TrendingUp
+  TrendingUp,
+  ArrowLeft,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 
 const CreditReportsPage: React.FC = () => {
@@ -31,6 +34,8 @@ const CreditReportsPage: React.FC = () => {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [reportCounts, setReportCounts] = useState<Record<string, { accounts: number; negatives: number }>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Debug: Log when component mounts to verify correct page is loading
   useEffect(() => {
@@ -51,6 +56,8 @@ const CreditReportsPage: React.FC = () => {
   const loadReports = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
       const reportsData = await CreditReportService.getUserCreditReports();
       setReports(reportsData);
       
@@ -79,10 +86,18 @@ const CreditReportsPage: React.FC = () => {
       setReportCounts(counts);
     } catch (error) {
       console.error('Error loading reports:', error);
+      setError('Failed to load credit reports. Please try refreshing the page.');
       toast.error('Failed to load credit reports');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadReports();
+    setRefreshing(false);
+    toast.success('Credit reports refreshed successfully');
   };
 
   // Filter and sort reports
@@ -180,20 +195,48 @@ const CreditReportsPage: React.FC = () => {
   const bureauCounts = getBureauCounts();
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="min-h-screen bg-gradient-dashboard">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Credit Reports</h1>
-          <p className="text-muted-foreground">
-            View and analyze your complete credit report data
-          </p>
+      <header className="border-b bg-card/80 backdrop-blur-sm">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Dashboard
+                </Link>
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                  Credit Reports
+                </h1>
+                <p className="text-muted-foreground">
+                  View and analyze your complete credit report data
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="flex items-center gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button onClick={() => setShowUploadModal(true)} size="sm" className="flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Upload New Report
+              </Button>
+            </div>
+          </div>
         </div>
-        <Button onClick={() => setShowUploadModal(true)} className="flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          Upload New Report
-        </Button>
-      </div>
+      </header>
+
+      <div className="container mx-auto px-6 py-8 space-y-6">
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -278,13 +321,32 @@ const CreditReportsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Reports Grid */}
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          <span className="ml-2">Loading reports...</span>
-        </div>
-      ) : filteredReports.length === 0 ? (
+        {/* Error State */}
+        {error && (
+          <Card className="border-destructive">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-3 text-destructive">
+                <AlertCircle className="w-5 h-5" />
+                <div>
+                  <h3 className="font-medium">Error Loading Reports</h3>
+                  <p className="text-sm">{error}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleRefresh} className="ml-auto">
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Try Again
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Reports Grid */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            <span className="ml-2">Loading reports...</span>
+          </div>
+        ) : filteredReports.length === 0 && !error ? (
         <Card>
           <CardContent className="p-12 text-center">
             <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
@@ -318,6 +380,7 @@ const CreditReportsPage: React.FC = () => {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 };

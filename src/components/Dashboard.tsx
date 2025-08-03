@@ -137,9 +137,13 @@ export const Dashboard = () => {
         console.log('Storing credit report in database...');
         
         // Create file path and upload file
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}-${file.name}`;
-        const filePath = `${user.id}/${fileName}`;
+        // Generate storage path like CreditReportUpload component
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = (now.getMonth() + 1).toString().padStart(2, '0');
+        const timestamp = now.getTime();
+        const extension = file.name.split('.').pop();
+        const filePath = `${user.id}/${year}/${month}/Analysis_${timestamp}.${extension}`;
         
         // Upload file to storage
         const { data: uploadData, error: uploadError } = await supabase.storage

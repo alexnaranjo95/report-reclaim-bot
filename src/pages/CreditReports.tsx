@@ -34,8 +34,10 @@ const CreditReportsPage: React.FC = () => {
 
   // Debug: Log when component mounts to verify correct page is loading
   useEffect(() => {
-    console.log('✅ CreditReports page loaded - URL:', window.location.pathname);
-    console.log('✅ This is the CREDIT REPORTS page, not rounds page');
+    console.log('🎯✅ CreditReports page loaded - URL:', window.location.pathname);
+    console.log('🎯✅ This is the CREDIT REPORTS page, not rounds page');
+    console.log('🎯✅ CreditReports component mounted successfully');
+    console.log('🎯✅ User:', user ? 'authenticated' : 'not authenticated');
   }, []);
 
   useEffect(() => {

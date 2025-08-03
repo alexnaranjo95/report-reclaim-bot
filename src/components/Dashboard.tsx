@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { NavigationTest } from '@/components/NavigationTest';
 import { UploadZone } from './UploadZone';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
@@ -321,6 +322,10 @@ export const Dashboard = () => {
     }
     return null;
   };
+  console.log('📊 Dashboard component rendering');
+  console.log('📊 Current URL when Dashboard renders:', window.location.pathname);
+  console.log('📊 If user sees rounds content, this Dashboard is displaying');
+  
   return <div className="min-h-screen bg-gradient-dashboard">
       {/* Header */}
       <header className="border-b bg-card/80 backdrop-blur-sm">
@@ -337,7 +342,16 @@ export const Dashboard = () => {
                 <Shield className="h-3 w-3 mr-1" />
                 Secure
               </Badge>
-              <Button variant="outline" size="sm" asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                asChild
+                onClick={() => {
+                  console.log('🔍 NAVIGATION DEBUG: Credit Reports button clicked');
+                  console.log('🔍 Current URL:', window.location.href);
+                  console.log('🔍 About to navigate to /credit-reports');
+                }}
+              >
                 <Link to="/credit-reports">
                   <BarChart3 className="h-4 w-4 mr-2" />
                   Credit Reports
@@ -363,6 +377,9 @@ export const Dashboard = () => {
       </header>
 
       <div className="container mx-auto px-6 py-8">
+        {/* Navigation Debug Panel */}
+        <NavigationTest />
+        
         {/* Profile Incomplete Warning */}
         <ProfileIncompleteWarning />
         

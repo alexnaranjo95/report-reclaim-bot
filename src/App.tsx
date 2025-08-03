@@ -34,16 +34,20 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <div className="min-h-screen">
-          <ImpersonationBanner />
-          <div className="[body:has(.impersonation-banner)]:pt-10">
-            <Routes>
+const App = () => {
+  // Debug routing
+  console.log('🚀 App.tsx loaded');
+  
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <div className="min-h-screen">
+            <ImpersonationBanner />
+            <div className="[body:has(.impersonation-banner)]:pt-10">
+              <Routes>
               <Route path="/auth" element={<Auth />} />
               <Route path="/" element={
                 <ProtectedRoute>
@@ -67,17 +71,22 @@ const App = () => (
               } />
               <Route path="/credit-reports" element={
                 <ProtectedRoute>
-                  <CreditReports />
+                  {(() => {
+                    console.log('🎯 ROUTE MATCH: /credit-reports route activated');
+                    console.log('🎯 About to render CreditReports component');
+                    return <CreditReports />;
+                  })()}
                 </ProtectedRoute>
               } />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
-            </Routes>
+              </Routes>
+            </div>
           </div>
-        </div>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;

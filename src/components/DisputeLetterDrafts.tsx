@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { postgridService, PostgridLetter } from '../services/PostgridService';
 import { creditorAddressService } from '@/services/CreditorAddressService';
 import { supabase } from '@/integrations/supabase/client';
+import PostGridValidationModal from './PostGridValidationModal';
 import { LetterCostNotification } from './LetterCostNotification';
 
 import { Session } from '../services/SessionService';
@@ -35,6 +36,8 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
   const [tinyMCEApiKey, setTinyMCEApiKey] = useState<string | null>(null);
   const [isLoadingApiKey, setIsLoadingApiKey] = useState(true);
   const [showCostConfirmation, setShowCostConfirmation] = useState<string | null>(null);
+  const [showPostGridValidation, setShowPostGridValidation] = useState(false);
+  const [pendingSendData, setPendingSendData] = useState<any>(null);
   const { toast } = useToast();
 
   // Load drafts from localStorage on component mount
@@ -502,8 +505,110 @@ Enclosures: Copy of credit report, Copy of ID`;
     });
   };
 
-  const handleSendAllLetters = () => {
-    setShowCostConfirmation('send-all');
+  const handleSendLetter = async (letterId: string) => {
+    const letter = letters.find(l => l.id === letterId);
+    if (!letter) return;
+
+    // Set up pending send data and show validation modal
+    setPendingSendData({ type: 'single', letterId });
+    setShowPostGridValidation(true);
+  };
+
+  const handleSendAllLetters = async () => {
+    // Set up pending send data and show validation modal
+    setPendingSendData({ type: 'all' });
+    setShowPostGridValidation(true);
+  };
+
+  const handleValidatedSend = async (addressData: any) => {
+    if (!pendingSendData) return;
+
+    try {
+      if (pendingSendData.type === 'single') {
+        await processSingleLetter(pendingSendData.letterId, addressData);
+      } else {
+        await processAllLetters(addressData);
+      }
+    } finally {
+      setPendingSendData(null);
+    }
+  };
+
+  const processSingleLetter = async (letterId: string, addressData: any) => {
+    const letter = letters.find(l => l.id === letterId);
+    if (!letter) return;
+
+    try {
+      // Get creditor address
+      const address = await creditorAddressService.getCreditorAddress(letter.creditor, Array.isArray(letter.bureau) ? letter.bureau[0] : letter.bureau);
+      
+      const postgridLetter: PostgridLetter = {
+        to: {
+          firstName: addressData.recipient.name.split(' ')[0] || '',
+          lastName: addressData.recipient.name.split(' ').slice(1).join(' ') || '',
+          addressLine1: addressData.recipient.address_line1,
+          city: addressData.recipient.city,
+          provinceOrState: addressData.recipient.state,
+          postalOrZip: addressData.recipient.postal_code,
+          country: 'US'
+        },
+        from: {
+          firstName: addressData.sender.name.split(' ')[0] || '',
+          lastName: addressData.sender.name.split(' ').slice(1).join(' ') || '',
+          addressLine1: addressData.sender.address_line1,
+          city: addressData.sender.city,
+          provinceOrState: addressData.sender.state,
+          postalOrZip: addressData.sender.postal_code,
+          country: 'US'
+        },
+        content: letter.content,
+        color: true,
+        doubleSided: false,
+        returnEnvelope: true
+      };
+
+      await postgridService.sendLetter(postgridLetter);
+      
+      // Update letter status
+      setLetters(prev => prev.map(l => 
+        l.id === letterId ? { ...l, status: 'sent' as const, sentAt: new Date() } : l
+      ));
+
+      toast({
+        title: "Letter Sent Successfully",
+        description: `Your dispute letter to ${letter.creditor} has been sent via mail.`,
+      });
+    } catch (error) {
+      console.error('Error sending letter:', error);
+      toast({
+        title: "Failed to Send Letter",
+        description: "There was an error sending your letter. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const processAllLetters = async (addressData: any) => {
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const letter of letters) {
+      try {
+        await processSingleLetter(letter.id, addressData);
+        successCount++;
+      } catch (error) {
+        console.error(`Error sending letter ${letter.id}:`, error);
+        errorCount++;
+      }
+    }
+
+    if (successCount > 0) {
+      onRoundStatusChange(currentRound, 'sent', letters);
+      toast({
+        title: "Letters Sent",
+        description: `${successCount} letter(s) sent successfully${errorCount > 0 ? `, ${errorCount} failed` : ''}.`,
+      });
+    }
   };
 
   if (creditItems.length === 0) {
@@ -813,7 +918,7 @@ Enclosures: Copy of credit report, Copy of ID`;
                   <Button 
                     size="sm" 
                     className="bg-gradient-primary text-white"
-                    onClick={() => setShowCostConfirmation(letter.id)}
+                    onClick={() => handleSendLetter(letter.id)}
                   >
                     <Send className="h-3 w-3 mr-1" />
                     Send via Postgrid ($2.94)
@@ -1018,6 +1123,13 @@ Enclosures: Copy of credit report, Copy of ID`;
             </div>
           </div>
         )}
+
+        <PostGridValidationModal
+          isOpen={showPostGridValidation}
+          onClose={() => setShowPostGridValidation(false)}
+          onValidated={handleValidatedSend}
+          letterCount={pendingSendData?.type === 'all' ? letters.length : 1}
+        />
       </CardContent>
     </Card>
   );

@@ -87,33 +87,11 @@ serve(async (req) => {
       });
     }
 
-    // Extract the API key from the JSONB structure
-    let tinyMCEApiKey;
-    try {
-      if (typeof settingData.setting_value === 'string') {
-        tinyMCEApiKey = settingData.setting_value;
-      } else {
-        // Handle JSONB value - it should be the direct value
-        tinyMCEApiKey = settingData.setting_value;
-      }
-      
-      // Remove quotes if it's a quoted string (from JSON storage)
-      if (typeof tinyMCEApiKey === 'string' && tinyMCEApiKey.startsWith('"') && tinyMCEApiKey.endsWith('"')) {
-        tinyMCEApiKey = tinyMCEApiKey.slice(1, -1);
-      }
-    } catch (parseError) {
-      console.error('Error parsing TinyMCE key:', parseError);
-      return new Response(JSON.stringify({ 
-        error: 'Invalid TinyMCE API key format in database',
-        apiKey: null
-      }), {
-        status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
-    }
+    // Return the API key directly (it's stored as a string in the database)
+    const tinyMCEApiKey = settingData.setting_value;
 
     console.log('TinyMCE API key configured:', !!tinyMCEApiKey);
-    console.log('Successfully returning TinyMCE API key:', typeof tinyMCEApiKey === 'string' ? tinyMCEApiKey.substring(0, 10) + '...' : 'invalid format');
+    console.log('Successfully returning TinyMCE API key length:', tinyMCEApiKey.length);
     
     return new Response(JSON.stringify({ 
       apiKey: tinyMCEApiKey,

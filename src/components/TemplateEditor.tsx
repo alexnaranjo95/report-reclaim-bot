@@ -210,14 +210,17 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
         throw error;
       }
 
-      if (data?.success && data.preview_url) {
+      if (data?.success && data.html) {
+        // Create a blob URL for the HTML content
+        const blob = new Blob([data.html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
         // Open preview in new tab
-        window.open(data.preview_url, '_blank');
+        window.open(url, '_blank');
         toast.success('PDF preview generated successfully');
       } else if (data?.error) {
         throw new Error(data.error);
       } else {
-        throw new Error('No preview URL returned from server');
+        throw new Error('Failed to generate PDF preview HTML');
       }
     } catch (error) {
       console.error('Error generating PDF preview:', error);

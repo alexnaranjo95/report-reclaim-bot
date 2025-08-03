@@ -25,6 +25,25 @@ const Settings = () => {
   const [textNotifications, setTextNotifications] = useState(false);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+
+  // Format phone number with +1 prefix
+  const formatPhoneNumber = (value: string) => {
+    // Remove all non-digits
+    const digits = value.replace(/\D/g, '');
+    
+    // If it's 10 digits, add +1 prefix
+    if (digits.length === 10) {
+      return `+1${digits}`;
+    }
+    
+    // If it already has +1 prefix and 11 digits total, keep as is
+    if (digits.length === 11 && digits.startsWith('1')) {
+      return `+${digits}`;
+    }
+    
+    // Return original value if it doesn't match expected patterns
+    return value;
+  };
   const [fullName, setFullName] = useState('');
   const [addressLine1, setAddressLine1] = useState('');
   const [city, setCity] = useState('');
@@ -128,11 +147,14 @@ const Settings = () => {
     if (!user) return;
     
     try {
-      // Use the updated upsert_user_profile function that includes all address fields
+      // Format phone number before saving
+      const formattedPhone = formatPhoneNumber(phone);
+      
+      // Use the simpler upsert_user_profile function
       const { error } = await supabase.rpc('upsert_user_profile', {
         profile_user_id: user.id,
         profile_email: email,
-        profile_phone_number: phone,
+        profile_phone_number: formattedPhone,
         profile_email_notifications: emailNotifications,
         profile_text_notifications: textNotifications,
         profile_display_name: fullName || user.user_metadata?.display_name || user.email || '',

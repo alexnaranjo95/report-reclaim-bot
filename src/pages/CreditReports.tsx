@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, Link } from 'react-router-dom';
 import { CreditReportCard } from '@/components/CreditReportCard';
 import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
+import { RoundProgressCard } from '@/components/RoundProgressCard';
 import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
 import CreditReportUpload from '@/components/CreditReportUpload';
 import { CreditReportPreviewModal } from '@/components/CreditReportPreviewModal';
@@ -36,6 +37,8 @@ const CreditReportsPage: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [previewReport, setPreviewReport] = useState<CreditReport | null>(null);
+  const [currentRound, setCurrentRound] = useState(1);
+  const [viewMode, setViewMode] = useState<'rounds' | 'list'>('rounds');
 
   useEffect(() => {
     if (!user) {
@@ -143,6 +146,24 @@ const CreditReportsPage: React.FC = () => {
     toast.success('Credit report uploaded successfully');
   };
 
+  const handleUploadForRound = (roundNumber: number) => {
+    setCurrentRound(roundNumber);
+    setShowUpload(true);
+  };
+
+  // Get reports organized by rounds (assuming round 1 for now)
+  const getReportsByRound = () => {
+    const roundReports: Record<number, CreditReport | undefined> = {};
+    
+    // For now, assign the first report to round 1
+    // In the future, this should be based on actual round data from the database
+    if (reports.length > 0) {
+      roundReports[1] = reports[0];
+    }
+    
+    return roundReports;
+  };
+
   const getBureauCounts = () => {
     const counts = { Equifax: 0, Experian: 0, TransUnion: 0 };
     reports.forEach(report => {
@@ -200,6 +221,20 @@ const CreditReportsPage: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant={viewMode === 'rounds' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('rounds')}
+              >
+                Round View
+              </Button>
+              <Button
+                variant={viewMode === 'list' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setViewMode('list')}
+              >
+                List View
+              </Button>
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -327,11 +362,41 @@ const CreditReportsPage: React.FC = () => {
           </Card>
         )}
 
-        {/* Reports Grid */}
+        {/* Reports Content */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             <span className="ml-2">Loading reports...</span>
+          </div>
+        ) : viewMode === 'rounds' ? (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Dispute Round Progress</h2>
+              <p className="text-sm text-muted-foreground">
+                Track your credit report uploads across all 12 dispute rounds
+              </p>
+            </div>
+            
+            {/* Round Progress Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {Array.from({ length: 12 }, (_, index) => {
+                const roundNumber = index + 1;
+                const roundReports = getReportsByRound();
+                const creditReport = roundReports[roundNumber];
+                
+                return (
+                  <RoundProgressCard
+                    key={roundNumber}
+                    roundNumber={roundNumber}
+                    creditReport={creditReport}
+                    isCurrentRound={roundNumber === currentRound}
+                    onUploadReport={handleUploadForRound}
+                    onPreviewReport={handlePreviewReport}
+                    onViewReport={handleViewReport}
+                  />
+                );
+              })}
+            </div>
           </div>
         ) : filteredReports.length === 0 && !error ? (
         <Card>

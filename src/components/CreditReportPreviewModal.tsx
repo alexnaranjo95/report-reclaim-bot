@@ -140,12 +140,19 @@ export const CreditReportPreviewModal: React.FC<CreditReportPreviewModalProps> =
                   onError={() => setError('Failed to load image')}
                 />
               ) : isPdf ? (
-                <iframe
-                  src={previewUrl}
-                  title={report.file_name}
-                  className="w-full h-[70vh] rounded border"
-                  onError={() => setError('Failed to load PDF')}
-                />
+                <div className="w-full h-[70vh] rounded border bg-white">
+                  <object
+                    data={previewUrl}
+                    type="application/pdf"
+                    className="w-full h-full"
+                  >
+                    <iframe
+                      src={`${previewUrl}#view=FitH`}
+                      title={report.file_name}
+                      className="w-full h-full border-0"
+                    />
+                  </object>
+                </div>
               ) : (
                 <div className="text-center p-8">
                   <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />

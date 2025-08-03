@@ -19,6 +19,17 @@ export interface Round {
   completed_at?: string;
   can_start_at?: string;
   snapshot_data?: any;
+  sent_at?: string;
+  mail_responses?: MailResponse[];
+}
+
+export interface MailResponse {
+  id: string;
+  creditor: string;
+  uploaded_at: string;
+  file_name: string;
+  file_url: string;
+  response_type: 'positive' | 'negative' | 'neutral';
 }
 
 export interface Letter {

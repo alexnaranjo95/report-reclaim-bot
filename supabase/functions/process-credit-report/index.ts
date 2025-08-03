@@ -122,73 +122,61 @@ serve(async (req) => {
 
 async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
   try {
-    console.log('=== ENHANCED PDF TEXT EXTRACTION ===');
+    console.log('=== ROBUST PDF TEXT EXTRACTION ===');
     console.log('PDF buffer size:', arrayBuffer.byteLength);
     
-    // Convert ArrayBuffer to Uint8Array for processing
     const uint8Array = new Uint8Array(arrayBuffer);
-    
-    // Try multiple extraction methods in order of sophistication
     let extractedText = '';
     
-    // Method 1: Advanced PDF text object extraction
-    extractedText = await extractFromPDFTextObjects(uint8Array);
+    // Method 1: Native PDF text extraction using proper PDF structure parsing
+    extractedText = await extractUsingPDFStructure(uint8Array);
     
-    // Method 2: Stream-based extraction for complex PDFs
     if (extractedText.length < 100) {
-      console.log('Using stream-based extraction...');
-      extractedText = await extractFromPDFStreams(uint8Array);
+      console.log('Fallback: Using regex-based text extraction...');
+      extractedText = await extractUsingAdvancedRegex(uint8Array);
     }
     
-    // Method 3: Content stream decompression
     if (extractedText.length < 100) {
-      console.log('Using content stream decompression...');
-      extractedText = await extractFromCompressedStreams(uint8Array);
+      console.log('Fallback: Using binary text scanning...');
+      extractedText = await extractUsingBinaryScanning(uint8Array);
     }
     
-    // Method 4: Character mapping extraction
-    if (extractedText.length < 100) {
-      console.log('Using character mapping extraction...');
-      extractedText = await extractWithCharacterMapping(uint8Array);
-    }
+    // Clean and validate
+    extractedText = cleanExtractedText(extractedText);
     
-    // Validate and clean extracted text
-    extractedText = cleanAndValidateText(extractedText);
+    console.log('Extracted text length:', extractedText.length);
+    console.log('Preview:', extractedText.substring(0, 300));
     
-    console.log('Final extracted text length:', extractedText.length);
-    console.log('Text quality score:', calculateTextQuality(extractedText));
-    
-    // Only use sample data if extraction completely fails
-    if (extractedText.length < 100 || !isValidCreditReportContent(extractedText)) {
-      console.log('WARNING: PDF extraction failed, using sample data for testing');
-      extractedText = createSampleCreditReportText();
+    // Validate content quality
+    if (!isValidCreditReportText(extractedText)) {
+      throw new Error('Extracted text does not contain valid credit report content');
     }
     
     return extractedText;
   } catch (error) {
-    console.error('PDF extraction error:', error);
-    console.log('FALLBACK: Using sample data due to extraction failure');
-    return createSampleCreditReportText();
+    console.error('PDF extraction failed:', error);
+    throw new Error(`PDF text extraction failed: ${error.message}`);
   }
 }
 
-async function extractFromPDFTextObjects(uint8Array: Uint8Array): Promise<string> {
+async function extractUsingPDFStructure(uint8Array: Uint8Array): Promise<string> {
+  console.log('Using PDF structure-based extraction...');
+  
   const textDecoder = new TextDecoder('latin1');
   const pdfString = textDecoder.decode(uint8Array);
   
   let extractedText = '';
   
-  // Enhanced text object extraction with better patterns
+  // Find text objects using proper PDF structure
   const textObjects = pdfString.match(/BT\s+[\s\S]*?ET/gs) || [];
-  console.log('Found', textObjects.length, 'text objects');
+  console.log(`Found ${textObjects.length} text objects`);
   
   for (const textObj of textObjects) {
-    // Extract from various PDF text operators
+    // Enhanced patterns for different PDF text formats
     const patterns = [
-      /\(((?:[^\\()]|\\[\\()])*)\)\s*Tj/g,           // Simple text
-      /\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\s*TJ/g,      // Array text
-      /\(((?:[^\\()]|\\[\\()])*)\)\s*'/g,           // Quoted text  
-      /\(((?:[^\\()]|\\[\\()])*)\)\s*"/g,           // Double quoted text
+      /\(((?:[^()\\]|\\[()\\nrtbf]|\\[0-7]{3})*?)\)\s*(?:Tj|TJ)/g,
+      /\[((?:\([^)]*\)|[^\[\]])*?)\]\s*TJ/g,
+      /"([^"]*?)"\s*(?:Tj|TJ)/g,
     ];
     
     for (const pattern of patterns) {
@@ -196,222 +184,174 @@ async function extractFromPDFTextObjects(uint8Array: Uint8Array): Promise<string
       while ((match = pattern.exec(textObj)) !== null) {
         let text = match[1];
         
-        // Decode PDF text escapes
-        text = text
-          .replace(/\\n/g, '\n')
-          .replace(/\\r/g, '\r')
-          .replace(/\\t/g, '\t')
-          .replace(/\\b/g, '\b')
-          .replace(/\\f/g, '\f')
-          .replace(/\\(/g, '(')
-          .replace(/\\)/g, ')')
-          .replace(/\\\\/g, '\\')
-          .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+        // Handle PDF text encoding
+        text = decodePDFString(text);
         
-        if (text.trim() && isReadableText(text)) {
+        if (text.trim() && containsValidText(text)) {
           extractedText += text + ' ';
         }
       }
     }
   }
   
-  return extractedText;
+  return extractedText.trim();
 }
 
-async function extractFromPDFStreams(uint8Array: Uint8Array): Promise<string> {
+async function extractUsingAdvancedRegex(uint8Array: Uint8Array): Promise<string> {
+  console.log('Using advanced regex extraction...');
+  
   const textDecoder = new TextDecoder('latin1');
   const pdfString = textDecoder.decode(uint8Array);
   
   let extractedText = '';
   
-  // Find and extract from content streams
-  const streamPattern = /stream\s+([\s\S]*?)\s+endstream/g;
-  let match;
-  
-  while ((match = streamPattern.exec(pdfString)) !== null) {
-    let streamContent = match[1];
+  // Advanced patterns for credit report content
+  const patterns = [
+    // Names (First Last or FIRST LAST)
+    /\b[A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/g,
     
-    // Try to decode if it's text content
-    if (streamContent.includes('BT') || streamContent.includes('Tj') || streamContent.includes('TJ')) {
-      // Extract text from the stream
-      const textMatches = streamContent.match(/\(((?:[^\\()]|\\[\\()])*)\)\s*Tj/g) || [];
-      for (const textMatch of textMatches) {
-        const text = textMatch.match(/\(((?:[^\\()]|\\[\\()])*)\)/)?.[1] || '';
-        if (isReadableText(text)) {
-          extractedText += decodePDFText(text) + ' ';
-        }
-      }
-    }
-  }
-  
-  return extractedText;
-}
-
-async function extractFromCompressedStreams(uint8Array: Uint8Array): Promise<string> {
-  // This would normally use proper PDF decompression libraries
-  // For now, we'll use a simplified approach
-  const textDecoder = new TextDecoder('latin1');
-  const pdfString = textDecoder.decode(uint8Array);
-  
-  let extractedText = '';
-  
-  // Look for uncompressed readable text patterns
-  const readablePatterns = [
-    /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/g,           // Names
-    /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g,              // Dates
-    /\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?\b/g,         // Dollar amounts
-    /\b[A-Z]{2,}\s+[A-Z]{2,}(?:\s+[A-Z]+)*\b/g,    // Company names
-    /\b\d{3}-\d{2}-\d{4}\b/g,                      // SSN
-    /\b\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\b/g,          // Credit card numbers
+    // Addresses  
+    /\b\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Ct|Court|Way|Pl|Place)\b/g,
+    
+    // Dates in various formats
+    /\b(?:0?[1-9]|1[0-2])[-\/](?:0?[1-9]|[12]\d|3[01])[-\/](?:19|20)\d{2}\b/g,
+    
+    // Dollar amounts
+    /\$\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?\b/g,
+    
+    // Account numbers (partial or full)
+    /(?:Account|Acct).*?(?:\d{4}[X*]{4,}\d{4}|\d{4}\s*\d{4}\s*\d{4}\s*\d{4}|\*{4,}\d{4})/gi,
+    
+    // Company names (common credit companies)
+    /\b(?:Capital\s+One|Chase|Wells\s+Fargo|Bank\s+of\s+America|Citibank|American\s+Express|Discover|Synchrony|Credit\s+One)\b/gi,
+    
+    // Credit-related terms with context
+    /\b(?:Credit\s+Card|Checking|Savings|Auto\s+Loan|Mortgage|Personal\s+Loan|Student\s+Loan)\b.*?(?:\$\d+|\d+\.\d{2})/gi,
+    
+    // Phone numbers
+    /\b(?:\d{3}[-.]?)?\d{3}[-.]?\d{4}\b/g,
+    
+    // SSN patterns (partial)
+    /\b(?:XXX-XX-\d{4}|\*\*\*-\*\*-\d{4})\b/g,
   ];
   
-  for (const pattern of readablePatterns) {
+  for (const pattern of patterns) {
     const matches = pdfString.match(pattern) || [];
-    extractedText += matches.join(' ') + ' ';
-  }
-  
-  return extractedText;
-}
-
-async function extractWithCharacterMapping(uint8Array: Uint8Array): Promise<string> {
-  const textDecoder = new TextDecoder('utf-8');
-  let pdfString = textDecoder.decode(uint8Array);
-  
-  // Try different encodings
-  if (!isReadableText(pdfString.substring(0, 1000))) {
-    const decoders = ['latin1', 'ascii', 'utf-16le', 'utf-16be'];
-    for (const encoding of decoders) {
-      try {
-        const decoder = new TextDecoder(encoding);
-        pdfString = decoder.decode(uint8Array);
-        if (isReadableText(pdfString.substring(0, 1000))) {
-          break;
-        }
-      } catch (e) {
-        continue;
+    for (const match of matches) {
+      if (match.trim().length > 2) {
+        extractedText += match.trim() + ' ';
       }
     }
   }
   
+  return extractedText.trim();
+}
+
+async function extractUsingBinaryScanning(uint8Array: Uint8Array): Promise<string> {
+  console.log('Using binary scanning extraction...');
+  
   let extractedText = '';
+  const textChunks = [];
   
-  // Extract readable sequences
-  const readableSequences = pdfString.match(/[A-Za-z0-9\s\$\.,\-\(\)\/]{10,}/g) || [];
+  // Scan for readable ASCII sequences
+  let currentChunk = '';
   
-  for (const sequence of readableSequences) {
-    if (isReadableText(sequence) && containsCreditReportKeywords(sequence)) {
-      extractedText += sequence + ' ';
+  for (let i = 0; i < uint8Array.length; i++) {
+    const byte = uint8Array[i];
+    
+    // Check if byte is printable ASCII
+    if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
+      currentChunk += String.fromCharCode(byte);
+    } else {
+      // End of readable sequence
+      if (currentChunk.length >= 10) {
+        textChunks.push(currentChunk);
+      }
+      currentChunk = '';
     }
   }
   
-  return extractedText;
+  // Add final chunk if it exists
+  if (currentChunk.length >= 10) {
+    textChunks.push(currentChunk);
+  }
+  
+  // Filter and combine chunks that look like credit report content
+  for (const chunk of textChunks) {
+    if (looksLikeCreditReportContent(chunk)) {
+      extractedText += chunk + ' ';
+    }
+  }
+  
+  return extractedText.trim();
 }
 
-function isReadableText(text: string): boolean {
-  if (!text || text.length < 3) return false;
-  
-  // Check if text contains mostly readable characters
-  const readableChars = text.match(/[A-Za-z0-9\s\$\.,\-\(\)\/]/g) || [];
-  const readableRatio = readableChars.length / text.length;
-  
-  return readableRatio > 0.7;
-}
+// Helper functions for PDF text extraction
 
-function containsCreditReportKeywords(text: string): boolean {
-  const keywords = [
-    'credit', 'account', 'balance', 'payment', 'inquiry', 'collection',
-    'name', 'address', 'phone', 'date', 'birth', 'social', 'security',
-    'experian', 'equifax', 'transunion', 'fico', 'score', 'report'
-  ];
-  
-  const lowerText = text.toLowerCase();
-  return keywords.some(keyword => lowerText.includes(keyword));
-}
-
-function decodePDFText(text: string): string {
+function decodePDFString(text: string): string {
   return text
     .replace(/\\n/g, '\n')
     .replace(/\\r/g, '\r')
     .replace(/\\t/g, '\t')
+    .replace(/\\b/g, '\b')
+    .replace(/\\f/g, '\f')
     .replace(/\\(/g, '(')
     .replace(/\\)/g, ')')
-    .replace(/\\\\/g, '\\');
+    .replace(/\\\\/g, '\\')
+    .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
 }
 
-function cleanAndValidateText(text: string): string {
+function containsValidText(text: string): boolean {
+  if (!text || text.length < 2) return false;
+  
+  // Check for readable characters
+  const readableChars = text.match(/[A-Za-z0-9\s\$\.,\-\(\)\/]/g) || [];
+  const readableRatio = readableChars.length / text.length;
+  
+  return readableRatio > 0.6;
+}
+
+function looksLikeCreditReportContent(text: string): boolean {
+  if (!text || text.length < 20) return false;
+  
+  const creditKeywords = [
+    'credit', 'account', 'balance', 'payment', 'inquiry', 'collection',
+    'name', 'address', 'phone', 'date', 'birth', 'social', 'security',
+    'experian', 'equifax', 'transunion', 'fico', 'score', 'visa', 'mastercard',
+    'chase', 'capital', 'wells', 'bank', 'mortgage', 'loan'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  const keywordCount = creditKeywords.filter(keyword => lowerText.includes(keyword)).length;
+  
+  return keywordCount >= 2;
+}
+
+function cleanExtractedText(text: string): string {
   if (!text) return '';
   
   return text
     .replace(/\s+/g, ' ')                    // Normalize whitespace
-    .replace(/[^\w\s\$\.,\-\/\(\):]/g, ' ')  // Remove non-essential chars
-    .replace(/\s+/g, ' ')                    // Final whitespace cleanup
+    .replace(/[^\w\s\$\.,\-\/\(\):@]/g, ' ') // Keep essential punctuation
+    .replace(/\s+/g, ' ')                    // Final cleanup
     .trim();
 }
 
-function calculateTextQuality(text: string): number {
-  if (!text || text.length < 50) return 0;
+function isValidCreditReportText(text: string): boolean {
+  if (!text || text.length < 200) return false;
   
-  let score = 0;
-  
-  // Check for credit report indicators
-  const indicators = [
-    /\b(name|address|phone|date.*birth|social.*security)\b/i,
-    /\b(credit|account|balance|payment|inquiry)\b/i,
-    /\$\d+/,
-    /\d{1,2}\/\d{1,2}\/\d{2,4}/,
-    /\b(experian|equifax|transunion)\b/i
+  const requiredElements = [
+    /\b(?:name|full.?name|first.?name|last.?name)\b/i,
+    /\b(?:address|street|city|state|zip)\b/i,
+    /\b(?:account|credit|balance|payment)\b/i,
+    /\b(?:date|birth|dob|\d{1,2}\/\d{1,2}\/\d{2,4})\b/i
   ];
   
-  indicators.forEach(pattern => {
-    if (pattern.test(text)) score += 20;
-  });
-  
-  return Math.min(score, 100);
+  const matchCount = requiredElements.filter(pattern => pattern.test(text)).length;
+  return matchCount >= 3;
 }
 
-function isValidCreditReportContent(text: string): boolean {
-  if (!text || text.length < 100) return false;
-  
-  // Must contain at least some credit report indicators
-  const hasPersonalInfo = /\b(name|address|birth|social)\b/i.test(text);
-  const hasCreditInfo = /\b(credit|account|balance|payment)\b/i.test(text);
-  const hasStructure = text.split(' ').length > 20;
-  
-  return hasPersonalInfo && hasCreditInfo && hasStructure;
-}
-
-function createSampleCreditReportText(): string {
-  return `
-PERSONAL INFORMATION
-Name: OSCAR MARTINEZ
-Date of Birth: 03/15/1985
-Address: 123 MAIN STREET ANYTOWN CA 90210
-Phone: 555-123-4567
-SSN: XXX-XX-1234
-
-CREDIT ACCOUNTS
-Capital One Credit Card Account: 4518XXXXXXXX1234 Balance: $2,450.00 Limit: $5,000.00 Status: Open
-Chase Savings Account: 1234567890 Balance: $850.00 Status: Open  
-Wells Fargo Mortgage: 9876543210 Balance: $185,000.00 Status: Current
-American Express: 3782XXXXXXXX5432 Balance: $1,200.00 Limit: $3,000.00 Status: Open
-
-CREDIT INQUIRIES  
-Capital One 12/15/2023 Credit Card Application
-Chase Bank 11/08/2023 Auto Loan Inquiry
-Wells Fargo 10/22/2023 Mortgage Inquiry
-Credit Karma 09/30/2023 Soft Pull
-
-COLLECTIONS
-ABC Collections $500.00 Medical Bill Collection Original Creditor: General Hospital
-XYZ Recovery $750.00 Utility Collection Original Creditor: City Electric
-
-PAYMENT HISTORY
-Capital One: 30 days late payment reported 11/2023
-Wells Fargo: All payments current
-Chase: All payments current
-American Express: All payments current
-`;
-}
+// Remove sample data function - we want real extraction only
 
 async function parseAndStoreData(supabase: any, reportId: string, text: string) {
   try {
@@ -501,55 +441,243 @@ async function parseAndStoreData(supabase: any, reportId: string, text: string) 
 }
 
 function extractPersonalInfo(text: string) {
-  const nameMatch = text.match(/Name[:\s]+([A-Z][A-Z\s]+)/i);
-  const dobMatch = text.match(/Date\s+of\s+Birth[:\s]+(\d{1,2}\/\d{1,2}\/\d{4})/i);
-  const addressMatch = text.match(/Address[:\s]+([A-Z0-9\s,.-]+)/i);
-  const phoneMatch = text.match(/Phone[:\s]+(\d{3}-\d{3}-\d{4})/i);
-  const ssnMatch = text.match(/SSN[:\s]+(XXX-XX-\d{4})/i);
+  // Enhanced patterns for name extraction
+  const namePatterns = [
+    /(?:Name|Full\s+Name|Client\s+Name)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i,
+    /\b([A-Z][a-z]+\s+[A-Z][a-z]+)\s+(?:DOB|Date\s+of\s+Birth)/i,
+    /Consumer[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i
+  ];
+  
+  // Enhanced patterns for date of birth
+  const dobPatterns = [
+    /(?:Date\s+of\s+Birth|DOB|Born)[:\s]*(\d{1,2}\/\d{1,2}\/\d{2,4})/i,
+    /(\d{1,2}\/\d{1,2}\/\d{2,4})\s+(?:DOB|Birth)/i,
+    /Birth\s+Date[:\s]*(\d{1,2}\/\d{1,2}\/\d{2,4})/i
+  ];
+  
+  // Enhanced patterns for address
+  const addressPatterns = [
+    /(?:Address|Current\s+Address|Residence)[:\s]+(\d+[^,\n]*(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Court|Ct|Way|Place|Pl)[^,\n]*(?:,\s*[A-Z][^,\n]*){1,3})/i,
+    /(\d+\s+[A-Z][a-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln)\s+[A-Z][a-z\s]*\s+[A-Z]{2}\s+\d{5})/i
+  ];
+  
+  // Enhanced patterns for phone
+  const phonePatterns = [
+    /(?:Phone|Telephone|Tel)[:\s]*(\d{3}[-.\s]?\d{3}[-.\s]?\d{4})/i,
+    /(\(\d{3}\)\s*\d{3}[-.\s]?\d{4})/,
+    /\b(\d{3}[-.\s]\d{3}[-.\s]\d{4})\b/
+  ];
+  
+  // Enhanced patterns for SSN
+  const ssnPatterns = [
+    /(?:SSN|Social\s+Security)[:\s]*(XXX-XX-\d{4}|\*\*\*-\*\*-\d{4}|XX\d-XX-\d{4})/i,
+    /(XXX-XX-\d{4}|\*\*\*-\*\*-\d{4})/
+  ];
+  
+  let full_name = null;
+  let date_of_birth = null;
+  let current_address = null;
+  let phone_number = null;
+  let ssn_partial = null;
+  
+  // Extract name
+  for (const pattern of namePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      full_name = match[1].trim();
+      break;
+    }
+  }
+  
+  // Extract DOB
+  for (const pattern of dobPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      try {
+        const date = new Date(match[1]);
+        if (!isNaN(date.getTime())) {
+          date_of_birth = date.toISOString().split('T')[0];
+          break;
+        }
+      } catch (e) {
+        console.log('Invalid date format:', match[1]);
+      }
+    }
+  }
+  
+  // Extract address
+  for (const pattern of addressPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      current_address = { street: match[1].trim() };
+      break;
+    }
+  }
+  
+  // Extract phone
+  for (const pattern of phonePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      phone_number = match[1].replace(/[\s.-]/g, '').replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
+      break;
+    }
+  }
+  
+  // Extract SSN
+  for (const pattern of ssnPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      ssn_partial = match[1];
+      break;
+    }
+  }
 
   return {
-    full_name: nameMatch?.[1]?.trim() || null,
-    date_of_birth: dobMatch?.[1] ? new Date(dobMatch[1]).toISOString().split('T')[0] : null,
-    current_address: addressMatch?.[1] ? { street: addressMatch[1].trim() } : null,
-    phone_number: phoneMatch?.[1] || null,
-    ssn_partial: ssnMatch?.[1] || null
+    full_name,
+    date_of_birth,
+    current_address,
+    phone_number,
+    ssn_partial
   };
 }
 
 function extractCreditAccounts(text: string) {
   const accounts = [];
   
-  // Pattern for credit accounts with balances
-  const accountPattern = /([A-Z][a-z\s]+(?:Credit Card|Bank|Mortgage|Express))[:\s]+([A-Z0-9X]+)\s+Balance[:\s]+\$(\d+(?:,\d{3})*(?:\.\d{2})?)/gi;
+  // Enhanced patterns for various credit account formats
+  const accountPatterns = [
+    // Standard format: Company Account: XXXX Balance: $X,XXX.XX
+    /([A-Z][a-z\s]+(?:Credit Card|Bank|Mortgage|Express|Card|Financial|Capital|Chase|Wells|Citi|American))[:\s]*(?:Account[:\s]*)?([A-Z0-9X*]{4,})\s+(?:Balance|Bal|Current\s+Balance)[:\s]*\$(\d+(?:,\d{3})*(?:\.\d{2})?)/gi,
+    
+    // Credit card format: VISA ending in 1234 Balance $1,500
+    /(VISA|MASTERCARD|AMEX|AMERICAN\s+EXPRESS|DISCOVER)\s+(?:ending\s+in|[\*X]{4,})(\d{4})\s+(?:Balance|Bal)[:\s]*\$(\d+(?:,\d{3})*(?:\.\d{2})?)/gi,
+    
+    // Company name with account info
+    /([A-Z][A-Z\s]+)\s+(?:Account|Acct)[:\s]*([X*\d]{4,})\s+(?:\$(\d+(?:,\d{3})*(?:\.\d{2})?))/gi,
+    
+    // Simple format: Company $Amount Status
+    /([A-Z][a-z\s]+(?:Bank|Credit|Card|Financial|Capital|Chase|Wells|Citi))\s+\$(\d+(?:,\d{3})*(?:\.\d{2})?)\s+(Open|Closed|Current|Past\s+Due)/gi
+  ];
   
-  let match;
-  while ((match = accountPattern.exec(text)) !== null) {
-    accounts.push({
-      creditor_name: match[1].trim(),
-      account_number: match[2].replace(/X/g, '*'),
-      current_balance: parseFloat(match[3].replace(/,/g, '')),
-      account_type: match[1].toLowerCase().includes('credit') ? 'Credit Card' : 
-                   match[1].toLowerCase().includes('mortgage') ? 'Mortgage' : 'Bank Account',
-      account_status: 'Open'
-    });
+  for (const pattern of accountPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      let creditor_name = match[1].trim();
+      let account_number = '';
+      let current_balance = 0;
+      let account_status = 'Open';
+      
+      if (pattern === accountPatterns[0]) {
+        // Standard format
+        account_number = match[2].replace(/X/g, '*');
+        current_balance = parseFloat(match[3].replace(/,/g, ''));
+      } else if (pattern === accountPatterns[1]) {
+        // Credit card format
+        account_number = '****' + match[2];
+        current_balance = parseFloat(match[3].replace(/,/g, ''));
+      } else if (pattern === accountPatterns[2]) {
+        // Company with account
+        account_number = match[2];
+        current_balance = parseFloat(match[3].replace(/,/g, ''));
+      } else if (pattern === accountPatterns[3]) {
+        // Simple format
+        account_number = 'N/A';
+        current_balance = parseFloat(match[2].replace(/,/g, ''));
+        account_status = match[3];
+      }
+      
+      const account_type = determineAccountType(creditor_name, text);
+      
+      accounts.push({
+        creditor_name,
+        account_number,
+        current_balance,
+        account_type,
+        account_status,
+        is_negative: current_balance > 0 && account_status.toLowerCase().includes('past due')
+      });
+    }
   }
 
   return accounts;
 }
 
+function determineAccountType(creditorName: string, contextText: string): string {
+  const lowerName = creditorName.toLowerCase();
+  const lowerContext = contextText.toLowerCase();
+  
+  if (lowerName.includes('credit card') || lowerName.includes('visa') || lowerName.includes('mastercard') || lowerName.includes('amex') || lowerName.includes('discover')) {
+    return 'Credit Card';
+  } else if (lowerName.includes('mortgage') || lowerContext.includes('mortgage')) {
+    return 'Mortgage';
+  } else if (lowerName.includes('auto') || lowerName.includes('car') || lowerContext.includes('auto loan')) {
+    return 'Auto Loan';
+  } else if (lowerName.includes('student') || lowerContext.includes('student loan')) {
+    return 'Student Loan';
+  } else if (lowerName.includes('personal') || lowerContext.includes('personal loan')) {
+    return 'Personal Loan';
+  } else if (lowerName.includes('checking') || lowerName.includes('savings')) {
+    return 'Bank Account';
+  } else {
+    return 'Other';
+  }
+}
+
 function extractCreditInquiries(text: string) {
   const inquiries = [];
   
-  // Pattern for credit inquiries
-  const inquiryPattern = /([A-Z][a-z\s]+(?:Bank|Capital|Credit|Chase|Wells))\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+([A-Za-z\s]+)/gi;
+  // Enhanced patterns for credit inquiries
+  const inquiryPatterns = [
+    // Company Date Type format
+    /([A-Z][a-z\s]+(?:Bank|Capital|Credit|Chase|Wells|Fargo|One|Express|Financial|Corp|Inc))\s+(\d{1,2}\/\d{1,2}\/\d{2,4})\s+([A-Za-z\s]+(?:Inquiry|Application|Pull|Check))/gi,
+    
+    // Date Company Type format
+    /(\d{1,2}\/\d{1,2}\/\d{2,4})\s+([A-Z][a-z\s]+(?:Bank|Capital|Credit|Chase|Wells))\s+([A-Za-z\s]+)/gi,
+    
+    // Simple Company Date format
+    /([A-Z][A-Z\s]+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/gi,
+    
+    // Inquiry section format
+    /(?:Inquiry|Inquiries)[:\s]*([A-Z][a-z\s]+)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/gi
+  ];
   
-  let match;
-  while ((match = inquiryPattern.exec(text)) !== null) {
-    inquiries.push({
-      inquirer_name: match[1].trim(),
-      inquiry_date: new Date(match[2]).toISOString().split('T')[0],
-      inquiry_type: match[3].toLowerCase().includes('soft') ? 'soft' : 'hard'
-    });
+  for (const pattern of inquiryPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      let inquirer_name = '';
+      let inquiry_date = '';
+      let inquiry_type = 'hard'; // Default to hard inquiry
+      
+      if (pattern === inquiryPatterns[0]) {
+        // Company Date Type
+        inquirer_name = match[1].trim();
+        inquiry_date = match[2];
+        inquiry_type = match[3].toLowerCase().includes('soft') ? 'soft' : 'hard';
+      } else if (pattern === inquiryPatterns[1]) {
+        // Date Company Type
+        inquiry_date = match[1];
+        inquirer_name = match[2].trim();
+        inquiry_type = match[3].toLowerCase().includes('soft') ? 'soft' : 'hard';
+      } else if (pattern === inquiryPatterns[2] || pattern === inquiryPatterns[3]) {
+        // Simple formats
+        inquirer_name = match[1].trim();
+        inquiry_date = match[2];
+      }
+      
+      // Validate and format date
+      try {
+        const date = new Date(inquiry_date);
+        if (!isNaN(date.getTime())) {
+          inquiries.push({
+            inquirer_name,
+            inquiry_date: date.toISOString().split('T')[0],
+            inquiry_type
+          });
+        }
+      } catch (e) {
+        console.log('Invalid inquiry date:', inquiry_date);
+      }
+    }
   }
 
   return inquiries;
@@ -558,17 +686,83 @@ function extractCreditInquiries(text: string) {
 function extractNegativeItems(text: string) {
   const negativeItems = [];
   
-  // Pattern for collections
-  const collectionPattern = /([A-Z]+\s+(?:Collections|Recovery))\s+\$(\d+(?:,\d{3})*(?:\.\d{2})?)\s+([A-Za-z\s]+)/gi;
+  // Enhanced patterns for negative items
+  const negativePatterns = [
+    // Collections format: Company Collections $Amount Description
+    /([A-Z][a-z\s]*(?:Collections|Recovery|Agency))\s+\$(\d+(?:,\d{3})*(?:\.\d{2})?)\s+([A-Za-z\s]+)/gi,
+    
+    // Late payment format: Company 30/60/90 days late
+    /([A-Z][a-z\s]+)\s+(\d{2,3})\s+days?\s+late/gi,
+    
+    // Charge off format: Company Charge Off $Amount
+    /([A-Z][a-z\s]+)\s+(?:Charge\s+Off|Charged\s+Off)\s+\$(\d+(?:,\d{3})*(?:\.\d{2})?)/gi,
+    
+    // Delinquency format: Company Delinquent
+    /([A-Z][a-z\s]+)\s+(?:Delinquent|Delinquency|Past\s+Due)/gi,
+    
+    // Bankruptcy format
+    /(?:Chapter\s+\d+\s+)?Bankruptcy\s+(?:Filed|Discharged)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/gi,
+    
+    // Judgment format
+    /(?:Civil\s+)?Judgment\s+\$(\d+(?:,\d{3})*(?:\.\d{2})?)\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/gi
+  ];
   
-  let match;
-  while ((match = collectionPattern.exec(text)) !== null) {
-    negativeItems.push({
-      negative_type: 'Collection',
-      description: `${match[1]} - ${match[3]}`,
-      amount: parseFloat(match[2].replace(/,/g, '')),
-      date_occurred: new Date().toISOString().split('T')[0] // Default to today if no date found
-    });
+  for (const pattern of negativePatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      let negative_type = '';
+      let description = '';
+      let amount = null;
+      let date_occurred = null;
+      
+      if (pattern === negativePatterns[0]) {
+        // Collections
+        negative_type = 'Collection';
+        description = `${match[1]} - ${match[3]}`;
+        amount = parseFloat(match[2].replace(/,/g, ''));
+      } else if (pattern === negativePatterns[1]) {
+        // Late payments
+        negative_type = 'Late Payment';
+        description = `${match[1]} - ${match[2]} days late`;
+      } else if (pattern === negativePatterns[2]) {
+        // Charge offs
+        negative_type = 'Charge Off';
+        description = `${match[1]} charge off`;
+        amount = parseFloat(match[2].replace(/,/g, ''));
+      } else if (pattern === negativePatterns[3]) {
+        // Delinquency
+        negative_type = 'Delinquency';
+        description = `${match[1]} account delinquent`;
+      } else if (pattern === negativePatterns[4]) {
+        // Bankruptcy
+        negative_type = 'Bankruptcy';
+        description = 'Bankruptcy filing';
+        try {
+          date_occurred = new Date(match[1]).toISOString().split('T')[0];
+        } catch (e) {
+          date_occurred = null;
+        }
+      } else if (pattern === negativePatterns[5]) {
+        // Judgment
+        negative_type = 'Judgment';
+        description = 'Civil judgment';
+        amount = parseFloat(match[1].replace(/,/g, ''));
+        try {
+          date_occurred = new Date(match[2]).toISOString().split('T')[0];
+        } catch (e) {
+          date_occurred = null;
+        }
+      }
+      
+      if (negative_type && description) {
+        negativeItems.push({
+          negative_type,
+          description,
+          amount,
+          date_occurred
+        });
+      }
+    }
   }
 
   return negativeItems;

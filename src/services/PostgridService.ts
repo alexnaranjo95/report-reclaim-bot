@@ -1,4 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
+import { templateService, type TemplateData } from './TemplateService';
+import { pdfMergeService, type DocumentToMerge } from './PDFMergeService';
 
 export interface PostgridAddress {
   firstName: string;
@@ -20,6 +22,9 @@ export interface PostgridLetter {
   color?: boolean;
   doubleSided?: boolean;
   returnEnvelope?: boolean;
+  roundNumber?: number;
+  templateData?: TemplateData;
+  identificationDocs?: File[];
 }
 
 export interface PostgridResponse {
@@ -54,8 +59,36 @@ class PostgridService {
       
       console.log('✅ Postgrid API key retrieved successfully');
       
+      // Process template if roundNumber and templateData are provided
+      let finalContent = letter.content;
+      if (letter.roundNumber && letter.templateData) {
+        console.log('📝 Compiling template for round', letter.roundNumber);
+        const compiledContent = await templateService.getCompiledLetterForRound(
+          letter.roundNumber, 
+          letter.templateData
+        );
+        if (compiledContent) {
+          finalContent = compiledContent;
+        }
+      }
+
+      // Create PDF and potentially merge with identification documents
+      let pdfToSend: Uint8Array | null = null;
+      if (letter.identificationDocs && letter.identificationDocs.length > 0) {
+        console.log('📎 Merging letter with identification documents...');
+        const documents: DocumentToMerge[] = [
+          { content: finalContent, type: 'html' }
+        ];
+        
+        pdfToSend = await pdfMergeService.mergePDFs(documents, letter.identificationDocs);
+        
+        // Upload merged PDF to storage for tracking
+        const fileName = `letter_${Date.now()}_round_${letter.roundNumber || 1}.pdf`;
+        await pdfMergeService.uploadMergedPDF(pdfToSend, fileName);
+      }
+      
       // Validate required fields before sending
-      this.validateLetterPayload(letter);
+      this.validateLetterPayload({ ...letter, content: finalContent });
       
       // Create the correct JSON payload according to PostGrid API docs
       const payload = {
@@ -79,7 +112,7 @@ class PostgridService {
           postalOrZip: letter.from.postalOrZip,
           country: letter.from.country || 'US'
         },
-        html: letter.content,
+        html: finalContent,
         doubleSided: false,
         color: false,
         addressPlacement: 'top_first_page'

@@ -32,6 +32,7 @@ import { AdminMetrics } from '@/components/AdminMetrics';
 import { TenantDataGrid } from '@/components/TenantDataGrid';
 
 import { DataAIConfiguration } from '@/components/DataAIConfiguration';
+import TemplateManager from '@/components/TemplateManager';
 import { LogOut } from 'lucide-react';
 
 const Admin = () => {
@@ -231,7 +232,21 @@ const Admin = () => {
 
         {/* Data & AI Configuration Tab */}
         {activeView === 'data-ai' && (
-          <DataAIConfiguration />
+          <div className="space-y-6">
+            <DataAIConfiguration />
+            
+            <Card className="bg-gradient-card shadow-card">
+              <CardHeader>
+                <CardTitle>Template Management System</CardTitle>
+                <CardDescription>
+                  Manage letter layouts and round-specific templates with placeholder support
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TemplateManager />
+              </CardContent>
+            </Card>
+          </div>
         )}
       </div>
     </div>

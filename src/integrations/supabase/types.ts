@@ -131,6 +131,50 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_analysis_results: {
+        Row: {
+          analysis_summary: Json | null
+          analysis_timestamp: string | null
+          created_at: string | null
+          id: string
+          model_version: string | null
+          recommendations: Json | null
+          report_id: string
+          total_negative_items: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          analysis_summary?: Json | null
+          analysis_timestamp?: string | null
+          created_at?: string | null
+          id?: string
+          model_version?: string | null
+          recommendations?: Json | null
+          report_id: string
+          total_negative_items?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          analysis_summary?: Json | null
+          analysis_timestamp?: string | null
+          created_at?: string | null
+          id?: string
+          model_version?: string | null
+          recommendations?: Json | null
+          report_id?: string
+          total_negative_items?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_analysis_results_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_prompt_versions: {
         Row: {
           additional_rules: string | null
@@ -158,6 +202,201 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           version_name?: string
+        }
+        Relationships: []
+      }
+      collections: {
+        Row: {
+          account_number: string | null
+          amount: number | null
+          collection_agency: string | null
+          created_at: string | null
+          date_assigned: string | null
+          id: string
+          original_creditor: string | null
+          report_id: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          account_number?: string | null
+          amount?: number | null
+          collection_agency?: string | null
+          created_at?: string | null
+          date_assigned?: string | null
+          id?: string
+          original_creditor?: string | null
+          report_id: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          account_number?: string | null
+          amount?: number | null
+          collection_agency?: string | null
+          created_at?: string | null
+          date_assigned?: string | null
+          id?: string
+          original_creditor?: string | null
+          report_id?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "collections_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      credit_accounts: {
+        Row: {
+          account_number: string | null
+          account_status: string | null
+          account_type: string | null
+          created_at: string | null
+          credit_limit: number | null
+          creditor_name: string
+          current_balance: number | null
+          date_closed: string | null
+          date_opened: string | null
+          high_credit: number | null
+          id: string
+          is_negative: boolean | null
+          past_due_amount: number | null
+          payment_history: Json | null
+          payment_status: string | null
+          report_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          account_number?: string | null
+          account_status?: string | null
+          account_type?: string | null
+          created_at?: string | null
+          credit_limit?: number | null
+          creditor_name: string
+          current_balance?: number | null
+          date_closed?: string | null
+          date_opened?: string | null
+          high_credit?: number | null
+          id?: string
+          is_negative?: boolean | null
+          past_due_amount?: number | null
+          payment_history?: Json | null
+          payment_status?: string | null
+          report_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          account_number?: string | null
+          account_status?: string | null
+          account_type?: string | null
+          created_at?: string | null
+          credit_limit?: number | null
+          creditor_name?: string
+          current_balance?: number | null
+          date_closed?: string | null
+          date_opened?: string | null
+          high_credit?: number | null
+          id?: string
+          is_negative?: boolean | null
+          past_due_amount?: number | null
+          payment_history?: Json | null
+          payment_status?: string | null
+          report_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_accounts_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      credit_inquiries: {
+        Row: {
+          created_at: string | null
+          id: string
+          inquirer_name: string
+          inquiry_date: string | null
+          inquiry_type: string | null
+          report_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          inquirer_name: string
+          inquiry_date?: string | null
+          inquiry_type?: string | null
+          report_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          inquirer_name?: string
+          inquiry_date?: string | null
+          inquiry_type?: string | null
+          report_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_inquiries_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      credit_reports: {
+        Row: {
+          bureau_name: string
+          created_at: string | null
+          extraction_status: string | null
+          file_name: string | null
+          file_path: string | null
+          id: string
+          processing_errors: string | null
+          raw_text: string | null
+          report_date: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          bureau_name: string
+          created_at?: string | null
+          extraction_status?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          processing_errors?: string | null
+          raw_text?: string | null
+          report_date?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          bureau_name?: string
+          created_at?: string | null
+          extraction_status?: string | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          processing_errors?: string | null
+          raw_text?: string | null
+          report_date?: string | null
+          updated_at?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -302,6 +541,116 @@ export type Database = {
           },
         ]
       }
+      negative_items: {
+        Row: {
+          account_id: string | null
+          ai_confidence_score: number | null
+          amount: number | null
+          created_at: string | null
+          date_occurred: string | null
+          description: string | null
+          dispute_eligible: boolean | null
+          human_verified: boolean | null
+          id: string
+          negative_type: string
+          report_id: string
+          severity_score: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          ai_confidence_score?: number | null
+          amount?: number | null
+          created_at?: string | null
+          date_occurred?: string | null
+          description?: string | null
+          dispute_eligible?: boolean | null
+          human_verified?: boolean | null
+          id?: string
+          negative_type: string
+          report_id: string
+          severity_score?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          ai_confidence_score?: number | null
+          amount?: number | null
+          created_at?: string | null
+          date_occurred?: string | null
+          description?: string | null
+          dispute_eligible?: boolean | null
+          human_verified?: boolean | null
+          id?: string
+          negative_type?: string
+          report_id?: string
+          severity_score?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "negative_items_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "credit_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "negative_items_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      personal_information: {
+        Row: {
+          created_at: string | null
+          current_address: Json | null
+          date_of_birth: string | null
+          employer_info: Json | null
+          full_name: string | null
+          id: string
+          previous_addresses: Json | null
+          report_id: string
+          ssn_partial: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          current_address?: Json | null
+          date_of_birth?: string | null
+          employer_info?: Json | null
+          full_name?: string | null
+          id?: string
+          previous_addresses?: Json | null
+          report_id: string
+          ssn_partial?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          current_address?: Json | null
+          date_of_birth?: string | null
+          employer_info?: Json | null
+          full_name?: string | null
+          id?: string
+          previous_addresses?: Json | null
+          report_id?: string
+          ssn_partial?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "personal_information_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_metrics: {
         Row: {
           active_users: number
@@ -403,6 +752,53 @@ export type Database = {
           verification_documents?: Json | null
         }
         Relationships: []
+      }
+      public_records: {
+        Row: {
+          amount: number | null
+          case_number: string | null
+          court_name: string | null
+          created_at: string | null
+          filing_date: string | null
+          id: string
+          record_type: string
+          report_id: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount?: number | null
+          case_number?: string | null
+          court_name?: string | null
+          created_at?: string | null
+          filing_date?: string | null
+          id?: string
+          record_type: string
+          report_id: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number | null
+          case_number?: string | null
+          court_name?: string | null
+          created_at?: string | null
+          filing_date?: string | null
+          id?: string
+          record_type?: string
+          report_id?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "public_records_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       response_logs: {
         Row: {

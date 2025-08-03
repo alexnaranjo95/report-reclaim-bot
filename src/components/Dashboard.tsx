@@ -7,6 +7,7 @@ import { UploadZone } from './UploadZone';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
+import { RegenerateButton } from './RegenerateButton';
 import { CreditAnalysis } from './CreditAnalysis';
 import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
@@ -531,10 +532,12 @@ export const Dashboard = () => {
                           <Save className="h-4 w-4" />
                           {isSaving ? 'Saving...' : 'Save'}
                         </Button>
-                        {uploadedFile && <Button variant="outline" size="sm" onClick={() => regenerateRound(currentRound)} className="flex items-center gap-1 border-gray-300 text-gray-700 hover:bg-gray-50">
-                            <RefreshCw className="h-4 w-4" />
-                            Regenerate
-                          </Button>}
+                        {uploadedFile && <RegenerateButton 
+                          currentRound={currentRound}
+                          sessionId={currentSession?.id}
+                          onRegenerate={() => regenerateRound(currentRound)}
+                          roundData={rounds.find(r => r.round_number === currentRound)}
+                        />}
                       </div>
                     </div>
                   </CardHeader>

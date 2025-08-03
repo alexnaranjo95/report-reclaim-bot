@@ -410,6 +410,8 @@ export type Database = {
           completed_at: string | null
           created_at: string
           id: string
+          last_regeneration_date: string | null
+          regeneration_count: number | null
           round_number: number
           session_id: string
           snapshot_data: Json | null
@@ -421,6 +423,8 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_regeneration_date?: string | null
+          regeneration_count?: number | null
           round_number: number
           session_id: string
           snapshot_data?: Json | null
@@ -432,6 +436,8 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_regeneration_date?: string | null
+          regeneration_count?: number | null
           round_number?: number
           session_id?: string
           snapshot_data?: Json | null

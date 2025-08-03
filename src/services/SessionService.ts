@@ -21,6 +21,8 @@ export interface Round {
   snapshot_data?: any;
   sent_at?: string;
   mail_responses?: MailResponse[];
+  regeneration_count?: number;
+  last_regeneration_date?: string;
 }
 
 export interface MailResponse {

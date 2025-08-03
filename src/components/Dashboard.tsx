@@ -8,7 +8,7 @@ import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
-import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut } from 'lucide-react';
+import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { SessionService, Session, Round } from '../services/SessionService';
@@ -26,6 +26,7 @@ export const Dashboard = () => {
   const [analysisResults, setAnalysisResults] = useState<CreditAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [expandedRoundIndex, setExpandedRoundIndex] = useState<number | null>(null);
   const {
     toast
   } = useToast();
@@ -183,9 +184,11 @@ export const Dashboard = () => {
     if (!round) return;
     try {
       await SessionService.updateRoundStatus(round.id, 'sent');
+      const now = new Date().toISOString();
       setRounds(prev => prev.map(r => r.round_number === roundNumber ? {
         ...r,
-        status: 'sent' as Round['status']
+        status: 'sent' as Round['status'],
+        sent_at: now
       } : r));
       toast({
         title: "Round Marked as Sent",
@@ -298,6 +301,15 @@ export const Dashboard = () => {
       });
     }
   };
+  const getDaysUntilNextRound = (sentDate: string): number => {
+    const daysElapsed = (Date.now() - new Date(sentDate).getTime()) / (1000 * 60 * 60 * 24);
+    return Math.max(0, 30 - Math.floor(daysElapsed));
+  };
+
+  const toggleRound = (roundNumber: number) => {
+    setExpandedRoundIndex(prev => (prev === roundNumber ? null : roundNumber));
+  };
+
   const getRoundIcon = (roundNumber: number, status: string) => {
     if (status === 'sent') {
       return <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
@@ -398,35 +410,130 @@ export const Dashboard = () => {
               </CardHeader>
               <CardContent className="space-y-2">
                 <TooltipProvider>
-                  {Array.from({
-                  length: 12
-                }, (_, i) => i + 1).map(roundNumber => {
-                  const round = rounds.find(r => r.round_number === roundNumber);
-                  const status = round?.status || 'draft';
-                  const accessibility = getRoundAccessibility(roundNumber, currentRound, rounds);
-                  const roundElement = <div key={roundNumber} className={`flex items-center justify-between py-2 px-2 rounded transition-colors ${accessibility.isAccessible ? 'cursor-pointer hover:bg-muted/50' : 'cursor-not-allowed opacity-50'} ${accessibility.isCurrentRound ? 'bg-primary/10 border border-primary/20' : ''}`} onClick={() => accessibility.isAccessible && handleRoundClick(roundNumber)}>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm w-20 ${accessibility.isCurrentRound ? 'font-medium text-primary' : accessibility.isAccessible ? '' : 'text-muted-foreground'}`}>
-                            Round {roundNumber}
-                          </span>
-                          {accessibility.isCurrentRound && <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded mx-[105px]">
-                              {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
-                            </Badge>}
-                          {accessibility.canGraduate && !accessibility.isCurrentRound && <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">
-                              🟢 Ready
-                            </Badge>}
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(roundNumber => {
+                    const round = rounds.find(r => r.round_number === roundNumber);
+                    const status = round?.status || 'draft';
+                    const accessibility = getRoundAccessibility(roundNumber, currentRound, rounds);
+                    const isExpanded = expandedRoundIndex === roundNumber;
+                    
+                    // Calculate countdown for rounds that are sent
+                    let countdownDisplay = null;
+                    if (round?.sent_at && status === 'sent') {
+                      const daysRemaining = getDaysUntilNextRound(round.sent_at);
+                      if (daysRemaining > 0) {
+                        countdownDisplay = (
+                          <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 text-xs px-2 py-0.5 rounded">
+                            {daysRemaining} days left
+                          </Badge>
+                        );
+                      } else {
+                        countdownDisplay = (
+                          <Badge variant="secondary" className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded">
+                            ✅ Ready to Start Round {roundNumber + 1}
+                          </Badge>
+                        );
+                      }
+                    }
+
+                    const roundButton = (
+                      <div 
+                        key={roundNumber} 
+                        className={`space-y-2 ${accessibility.isAccessible ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
+                      >
+                        {/* Round Button/Header */}
+                        <div 
+                          className={`flex items-center justify-between py-2 px-3 rounded transition-colors ${
+                            accessibility.isAccessible ? 'hover:bg-muted/50' : ''
+                          } ${accessibility.isCurrentRound ? 'bg-primary/10 border border-primary/20' : 'border border-transparent'}`}
+                          onClick={() => {
+                            if (accessibility.isAccessible) {
+                              if (round?.snapshot_data && Object.keys(round.snapshot_data).length > 0) {
+                                toggleRound(roundNumber);
+                              } else {
+                                handleRoundClick(roundNumber);
+                              }
+                            }
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            {round?.snapshot_data && Object.keys(round.snapshot_data).length > 0 && (
+                              <div className="flex items-center">
+                                {isExpanded ? (
+                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </div>
+                            )}
+                            <span className={`text-sm w-20 ${
+                              accessibility.isCurrentRound ? 'font-medium text-primary' : 
+                              accessibility.isAccessible ? '' : 'text-muted-foreground'
+                            }`}>
+                              Round {roundNumber}
+                            </span>
+                            {getRoundIcon(roundNumber, status)}
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            {countdownDisplay}
+                            {accessibility.isCurrentRound && (
+                              <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded">
+                                {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
+                              </Badge>
+                            )}
+                            {accessibility.canGraduate && !accessibility.isCurrentRound && (
+                              <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">
+                                🟢 Ready
+                              </Badge>
+                            )}
+                          </div>
                         </div>
-                        
-                      </div>;
-                  return accessibility.lockReason ? <Tooltip key={roundNumber}>
+
+                        {/* Collapsible Round Content */}
+                        {isExpanded && round?.snapshot_data && Object.keys(round.snapshot_data).length > 0 && (
+                          <div className="ml-6 p-3 bg-muted/30 rounded border-l-2 border-primary/30 space-y-2">
+                            <div className="text-sm text-muted-foreground">
+                              Round {roundNumber} Details
+                            </div>
+                            {round.snapshot_data.uploadedFileName && (
+                              <div className="text-xs text-muted-foreground">
+                                📄 {round.snapshot_data.uploadedFileName}
+                              </div>
+                            )}
+                            {round.snapshot_data.savedAt && (
+                              <div className="text-xs text-muted-foreground">
+                                💾 Saved: {new Date(round.snapshot_data.savedAt).toLocaleDateString()}
+                              </div>
+                            )}
+                            {round.sent_at && (
+                              <div className="text-xs text-muted-foreground">
+                                📤 Sent: {new Date(round.sent_at).toLocaleDateString()}
+                              </div>
+                            )}
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="text-xs mt-2"
+                              onClick={() => handleRoundClick(roundNumber)}
+                            >
+                              Load Round {roundNumber}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+
+                    return accessibility.lockReason ? (
+                      <Tooltip key={roundNumber}>
                         <TooltipTrigger asChild>
-                          {roundElement}
+                          {roundButton}
                         </TooltipTrigger>
                         <TooltipContent>
                           <p>{accessibility.lockReason}</p>
                         </TooltipContent>
-                      </Tooltip> : roundElement;
-                })}
+                      </Tooltip>
+                    ) : roundButton;
+                  })}
                 </TooltipProvider>
               </CardContent>
             </Card>

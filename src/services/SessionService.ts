@@ -329,8 +329,15 @@ export class SessionService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
+    console.log('[SessionService] createOrUpdateRound called with:', {
+      sessionId,
+      roundNumber,
+      userId: user.id,
+      hasSnapshotData: !!snapshotData
+    });
+
     // Check if round already exists
-    const { data: existingRound } = await supabase
+    const { data: existingRound, error: fetchError } = await supabase
       .from('rounds')
       .select('*')
       .eq('session_id', sessionId)
@@ -338,41 +345,64 @@ export class SessionService {
       .eq('user_id', user.id)
       .maybeSingle();
 
+    if (fetchError) {
+      console.error('[SessionService] Error fetching existing round:', fetchError);
+      throw fetchError;
+    }
+
+    console.log('[SessionService] Existing round found:', !!existingRound);
+
     if (existingRound) {
       // Update existing round
+      const updateData = {
+        snapshot_data: snapshotData || existingRound.snapshot_data,
+        status: snapshotData ? 'saved' : existingRound.status,
+        updated_at: new Date().toISOString()
+      };
+
+      console.log('[SessionService] Updating round with data:', updateData);
+
       const { data, error } = await supabase
         .from('rounds')
-        .update({
-          snapshot_data: snapshotData || existingRound.snapshot_data,
-          status: snapshotData ? 'saved' : existingRound.status,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', existingRound.id)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[SessionService] Error updating round:', error);
+        throw error;
+      }
+
+      console.log('[SessionService] Round updated successfully:', data);
       return {
         ...data,
         status: data.status as Round['status']
       };
     } else {
       // Create new round
+      const insertData = {
+        session_id: sessionId,
+        round_number: roundNumber,
+        status: snapshotData ? 'saved' : 'draft',
+        snapshot_data: snapshotData || {},
+        user_id: user.id
+      };
+
+      console.log('[SessionService] Creating new round with data:', insertData);
+
       const { data, error } = await supabase
         .from('rounds')
-        .insert([
-          {
-            session_id: sessionId,
-            round_number: roundNumber,
-            status: snapshotData ? 'saved' : 'draft',
-            snapshot_data: snapshotData || {},
-            user_id: user.id
-          }
-        ])
+        .insert([insertData])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[SessionService] Error creating round:', error);
+        throw error;
+      }
+
+      console.log('[SessionService] Round created successfully:', data);
       return {
         ...data,
         status: data.status as Round['status']

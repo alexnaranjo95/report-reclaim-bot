@@ -149,11 +149,21 @@ export const Dashboard = () => {
         savedAt: new Date().toISOString()
       };
 
+      // Log the data being saved for debugging
+      console.log('[Saving Round]', {
+        session_id: currentSession.id,
+        round_number: currentRound,
+        status: 'saved',
+        snapshot_data: snapshotData
+      });
+
       const round = await SessionService.createOrUpdateRound(
         currentSession.id,
         currentRound,
         snapshotData
       );
+
+      console.log('[Round Saved Successfully]', round);
 
       // Update local rounds state
       setRounds(prev => {
@@ -170,10 +180,10 @@ export const Dashboard = () => {
         description: `Round ${currentRound} saved successfully to database.`,
       });
     } catch (error) {
-      console.error('Failed to save round:', error);
+      console.error('[Save Round Failed]', error);
       toast({
         title: "Save Failed",
-        description: "Failed to save round data. Please try again.",
+        description: `Failed to save round data: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       });
     } finally {

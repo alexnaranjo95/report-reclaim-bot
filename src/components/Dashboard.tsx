@@ -166,7 +166,7 @@ export const Dashboard = () => {
                         file.name.toLowerCase().includes('experian') ? 'Experian' : 
                         file.name.toLowerCase().includes('transunion') ? 'TransUnion' : 'Unknown',
             file_name: file.name,
-            file_path: uploadData.path,
+            file_path: filePath, // Use the filePath we generated, not uploadData.path
             report_date: new Date().toISOString().split('T')[0],
             extraction_status: 'pending'
           })

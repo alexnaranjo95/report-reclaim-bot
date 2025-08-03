@@ -1,12 +1,10 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { useDropzone } from 'react-dropzone';
-import { Paperclip, Upload, X, FileImage, FileText, Settings } from 'lucide-react';
+import { Paperclip, Upload, X, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface DocumentAppendSettings {
@@ -35,9 +33,8 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
   isAdmin = false,
   onAdminFilesChange
 }) => {
-  const [adminFiles, setAdminFiles] = useState<File[]>([]);
   const [storedExampleDocs, setStoredExampleDocs] = useState<AdminExampleDoc[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
+  const [isUploading, setIsUploading] = useState<Record<string, boolean>>({});
 
   // Load stored example documents on mount
   useEffect(() => {
@@ -60,102 +57,62 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
     }
   };
 
-  const uploadFileToStorage = async (file: File, category: string): Promise<string> => {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${category}.${fileExt}`;
-    const filePath = `examples/${fileName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('admin-examples')
-      .upload(filePath, file, { upsert: true });
-
-    if (uploadError) throw uploadError;
-
-    const { data } = supabase.storage
-      .from('admin-examples')
-      .getPublicUrl(filePath);
-
-    return data.publicUrl;
-  };
-
-  const saveExampleDocToDB = async (file: File, category: string, fileUrl: string) => {
-    const { error } = await supabase
-      .from('admin_example_documents')
-      .upsert({
-        category,
-        file_url: fileUrl,
-        file_name: file.name
-      }, { onConflict: 'category' });
-
-    if (error) throw error;
-  };
-
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (!isAdmin) return;
-    
-    // Validate file types
-    const validFiles = acceptedFiles.filter(file => {
-      const isValidType = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'].includes(file.type);
-      if (!isValidType) {
-        toast.error(`Invalid file type: ${file.name}. Only PNG, JPG, and PDF files are allowed.`);
-      }
-      return isValidType;
-    });
-
-    if (validFiles.length === 0) return;
-
-    setIsUploading(true);
+  const uploadFile = async (file: File, category: string) => {
+    setIsUploading(prev => ({ ...prev, [category]: true }));
     
     try {
-      // For now, we'll determine category based on file name or ask user
-      // Simplified: assign first file as gov_id, second as proof_of_address, third as ssn
-      const categories = ['gov_id', 'proof_of_address', 'ssn'];
-      
-      for (let i = 0; i < validFiles.length && i < categories.length; i++) {
-        const file = validFiles[i];
-        const category = categories[i];
-        
-        const fileUrl = await uploadFileToStorage(file, category);
-        await saveExampleDocToDB(file, category, fileUrl);
-        
-        toast.success(`Uploaded ${file.name} as ${category.replace('_', ' ')}`);
+      // Validate file type
+      const isValidType = ['image/png', 'image/jpeg', 'image/jpg', 'application/pdf'].includes(file.type);
+      if (!isValidType) {
+        toast.error(`Invalid file type. Only PNG, JPG, and PDF files are allowed.`);
+        return;
       }
-      
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${category}.${fileExt}`;
+      const filePath = `examples/${fileName}`;
+
+      // Upload to storage
+      const { error: uploadError } = await supabase.storage
+        .from('admin-examples')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data } = supabase.storage
+        .from('admin-examples')
+        .getPublicUrl(filePath);
+
+      // Save to database
+      const { error: dbError } = await supabase
+        .from('admin_example_documents')
+        .upsert({
+          category,
+          file_url: data.publicUrl,
+          file_name: file.name
+        }, { onConflict: 'category' });
+
+      if (dbError) throw dbError;
+
       await loadStoredExampleDocs();
-      setAdminFiles(prev => [...prev, ...validFiles]);
-      onAdminFilesChange?.(adminFiles.concat(validFiles));
+      toast.success(`Uploaded ${getCategoryLabel(category)} example`);
       
     } catch (error) {
-      console.error('Error uploading files:', error);
-      toast.error('Failed to upload files');
+      console.error('Error uploading file:', error);
+      toast.error('Failed to upload file');
     } finally {
-      setIsUploading(false);
+      setIsUploading(prev => ({ ...prev, [category]: false }));
     }
-  }, [isAdmin, adminFiles, onAdminFilesChange]);
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'image/png': ['.png'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'application/pdf': ['.pdf']
-    },
-    disabled: !isAdmin || isUploading
-  });
-
-  const removeAdminFile = (index: number) => {
-    const newFiles = adminFiles.filter((_, i) => i !== index);
-    setAdminFiles(newFiles);
-    onAdminFilesChange?.(newFiles);
   };
 
-  const removeStoredDoc = async (docId: string, category: string) => {
+  const removeStoredDoc = async (category: string) => {
     try {
       // Delete from database
       const { error: dbError } = await supabase
         .from('admin_example_documents')
         .delete()
-        .eq('id', docId);
+        .eq('category', category);
 
       if (dbError) throw dbError;
 
@@ -168,7 +125,7 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
       if (storageError) console.warn('Storage deletion error:', storageError);
 
       await loadStoredExampleDocs();
-      toast.success('Example document removed');
+      toast.success(`${getCategoryLabel(category)} example removed`);
     } catch (error) {
       console.error('Error removing document:', error);
       toast.error('Failed to remove document');
@@ -182,13 +139,6 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
     });
   };
 
-  const getFileIcon = (fileType: string) => {
-    if (fileType.startsWith('image/')) {
-      return <FileImage className="w-4 h-4" />;
-    }
-    return <FileText className="w-4 h-4" />;
-  };
-
   const getCategoryLabel = (category: string) => {
     switch (category) {
       case 'gov_id': return 'Government ID';
@@ -198,199 +148,140 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
     }
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Client Document Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Paperclip className="w-5 h-5" />
-            Append Client Documents
-          </CardTitle>
-          <CardDescription>
-            Configure which client documents will be appended to the final letter
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <input
-                  type="checkbox"
-                  id="include-gov-id"
-                  checked={settings.includeGovId}
-                  onChange={() => handleToggleChange('includeGovId')}
-                  className="rounded border-border"
-                />
-                <Label htmlFor="include-gov-id" className="font-medium">
-                  Government ID
-                </Label>
-              </div>
-              <Badge variant="outline" className="text-xs">
-                Driver's License, State ID, Passport
-              </Badge>
-            </div>
+  const getStoredDoc = (category: string) => {
+    return storedExampleDocs.find(doc => doc.category === category);
+  };
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <input
-                  type="checkbox"
-                  id="include-proof-address"
-                  checked={settings.includeProofOfAddress}
-                  onChange={() => handleToggleChange('includeProofOfAddress')}
-                  className="rounded border-border"
-                />
-                <Label htmlFor="include-proof-address" className="font-medium">
-                  Proof of Address
-                </Label>
-              </div>
-              <Badge variant="outline" className="text-xs">
-                Utility Bill, Bank Statement, Lease
-              </Badge>
-            </div>
+  const handleFileUpload = (category: string) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.png,.jpg,.jpeg,.pdf';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        uploadFile(file, category);
+      }
+    };
+    input.click();
+  };
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <input
-                  type="checkbox"
-                  id="include-ssn"
-                  checked={settings.includeSSN}
-                  onChange={() => handleToggleChange('includeSSN')}
-                  className="rounded border-border"
-                />
-                <Label htmlFor="include-ssn" className="font-medium">
-                  Social Security Number
-                </Label>
-              </div>
+  const DocumentRow = ({ 
+    category, 
+    settingKey, 
+    label, 
+    description 
+  }: { 
+    category: string;
+    settingKey: keyof DocumentAppendSettings;
+    label: string;
+    description: string;
+  }) => {
+    const storedDoc = getStoredDoc(category);
+    const uploading = isUploading[category];
+
+    return (
+      <div className="flex items-center justify-between p-3 border rounded-lg">
+        <div className="flex items-center space-x-3">
+          <input
+            type="checkbox"
+            id={`include-${category}`}
+            checked={settings[settingKey]}
+            onChange={() => handleToggleChange(settingKey)}
+            className="rounded border-border"
+          />
+          <div className="flex-1">
+            <Label htmlFor={`include-${category}`} className="font-medium">
+              {label}
+            </Label>
+            <div className="flex items-center gap-2 mt-1">
               <Badge variant="outline" className="text-xs">
-                SSN Card, W-2, Tax Document
+                {description}
               </Badge>
+              {isAdmin && storedDoc && (
+                <div className="flex items-center gap-1">
+                  <FileText className="w-3 h-3 text-green-600" />
+                  <span className="text-xs text-green-600">{storedDoc.file_name}</span>
+                </div>
+              )}
             </div>
           </div>
-
-          {(settings.includeGovId || settings.includeProofOfAddress || settings.includeSSN) && (
-            <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                <strong>Note:</strong> Documents will be appended to the final PDF in the order listed above. 
-                Ensure clients have uploaded the required documents in their profile settings.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Admin Preview Documents */}
-      {isAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Example ID Documents (Preview Only)
-            </CardTitle>
-            <CardDescription>
-              Upload sample documents to test layout and print margins in preview mode
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Upload Zone */}
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-                isDragActive
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-primary/50'
-              }`}
+        </div>
+        
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleFileUpload(category)}
+              disabled={uploading}
+              className="h-8"
             >
-              <input {...getInputProps()} />
-              <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                {isDragActive
-                  ? 'Drop files here...'
-                  : 'Drag & drop files here, or click to select'}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Supports PNG, JPG, PDF files
-              </p>
-            </div>
-
-            {/* Stored Example Documents */}
-            {storedExampleDocs.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Stored Example Documents:</Label>
-                <div className="space-y-2">
-                  {storedExampleDocs.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between p-2 bg-green-50 rounded border border-green-200"
-                    >
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-green-600" />
-                        <span className="text-sm font-medium text-green-800">
-                          {getCategoryLabel(doc.category)}
-                        </span>
-                        <Badge variant="secondary" className="text-xs">
-                          {doc.file_name}
-                        </Badge>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeStoredDoc(doc.id, doc.category)}
-                        className="h-6 w-6 p-0 hover:bg-red-50"
-                      >
-                        <X className="w-3 h-3 text-red-500" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <Upload className="w-3 h-3 mr-1" />
+              {uploading ? 'Uploading...' : storedDoc ? 'Replace' : 'Upload'}
+            </Button>
+            {storedDoc && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => removeStoredDoc(category)}
+                className="h-8 w-8 p-0 hover:bg-red-50"
+              >
+                <X className="w-3 h-3 text-red-500" />
+              </Button>
             )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
-            {/* Temporary Upload Files */}
-            {adminFiles.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Recent Uploads:</Label>
-                <div className="space-y-2">
-                  {adminFiles.map((file, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-2 bg-muted/30 rounded border"
-                    >
-                      <div className="flex items-center gap-2">
-                        {getFileIcon(file.type)}
-                        <span className="text-sm truncate max-w-[200px]">
-                          {file.name}
-                        </span>
-                        <Badge variant="secondary" className="text-xs">
-                          {(file.size / 1024 / 1024).toFixed(1)} MB
-                        </Badge>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeAdminFile(index)}
-                        className="h-6 w-6 p-0"
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Paperclip className="w-5 h-5" />
+          Append Client Documents
+        </CardTitle>
+        <CardDescription>
+          Configure which client documents will be appended to the final letter
+          {isAdmin && " and upload example documents for preview"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-3">
+          <DocumentRow
+            category="gov_id"
+            settingKey="includeGovId"
+            label="Government ID"
+            description="Driver's License, State ID, Passport"
+          />
+          
+          <DocumentRow
+            category="proof_of_address"
+            settingKey="includeProofOfAddress"
+            label="Proof of Address"
+            description="Utility Bill, Bank Statement, Lease"
+          />
+          
+          <DocumentRow
+            category="ssn"
+            settingKey="includeSSN"
+            label="Social Security Number"
+            description="SSN Card, W-2, Tax Document"
+          />
+        </div>
 
-            <Separator />
-            
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                <strong>Persistent Storage:</strong> Uploaded files are stored permanently and used across all template previews. 
-                These example documents help visualize how client documents will appear when appended to letters.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+        {(settings.includeGovId || settings.includeProofOfAddress || settings.includeSSN) && (
+          <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+            <p className="text-sm text-muted-foreground">
+              <strong>Note:</strong> Documents will be appended to the final PDF in the order listed above. 
+              {!isAdmin && " Ensure clients have uploaded the required documents in their profile settings."}
+              {isAdmin && " Example documents uploaded here will be used for template previews."}
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 

@@ -3,9 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Paperclip, Upload, X, FileText } from 'lucide-react';
+import { Paperclip, Upload, X, FileText, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { DocumentAppendService } from '@/services/DocumentAppendService';
 
 interface DocumentAppendSettings {
   includeGovId: boolean;
@@ -18,6 +20,7 @@ interface ClientDocAppendProps {
   onSettingsChange: (settings: DocumentAppendSettings) => void;
   isAdmin?: boolean;
   onAdminFilesChange?: (files: File[]) => void;
+  roundId?: string; // For auto-save functionality
 }
 
 interface AdminExampleDoc {
@@ -31,10 +34,12 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
   settings,
   onSettingsChange,
   isAdmin = false,
-  onAdminFilesChange
+  onAdminFilesChange,
+  roundId
 }) => {
   const [storedExampleDocs, setStoredExampleDocs] = useState<AdminExampleDoc[]>([]);
   const [isUploading, setIsUploading] = useState<Record<string, boolean>>({});
+  const [isSaving, setIsSaving] = useState<Record<string, boolean>>({});
 
   // Load stored example documents on mount
   useEffect(() => {
@@ -132,11 +137,36 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
     }
   };
 
-  const handleToggleChange = (key: keyof DocumentAppendSettings) => {
-    onSettingsChange({
+  const handleToggleChange = async (key: keyof DocumentAppendSettings) => {
+    const previousValue = settings[key];
+    const newValue = !previousValue;
+    
+    // Update local state immediately for responsive UI
+    const newSettings = {
       ...settings,
-      [key]: !settings[key]
-    });
+      [key]: newValue
+    };
+    onSettingsChange(newSettings);
+
+    // Auto-save to database if roundId is provided
+    if (roundId) {
+      setIsSaving(prev => ({ ...prev, [key]: true }));
+      
+      try {
+        await DocumentAppendService.saveRoundAppendSettings(roundId, newSettings);
+        toast.success(`Document setting saved automatically`);
+      } catch (error) {
+        // Revert the change on error
+        onSettingsChange({
+          ...settings,
+          [key]: previousValue
+        });
+        console.error('Error saving document settings:', error);
+        toast.error('Failed to save document setting. Please try again.');
+      } finally {
+        setIsSaving(prev => ({ ...prev, [key]: false }));
+      }
+    }
   };
 
   const getCategoryLabel = (category: string) => {
@@ -178,19 +208,24 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
   }) => {
     const storedDoc = getStoredDoc(category);
     const uploading = isUploading[category];
+    const saving = isSaving[settingKey];
 
     return (
       <div className="flex items-center justify-between p-3 border rounded-lg">
         <div className="flex items-center space-x-3">
-          <input
-            type="checkbox"
-            id={`include-${category}`}
-            checked={settings[settingKey]}
-            onChange={() => handleToggleChange(settingKey)}
-            className="rounded border-border"
-          />
+          <div className="flex items-center gap-2">
+            <Switch
+              id={`include-${category}`}
+              checked={settings[settingKey]}
+              onCheckedChange={() => handleToggleChange(settingKey)}
+              disabled={saving}
+            />
+            {saving && (
+              <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+            )}
+          </div>
           <div className="flex-1">
-            <Label htmlFor={`include-${category}`} className="font-medium">
+            <Label htmlFor={`include-${category}`} className="font-medium cursor-pointer">
               {label}
             </Label>
             <div className="flex items-center gap-2 mt-1">

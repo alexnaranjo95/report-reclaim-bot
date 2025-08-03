@@ -10,6 +10,8 @@ import { RoundProgressCard } from '@/components/RoundProgressCard';
 import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
 import CreditReportUpload from '@/components/CreditReportUpload';
 import { CreditReportPreviewModal } from '@/components/CreditReportPreviewModal';
+import { CreditReportAnalysis } from '@/components/CreditReportAnalysis';
+import { CreditReportTimeline } from '@/components/CreditReportTimeline';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { 
@@ -185,11 +187,13 @@ const CreditReportsPage: React.FC = () => {
   // Always render the page - don't block on user authentication
   // The page will show appropriate states for authenticated/unauthenticated users
 
-  // Show full report viewer if a report is selected
+  // Show credit report analysis if a report is selected
   if (selectedReportId) {
+    const selectedReport = reports.find(r => r.id === selectedReportId);
     return (
-      <FullCreditReportViewer
+      <CreditReportAnalysis
         reportId={selectedReportId}
+        reportName={selectedReport?.file_name || 'Credit Report'}
         onBack={handleBackToReports}
       />
     );
@@ -369,35 +373,13 @@ const CreditReportsPage: React.FC = () => {
             <span className="ml-2">Loading reports...</span>
           </div>
         ) : viewMode === 'rounds' ? (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Dispute Round Progress</h2>
-              <p className="text-sm text-muted-foreground">
-                Track your credit report uploads across all 12 dispute rounds
-              </p>
-            </div>
-            
-            {/* Round Progress Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {Array.from({ length: 12 }, (_, index) => {
-                const roundNumber = index + 1;
-                const roundReports = getReportsByRound();
-                const creditReport = roundReports[roundNumber];
-                
-                return (
-                  <RoundProgressCard
-                    key={roundNumber}
-                    roundNumber={roundNumber}
-                    creditReport={creditReport}
-                    isCurrentRound={roundNumber === currentRound}
-                    onUploadReport={handleUploadForRound}
-                    onPreviewReport={handlePreviewReport}
-                    onViewReport={handleViewReport}
-                  />
-                );
-              })}
-            </div>
-          </div>
+          <CreditReportTimeline
+            rounds={getReportsByRound()}
+            currentRound={currentRound}
+            onUploadReport={handleUploadForRound}
+            onPreviewReport={handlePreviewReport}
+            onViewReport={handleViewReport}
+          />
         ) : filteredReports.length === 0 && !error ? (
         <Card>
           <CardContent className="p-12 text-center">

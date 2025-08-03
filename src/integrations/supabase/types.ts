@@ -406,6 +406,7 @@ export type Database = {
       }
       round_templates: {
         Row: {
+          append_documents: Json | null
           content_template: string
           created_at: string
           created_by: string | null
@@ -413,9 +414,11 @@ export type Database = {
           is_active: boolean | null
           layout_id: string | null
           round_number: number
+          tone_settings: Json | null
           updated_at: string
         }
         Insert: {
+          append_documents?: Json | null
           content_template: string
           created_at?: string
           created_by?: string | null
@@ -423,9 +426,11 @@ export type Database = {
           is_active?: boolean | null
           layout_id?: string | null
           round_number: number
+          tone_settings?: Json | null
           updated_at?: string
         }
         Update: {
+          append_documents?: Json | null
           content_template?: string
           created_at?: string
           created_by?: string | null
@@ -433,6 +438,7 @@ export type Database = {
           is_active?: boolean | null
           layout_id?: string | null
           round_number?: number
+          tone_settings?: Json | null
           updated_at?: string
         }
         Relationships: [
@@ -594,6 +600,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ensure_round_templates: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       get_user_profile: {
         Args: { profile_user_id: string }
         Returns: {

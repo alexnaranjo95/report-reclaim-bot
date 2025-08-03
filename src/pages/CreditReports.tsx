@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import CreditReportUpload from '@/components/CreditReportUpload';
 import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
+import { PDFExtractionService } from '@/services/PDFExtractionService';
 import { toast } from 'sonner';
 import { 
   FileText, 
@@ -19,7 +20,9 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
-  XCircle
+  XCircle,
+  PlayCircle,
+  RefreshCw
 } from 'lucide-react';
 
 const CreditReportsPage: React.FC = () => {
@@ -96,6 +99,30 @@ const CreditReportsPage: React.FC = () => {
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Failed to delete credit report');
+    }
+  };
+
+  const handleExtractText = async (report: CreditReport) => {
+    try {
+      toast.loading('Starting text extraction...', { id: 'extract-text' });
+      await PDFExtractionService.extractText(report.id);
+      toast.success('Text extraction started! This may take a few minutes.', { id: 'extract-text' });
+      loadReports(); // Refresh to show updated status
+    } catch (error) {
+      console.error('Extract error:', error);
+      toast.error(`Failed to start extraction: ${error.message}`, { id: 'extract-text' });
+    }
+  };
+
+  const handleRetryExtraction = async (report: CreditReport) => {
+    try {
+      toast.loading('Retrying text extraction...', { id: 'retry-extract' });
+      await PDFExtractionService.retryExtraction(report.id);
+      toast.success('Text extraction restarted!', { id: 'retry-extract' });
+      loadReports(); // Refresh to show updated status
+    } catch (error) {
+      console.error('Retry error:', error);
+      toast.error(`Failed to retry extraction: ${error.message}`, { id: 'retry-extract' });
     }
   };
 
@@ -297,7 +324,34 @@ const CreditReportsPage: React.FC = () => {
                       </div>
 
                       <div className="flex items-center gap-2 ml-4">
-                        {report.file_path && report.extraction_status === 'completed' && (
+                        {/* Extract Text Button */}
+                        {report.file_path && 
+                         report.extraction_status !== 'processing' && 
+                         report.extraction_status !== 'completed' && 
+                         !report.raw_text && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleExtractText(report)}
+                            title="Extract text from PDF"
+                          >
+                            <PlayCircle className="w-4 h-4" />
+                          </Button>
+                        )}
+                        
+                        {/* Retry Extraction Button */}
+                        {report.extraction_status === 'failed' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleRetryExtraction(report)}
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </Button>
+                        )}
+                        
+                        {/* Download Button */}
+                        {report.file_path && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -306,6 +360,8 @@ const CreditReportsPage: React.FC = () => {
                             <Download className="w-4 h-4" />
                           </Button>
                         )}
+                        
+                        {/* Delete Button */}
                         <Button
                           variant="outline"
                           size="sm"

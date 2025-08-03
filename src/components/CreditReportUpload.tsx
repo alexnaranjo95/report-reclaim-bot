@@ -270,7 +270,14 @@ const CreditReportUpload: React.FC = () => {
       case 'uploading':
         return <Badge variant="default">Uploading</Badge>;
       case 'processing':
-        return <Badge variant="default">Processing</Badge>;
+        return (
+          <Badge variant="default" className="bg-blue-500">
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+              Extracting Text...
+            </div>
+          </Badge>
+        );
       case 'completed':
         return <Badge variant="default" className="bg-green-500">Ready for Analysis</Badge>;
       case 'error':

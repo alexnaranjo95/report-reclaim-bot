@@ -11,6 +11,7 @@ import { OpenAIService } from '../services/OpenAIService';
 import { Editor } from '@tinymce/tinymce-react';
 import { useToast } from '@/hooks/use-toast';
 import { postgridService, PostgridLetter } from '../services/PostgridService';
+import { creditorAddressService } from '@/services/CreditorAddressService';
 import { supabase } from '@/integrations/supabase/client';
 import { LetterCostNotification } from './LetterCostNotification';
 
@@ -235,12 +236,13 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
           } catch (error) {
             console.error(`Error generating letter for ${creditor} - ${bureau}:`, error);
             // Provide fallback letter if API fails
+            const fallbackContent = await generateFallbackLetter(creditor, bureauItems, bureau);
             generatedLetters.push({
               id: `letter-${creditor}-${bureau}-${Date.now()}`,
               creditor,
               bureau,
               items: itemDescriptions,
-              content: generateFallbackLetter(creditor, bureauItems),
+              content: fallbackContent,
               status: 'ready',
               type: 'validation'
             });
@@ -293,12 +295,34 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
     }
   };
 
-  const generateFallbackLetter = (creditor: string, items: CreditItem[]): string => {
+  const generateFallbackLetter = async (creditor: string, items: CreditItem[], bureau: string): Promise<string> => {
+    // Try to get creditor address from database
+    let creditorAddress = '';
+    try {
+      const { data } = await supabase.functions.invoke('admin-addresses', {
+        method: 'GET',
+        body: { 
+          bureau: bureau,
+          creditor: creditor 
+        }
+      });
+      
+      if (data?.data && data.data.length > 0) {
+        const address = data.data[0];
+        creditorAddress = `${address.street}\n${address.city}, ${address.state} ${address.zip}`;
+      } else {
+        creditorAddress = '[ADDRESS NOT FOUND - PLEASE UPDATE MANUALLY]';
+      }
+    } catch (error) {
+      console.error('Error fetching creditor address:', error);
+      creditorAddress = '[ADDRESS LOOKUP FAILED - PLEASE UPDATE MANUALLY]';
+    }
+
     return `[DATE]
 
 ${creditor}
 Dispute Department
-[CREDITOR_ADDRESS]
+${creditorAddress}
 
 RE: FCRA Section 623 Dispute - Request for Investigation and Validation
 
@@ -789,24 +813,25 @@ Enclosures: Copy of credit report, Copy of ID`;
                         let errorCount = 0;
 
                         for (const letter of letters) {
+                          // Get creditor address from database
+                          const creditorAddress = await creditorAddressService.getPostgridAddress(letter.creditor, letter.bureau);
+                          
+                          if (!creditorAddress) {
+                            console.error(`No address found for ${letter.creditor} (${letter.bureau})`);
+                            errorCount++;
+                            continue;
+                          }
+
+                          // Create letter for sending
                           const sampleLetter: PostgridLetter = {
-                            to: {
-                              firstName: "Credit Bureau",
-                              lastName: "Department", 
-                              companyName: letter.creditor,
-                              addressLine1: "123 Credit St",
-                              city: "Credit City",
-                              provinceOrState: "CA",
-                              postalOrZip: "90210",
-                              country: "US"
-                            },
+                            to: creditorAddress,
                             from: {
-                              firstName: "Your",
+                              firstName: "User", // TODO: Get from user profile
                               lastName: "Name",
-                              addressLine1: "456 Your St",
-                              city: "Your City",
+                              addressLine1: "456 User Street",
+                              city: "User City",
                               provinceOrState: "CA",
-                              postalOrZip: "90211",
+                              postalOrZip: "54321",
                               country: "US"
                             },
                             content: letter.content,
@@ -858,24 +883,29 @@ Enclosures: Copy of credit report, Copy of ID`;
                     const letter = letters.find(l => l.id === showCostConfirmation);
                     if (!letter) return;
 
+                    // Get creditor address from database
+                    const creditorAddress = await creditorAddressService.getPostgridAddress(letter.creditor, letter.bureau);
+                    
+                    if (!creditorAddress) {
+                      toast({
+                        title: "Address Not Found",
+                        description: `No address found for ${letter.creditor} (${letter.bureau}). Please add the address in the Admin panel first.`,
+                        variant: "destructive"
+                      });
+                      setShowCostConfirmation(null);
+                      return;
+                    }
+
+                    // Create letter for sending
                     const sampleLetter: PostgridLetter = {
-                      to: {
-                        firstName: "Credit Bureau",
-                        lastName: "Department", 
-                        companyName: letter.creditor,
-                        addressLine1: "123 Credit St",
-                        city: "Credit City",
-                        provinceOrState: "CA",
-                        postalOrZip: "90210",
-                        country: "US"
-                      },
+                      to: creditorAddress,
                       from: {
-                        firstName: "Your",
+                        firstName: "User", // TODO: Get from user profile
                         lastName: "Name",
-                        addressLine1: "456 Your St",
-                        city: "Your City",
+                        addressLine1: "456 User Street",
+                        city: "User City",
                         provinceOrState: "CA",
-                        postalOrZip: "90211",
+                        postalOrZip: "54321",
                         country: "US"
                       },
                       content: letter.content,

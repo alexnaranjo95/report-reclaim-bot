@@ -76,8 +76,8 @@ serve(async (req) => {
       });
     }
     
-    if (!settingData?.setting_value) {
-      console.error('TinyMCE API key not found in database');
+    if (!settingData || !settingData.setting_value) {
+      console.error('TinyMCE API key not found in database. SettingData:', settingData);
       return new Response(JSON.stringify({ 
         error: 'TinyMCE API key not configured in admin settings',
         apiKey: null

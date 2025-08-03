@@ -119,16 +119,23 @@ export const EnhancedProgressBar = ({
   }
 
   return (
-    <div className="space-y-4 p-6 bg-primary/5 border border-primary/20 rounded-lg">
-      {/* Progress Bar */}
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <span className="text-sm font-medium">Processing Credit Report</span>
-          <span className="text-sm text-muted-foreground">
-            {Math.round(progressPercentage)}% Complete
-          </span>
+    <div className="space-y-6">
+      {/* Main Progress Header */}
+      <div className="text-center">
+        <div className="text-4xl mb-2">⚡</div>
+        <h3 className="text-xl font-bold mb-1">Processing Credit Report</h3>
+        <p className="text-sm text-muted-foreground">
+          Step {currentStep} of {totalSteps} • {Math.round(progressPercentage)}% Complete
+        </p>
+      </div>
+
+      {/* Enhanced Progress Bar */}
+      <div className="space-y-3">
+        <Progress value={progressPercentage} className="h-4 bg-secondary/30" />
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>~{Math.max(1, Math.ceil((totalSteps - currentStep) * 0.3))} min remaining</span>
+          <span>{progressPercentage}% Complete</span>
         </div>
-        <Progress value={progressPercentage} className="h-2" />
       </div>
 
       {/* Step Indicator */}
@@ -137,53 +144,75 @@ export const EnhancedProgressBar = ({
         <span>~{Math.max(1, Math.ceil((totalSteps - currentStep) * 0.5))} minutes remaining</span>
       </div>
 
-      {/* Current Status */}
+      {/* Current Processing Step - Prominently Featured */}
       {currentStepData && (
-        <div className="flex items-center gap-3 p-3 bg-background/50 rounded-md border">
-          <div className="relative">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm">{currentStepData.label}</p>
-            {currentStepData.description && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {currentStepData.description}
-              </p>
-            )}
+        <div className="bg-primary/10 border-2 border-primary/30 rounded-lg p-4">
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <div className="w-12 h-12 bg-primary/20 rounded-full flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            </div>
+            <div className="flex-1">
+              <h4 className="font-bold text-primary text-lg">{currentStepData.label}</h4>
+              {currentStepData.description && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  {currentStepData.description}
+                </p>
+              )}
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-primary">{currentStep}</div>
+              <div className="text-xs text-muted-foreground">of {totalSteps}</div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Step List */}
-      <div className="space-y-1 max-h-40 overflow-y-auto">
-        {uploadProgressSteps.map((step) => {
-          const isCompleted = step.step < currentStep;
-          const isCurrent = step.step === currentStep;
-          const isPending = step.step > currentStep;
+      {/* Visual Step Indicators */}
+      <div className="bg-background/50 rounded-lg p-4 border">
+        <h4 className="font-semibold mb-4 text-center">Progress Steps</h4>
+        <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
+          {uploadProgressSteps.map((step) => {
+            const isCompleted = step.step < currentStep;
+            const isCurrent = step.step === currentStep;
+            const isPending = step.step > currentStep;
 
-          return (
-            <div
-              key={step.step}
-              className={cn(
-                "flex items-center gap-2 p-2 rounded text-xs transition-colors",
-                isCompleted && "text-success",
-                isCurrent && "text-primary bg-primary/10",
-                isPending && "text-muted-foreground"
-              )}
-            >
-              <div className="flex-shrink-0">
-                {isCompleted ? (
-                  <CheckCircle className="h-3 w-3" />
-                ) : isCurrent ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <div className="h-3 w-3 rounded-full border border-current opacity-50" />
+            return (
+              <div
+                key={step.step}
+                className={cn(
+                  "flex items-center gap-3 p-3 rounded-lg transition-all",
+                  isCompleted && "bg-success/10 text-success border border-success/20",
+                  isCurrent && "bg-primary/10 text-primary border-2 border-primary/30 shadow-md",
+                  isPending && "text-muted-foreground border border-transparent"
                 )}
+              >
+                <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center">
+                  {isCompleted ? (
+                    <div className="w-6 h-6 bg-success rounded-full flex items-center justify-center">
+                      <CheckCircle className="h-4 w-4 text-white" />
+                    </div>
+                  ) : isCurrent ? (
+                    <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
+                      <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    </div>
+                  ) : (
+                    <div className="w-6 h-6 rounded-full border-2 border-current opacity-50 flex items-center justify-center">
+                      <span className="text-xs font-bold">{step.step}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-sm">{step.label}</div>
+                  {step.description && (
+                    <div className="text-xs opacity-70 mt-1">{step.description}</div>
+                  )}
+                </div>
               </div>
-              <span className="flex-1">{step.label}</span>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );

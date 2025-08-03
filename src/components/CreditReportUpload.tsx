@@ -178,6 +178,25 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
     setUploadFiles(prev => prev.filter(f => f.id !== fileId));
   };
 
+  const retryFile = (id: string) => {
+    setUploadFiles(prev => prev.map(f => 
+      f.id === id 
+        ? { 
+            ...f, 
+            status: 'pending' as const, 
+            currentStep: 0, 
+            currentStatus: 'pending',
+            error: undefined,
+            extractedDataPreview: undefined
+          }
+        : f
+    ));
+    showSuccessNotification(
+      "Retry Initiated",
+      "File has been reset and is ready for re-upload. Click 'Upload & Analyze' to try again."
+    );
+  };
+
   const updateFileBureau = (fileId: string, bureau: string) => {
     setUploadFiles(prev => 
       prev.map(f => f.id === fileId ? { ...f, bureau } : f)
@@ -587,16 +606,97 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
                           </div>
                         )}
 
-                        {/* Enhanced Progress Display */}
-                        {(uploadFile.status === 'processing' || uploadFile.status === 'completed' || uploadFile.status === 'error') && (
-                          <div className="mb-3">
+                        {/* Enhanced Progress Display - Prominently Featured */}
+                        {uploadFile.status === 'processing' && (
+                          <div className="mb-6">
+                            <div className="bg-gradient-to-r from-primary/10 to-secondary/10 border-2 border-primary/20 rounded-xl p-6">
+                              <div className="text-center mb-4">
+                                <h4 className="text-xl font-bold text-primary mb-2">
+                                  🚀 Processing Credit Report
+                                </h4>
+                                <p className="text-muted-foreground">
+                                  Analyzing {uploadFile.file.name} using advanced AI technology
+                                </p>
+                              </div>
+                              <EnhancedProgressBar
+                                currentStep={uploadFile.currentStep}
+                                totalSteps={uploadProgressSteps.length}
+                                currentStatus={uploadFile.currentStatus}
+                                errorMessage={uploadFile.error}
+                                isProcessing={uploadFile.status === 'processing'}
+                                hasError={false}
+                                extractedDataPreview={uploadFile.extractedDataPreview}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Error Detection for Failed Data Extraction (All Zeros) */}
+                        {uploadFile.status === 'completed' && uploadFile.extractedDataPreview && 
+                          uploadFile.extractedDataPreview.personalInfoCount === 0 && 
+                          uploadFile.extractedDataPreview.accountsCount === 0 && 
+                          uploadFile.extractedDataPreview.inquiriesCount === 0 && (
+                          <div className="mb-6">
+                            <div className="bg-destructive/5 border-2 border-destructive/20 rounded-xl p-6">
+                              <div className="text-center">
+                                <div className="text-6xl mb-4">❌</div>
+                                <h4 className="text-2xl font-bold text-destructive mb-4">
+                                  Data Extraction Failed
+                                </h4>
+                                <p className="text-muted-foreground mb-6">
+                                  No credit report data was extracted from <strong>{uploadFile.file.name}</strong>
+                                </p>
+                                
+                                <div className="bg-background/50 rounded-lg p-4 mb-6 text-left">
+                                  <h5 className="font-semibold mb-2">Possible causes:</h5>
+                                  <ul className="text-sm text-muted-foreground space-y-1">
+                                    <li>• Document may be image-based or scanned</li>
+                                    <li>• PDF file may be corrupted or password protected</li>
+                                    <li>• Document may not be a valid credit report</li>
+                                    <li>• File may be from an unsupported credit bureau format</li>
+                                  </ul>
+                                </div>
+
+                                <div className="flex flex-wrap gap-3 justify-center">
+                                  <Button
+                                    onClick={() => retryFile(uploadFile.id)}
+                                    className="bg-primary text-primary-foreground px-6 py-3 hover:bg-primary/90"
+                                  >
+                                    🔄 Retry Upload
+                                  </Button>
+                                  <Button
+                                    onClick={() => removeFile(uploadFile.id)}
+                                    variant="secondary"
+                                    className="px-6 py-3"
+                                  >
+                                    📁 Upload Different File
+                                  </Button>
+                                  <Button
+                                    onClick={() => window.open('mailto:support@creditfix.com', '_blank')}
+                                    variant="outline"
+                                    className="px-6 py-3"
+                                  >
+                                    📞 Contact Support
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Success State with Data Preview */}
+                        {uploadFile.status === 'completed' && uploadFile.extractedDataPreview && 
+                          (uploadFile.extractedDataPreview.personalInfoCount > 0 || 
+                           uploadFile.extractedDataPreview.accountsCount > 0 || 
+                           uploadFile.extractedDataPreview.inquiriesCount > 0) && (
+                          <div className="mb-4">
                             <EnhancedProgressBar
                               currentStep={uploadFile.currentStep}
                               totalSteps={uploadProgressSteps.length}
                               currentStatus={uploadFile.currentStatus}
                               errorMessage={uploadFile.error}
-                              isProcessing={uploadFile.status === 'processing'}
-                              hasError={uploadFile.status === 'error'}
+                              isProcessing={false}
+                              hasError={false}
                               extractedDataPreview={uploadFile.extractedDataPreview}
                             />
                           </div>

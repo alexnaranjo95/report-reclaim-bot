@@ -4,6 +4,9 @@ export interface TemplateLayout {
   id: string;
   name: string;
   content: string;
+  body_html?: string;
+  preview_pdf_url?: string;
+  version?: number;
   placeholders: string[];
   is_default: boolean;
   created_at: string;

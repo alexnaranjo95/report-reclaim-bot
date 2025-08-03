@@ -540,6 +540,7 @@ export type Database = {
       }
       template_layouts: {
         Row: {
+          body_html: string | null
           content: string
           created_at: string
           created_by: string | null
@@ -547,9 +548,12 @@ export type Database = {
           is_default: boolean | null
           name: string
           placeholders: string[] | null
+          preview_pdf_url: string | null
           updated_at: string
+          version: number | null
         }
         Insert: {
+          body_html?: string | null
           content: string
           created_at?: string
           created_by?: string | null
@@ -557,9 +561,12 @@ export type Database = {
           is_default?: boolean | null
           name: string
           placeholders?: string[] | null
+          preview_pdf_url?: string | null
           updated_at?: string
+          version?: number | null
         }
         Update: {
+          body_html?: string | null
           content?: string
           created_at?: string
           created_by?: string | null
@@ -567,9 +574,49 @@ export type Database = {
           is_default?: boolean | null
           name?: string
           placeholders?: string[] | null
+          preview_pdf_url?: string | null
           updated_at?: string
+          version?: number | null
         }
         Relationships: []
+      }
+      template_versions: {
+        Row: {
+          body_html: string
+          content: string
+          created_at: string | null
+          created_by: string | null
+          id: string
+          template_id: string | null
+          version_number: number
+        }
+        Insert: {
+          body_html: string
+          content: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          template_id?: string | null
+          version_number: number
+        }
+        Update: {
+          body_html?: string
+          content?: string
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          template_id?: string | null
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_versions_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "template_layouts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {

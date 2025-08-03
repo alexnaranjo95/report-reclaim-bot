@@ -12,9 +12,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { templateService, type TemplateLayout, type RoundTemplate } from '@/services/TemplateService';
-import { Plus, Edit, Trash2, Eye, Save, X, FileText, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, Save, X, FileText, Settings, Wand2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 const TemplateManager: React.FC = () => {
+  const navigate = useNavigate();
   const [layouts, setLayouts] = useState<TemplateLayout[]>([]);
   const [roundTemplates, setRoundTemplates] = useState<RoundTemplate[]>([]);
   const [editingLayout, setEditingLayout] = useState<TemplateLayout | null>(null);
@@ -152,10 +154,16 @@ const TemplateManager: React.FC = () => {
         <TabsContent value="layouts" className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Template Layouts</h3>
-            <Button onClick={() => setIsCreatingLayout(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Create Layout
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={() => navigate('/admin/templates/editor/new')} variant="outline">
+                <Wand2 className="w-4 h-4 mr-2" />
+                WYSIWYG Editor
+              </Button>
+              <Button onClick={() => setIsCreatingLayout(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Create Layout
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-4">
@@ -169,6 +177,7 @@ const TemplateManager: React.FC = () => {
                 onCancel={() => setEditingLayout(null)}
                 onDelete={() => handleDeleteLayout(layout.id)}
                 onPreview={() => handlePreviewTemplate(layout)}
+                navigate={navigate}
               />
             ))}
           </div>
@@ -254,9 +263,10 @@ interface LayoutCardProps {
   onCancel: () => void;
   onDelete: () => void;
   onPreview: () => void;
+  navigate: (path: string) => void;
 }
 
-const LayoutCard: React.FC<LayoutCardProps> = ({ layout, isEditing, onEdit, onSave, onCancel, onDelete, onPreview }) => {
+const LayoutCard: React.FC<LayoutCardProps> = ({ layout, isEditing, onEdit, onSave, onCancel, onDelete, onPreview, navigate }) => {
   const [editData, setEditData] = useState({
     name: layout.name,
     content: layout.content,
@@ -330,6 +340,9 @@ const LayoutCard: React.FC<LayoutCardProps> = ({ layout, isEditing, onEdit, onSa
           <div className="flex gap-1">
             <Button onClick={onPreview} variant="outline" size="sm">
               <Eye className="w-4 h-4" />
+            </Button>
+            <Button onClick={() => navigate(`/admin/templates/editor/${layout.id}`)} variant="outline" size="sm">
+              <Wand2 className="w-4 h-4" />
             </Button>
             <Button onClick={onEdit} variant="outline" size="sm">
               <Edit className="w-4 h-4" />

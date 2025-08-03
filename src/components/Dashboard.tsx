@@ -406,7 +406,7 @@ export const Dashboard = () => {
                   const accessibility = getRoundAccessibility(roundNumber, currentRound, rounds);
                   const roundElement = <div key={roundNumber} className={`flex items-center justify-between py-2 px-2 rounded transition-colors ${accessibility.isAccessible ? 'cursor-pointer hover:bg-muted/50' : 'cursor-not-allowed opacity-50'} ${accessibility.isCurrentRound ? 'bg-primary/10 border border-primary/20' : ''}`} onClick={() => accessibility.isAccessible && handleRoundClick(roundNumber)}>
                         <div className="flex items-center gap-2">
-                          <span className={`text-sm ${accessibility.isCurrentRound ? 'font-medium text-primary' : accessibility.isAccessible ? '' : 'text-muted-foreground'}`}>
+                          <span className={`text-sm w-20 ${accessibility.isCurrentRound ? 'font-medium text-primary' : accessibility.isAccessible ? '' : 'text-muted-foreground'}`}>
                             Round {roundNumber}
                           </span>
                           {accessibility.isCurrentRound && <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded mx-[148px]">

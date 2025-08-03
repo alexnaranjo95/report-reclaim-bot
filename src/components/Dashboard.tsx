@@ -9,7 +9,7 @@ import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { RegenerateButton } from './RegenerateButton';
 import { CreditAnalysis } from './CreditAnalysis';
-import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight } from 'lucide-react';
+import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight, BarChart3 } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { SessionService, Session, Round } from '../services/SessionService';
@@ -336,6 +336,10 @@ export const Dashboard = () => {
                 <Shield className="h-3 w-3 mr-1" />
                 Secure
               </Badge>
+              <Button variant="outline" size="sm" onClick={() => window.location.href = '/credit-reports'}>
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Credit Reports
+              </Button>
               <Button variant="outline" size="sm" onClick={() => window.location.href = '/settings'}>
                 Settings
               </Button>

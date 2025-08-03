@@ -9,6 +9,7 @@ import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import Admin from "./pages/Admin";
 import TemplateEditorPage from "./pages/TemplateEditor";
+import CreditReports from "./pages/CreditReports";
 import NotFound from "./pages/NotFound";
 import { useAuth } from "@/hooks/useAuth";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
@@ -62,6 +63,11 @@ const App = () => (
               <Route path="/admin/templates/editor/:templateId?" element={
                 <ProtectedRoute>
                   <TemplateEditorPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/credit-reports" element={
+                <ProtectedRoute>
+                  <CreditReports />
                 </ProtectedRoute>
               } />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

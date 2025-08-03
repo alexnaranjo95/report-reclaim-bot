@@ -7,7 +7,6 @@ import { UploadZone } from './UploadZone';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
-import { RoundNavigation } from './RoundNavigation';
 import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
@@ -327,9 +326,94 @@ export const Dashboard = () => {
     }
   };
 
+  const handleRoundClick = async (roundNumber: number) => {
+    // Check if we need to create a session first
+    if (!currentSession) {
+      try {
+        const newSession = await SessionService.createSession(
+          `Session ${new Date().toLocaleDateString()}`,
+          {} as CreditAnalysisResult
+        );
+        setCurrentSession(newSession);
+      } catch (error) {
+        toast({
+          title: "Failed to create session",
+          description: "Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    const round = rounds.find(r => r.round_number === roundNumber);
+    
+    if (round && round.snapshot_data && Object.keys(round.snapshot_data).length > 0) {
+      // Load existing round data
+      setCurrentRound(roundNumber);
+      setAnalysisResults(round.snapshot_data as CreditAnalysisResult);
+      setAnalysisComplete(true);
+      setUploadedFile(null); // Clear file since we're loading saved data
+      
+      const snapshotData = round.snapshot_data as any;
+      toast({
+        title: `Round ${roundNumber} Loaded`,
+        description: snapshotData.uploadedFileName 
+          ? `Loaded saved data from ${snapshotData.uploadedFileName}`
+          : `Loaded saved round data`,
+      });
+    } else {
+      // Create a new round or switch to empty round
+      setCurrentRound(roundNumber);
+      setAnalysisResults(null);
+      setAnalysisComplete(false);
+      setUploadedFile(null);
+      
+      if (currentSession) {
+        try {
+          const newRound = await SessionService.createOrUpdateRound(
+            currentSession.id,
+            roundNumber
+          );
+          
+          setRounds(prev => {
+            const existing = prev.find(r => r.round_number === roundNumber);
+            if (existing) {
+              return prev;
+            } else {
+              return [...prev, newRound].sort((a, b) => a.round_number - b.round_number);
+            }
+          });
+        } catch (error) {
+          console.error('Failed to create round:', error);
+        }
+      }
+      
+      toast({
+        title: `Round ${roundNumber} Selected`,
+        description: "Upload a credit report to begin analysis.",
+      });
+    }
+  };
+
+  const getRoundIcon = (roundNumber: number, status: string) => {
+    if (status === 'sent') {
+      return <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
+        <span className="text-xs text-white">✓</span>
+      </div>;
+    } else if (status === 'saved') {
+      return <div className="w-4 h-4 rounded-full bg-warning flex items-center justify-center">
+        <span className="text-xs text-white">S</span>
+      </div>;
+    } else if (status === 'draft') {
+      return <div className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center">
+        <span className="text-xs text-muted-foreground">D</span>
+      </div>;
+    }
+    return null;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-dashboard">
-      {/* Header */}
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -417,13 +501,45 @@ export const Dashboard = () => {
               </CardContent>
             </Card>
 
-            {/* Round Navigation */}
-            <RoundNavigation
-              rounds={rounds}
-              currentRound={currentRound}
-              onRoundSelect={handleRoundSelect}
-              onCreateNewRound={handleCreateNewRound}
-            />
+            {/* Dispute Rounds */}
+            <Card className="bg-gradient-card shadow-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium">Dispute Rounds</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(roundNumber => {
+                  const round = rounds.find(r => r.round_number === roundNumber);
+                  const isActive = currentRound === roundNumber;
+                  const status = round?.status || 'draft';
+                  
+                  return (
+                    <div 
+                      key={roundNumber} 
+                      className={`flex items-center justify-between py-2 px-2 rounded transition-colors cursor-pointer ${
+                        isActive 
+                          ? 'bg-primary/10 border border-primary/20' 
+                          : 'hover:bg-muted/50'
+                      }`}
+                      onClick={() => handleRoundClick(roundNumber)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm ${isActive ? 'font-medium text-primary' : ''}`}>
+                          Round {roundNumber}
+                        </span>
+                        {isActive && (
+                          <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded">
+                            {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {getRoundIcon(roundNumber, status)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
           </div>
 
           {/* Main Content Area */}

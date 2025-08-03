@@ -185,10 +185,11 @@ export const Dashboard = () => {
         });
       } catch (storageError) {
         console.error('Failed to store credit report:', storageError);
+        console.error('Error details:', storageError.message, storageError.details, storageError.hint);
         // Continue with analysis even if storage fails
         toast({
           title: "Storage Warning", 
-          description: "Analysis will proceed, but credit report storage failed.",
+          description: `Analysis will proceed, but credit report storage failed: ${storageError.message}`,
           variant: "destructive",
         });
       }

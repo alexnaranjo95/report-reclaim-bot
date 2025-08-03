@@ -6,19 +6,19 @@ import { useAccessControl } from '@/hooks/useAccessControl';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { isSuperAdmin, loading } = useRole();
+  const { isAdmin, loading } = useRole();
   const { isAccessAllowed, loading: accessLoading } = useAccessControl();
 
   useEffect(() => {
-    // Only redirect if we're certain the user is a superadmin and not loading
-    if (!loading && isSuperAdmin) {
+    // Only redirect if we're certain the user is an admin and not loading
+    if (!loading && isAdmin) {
       // Add a small delay to prevent rapid redirects
       const timer = setTimeout(() => {
         navigate('/admin');
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [isSuperAdmin, loading, navigate]);
+  }, [isAdmin, loading, navigate]);
 
   if (loading || accessLoading) {
     return (
@@ -40,7 +40,7 @@ const Index = () => {
     );
   }
 
-  if (isSuperAdmin) {
+  if (isAdmin) {
     return null; // Will redirect to admin
   }
 

@@ -289,9 +289,6 @@ const PostGridValidationModal: React.FC<PostGridValidationModalProps> = ({
           {renderFieldErrors(validation.missingSenderFields, 'Missing Sender Information')}
           {renderFieldErrors(validation.missingRecipientFields, 'Missing Recipient Information')}
 
-          {renderFormSection('sender', 'Sender Information (Your Details)')}
-          
-          <Separator />
           
           {renderFormSection('recipient', 'Recipient Information (Bureau/Creditor)')}
 

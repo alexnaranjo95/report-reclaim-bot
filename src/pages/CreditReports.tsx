@@ -40,13 +40,13 @@ const CreditReportsPage: React.FC = () => {
 
   useEffect(() => {
     if (!user) {
-      console.log('❌ No user found, redirecting to auth');
-      navigate('/auth');
+      console.log('❌ No user found, but allowing page to render with empty state');
+      setLoading(false);
       return;
     }
     console.log('✅ User authenticated, loading reports');
     loadReports();
-  }, [user, navigate]);
+  }, [user]);
 
   const loadReports = async () => {
     try {
@@ -157,9 +157,8 @@ const CreditReportsPage: React.FC = () => {
     return Object.values(reportCounts).reduce((sum, count) => sum + count.accounts, 0);
   };
 
-  if (!user) {
-    return null;
-  }
+  // Always render the page - don't block on user authentication
+  // The page will show appropriate states for authenticated/unauthenticated users
 
   // Show full report viewer if a report is selected
   if (selectedReportId) {

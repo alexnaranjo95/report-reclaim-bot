@@ -123,9 +123,13 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
     };
   }, [isGenerating]);
 
+  // Generate letters only once when creditItems first load and letters are empty
   useEffect(() => {
-    generateInitialLetters();
-  }, [creditItems]);
+    if (creditItems.length > 0 && letters.length === 0 && !isGenerating) {
+      console.log('🎯 Generating initial letters - creditItems:', creditItems.length, 'letters:', letters.length);
+      generateInitialLetters();
+    }
+  }, [creditItems.length, letters.length]);
 
   // Fetch TinyMCE API key and check profile completion
   useEffect(() => {
@@ -225,6 +229,13 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
   const generateInitialLetters = async () => {
     if (creditItems.length === 0) return;
     
+    // Prevent multiple simultaneous generations
+    if (isGenerating) {
+      console.log('🚫 Already generating letters, skipping...');
+      return;
+    }
+    
+    console.log('🔄 Starting letter generation for', creditItems.length, 'credit items');
     setIsGenerating(true);
     setLoadingTimer(0);
     setGenerationStage('Analyzing credit items...');

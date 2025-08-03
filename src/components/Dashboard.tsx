@@ -409,7 +409,7 @@ export const Dashboard = () => {
                           <span className={`text-sm w-20 ${accessibility.isCurrentRound ? 'font-medium text-primary' : accessibility.isAccessible ? '' : 'text-muted-foreground'}`}>
                             Round {roundNumber}
                           </span>
-                          {accessibility.isCurrentRound && <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded mx-[148px]">
+                          {accessibility.isCurrentRound && <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded mx-[105px]">
                               {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
                             </Badge>}
                           {accessibility.canGraduate && !accessibility.isCurrentRound && <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">

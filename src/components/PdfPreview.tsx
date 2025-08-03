@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { FileText, Printer, Paperclip } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface DocumentAppendSettings {
   includeGovId: boolean;
@@ -16,6 +17,96 @@ interface PdfPreviewProps {
 }
 
 const PdfPreview: React.FC<PdfPreviewProps> = ({ html, documentSettings, adminFiles = [] }) => {
+  const [adminDocs, setAdminDocs] = useState<Record<string, { file_url: string; file_name: string }>>({});
+
+  useEffect(() => {
+    loadAdminExampleDocs();
+  }, []);
+
+  const loadAdminExampleDocs = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('admin_example_documents')
+        .select('*');
+
+      if (error) throw error;
+
+      const docsMap = (data || []).reduce((acc, doc) => {
+        acc[doc.category] = { file_url: doc.file_url, file_name: doc.file_name };
+        return acc;
+      }, {} as Record<string, { file_url: string; file_name: string }>);
+
+      setAdminDocs(docsMap);
+    } catch (error) {
+      console.error('Error loading admin example docs:', error);
+    }
+  };
+
+  const DocumentPreview: React.FC<{ category: string }> = ({ category }) => {
+    const doc = adminDocs[category];
+    
+    if (!doc) {
+      return (
+        <div className="bg-gray-50 border border-dashed border-gray-300 mx-auto flex items-center justify-center" style={{ width: '680px', height: '400px' }}>
+          <div className="text-center text-muted-foreground">
+            <FileText className="w-12 h-12 mx-auto mb-2" />
+            <p className="font-medium">{getCategoryDisplayName(category)}</p>
+            <p className="text-sm">Will be appended here</p>
+          </div>
+        </div>
+      );
+    }
+
+    const isImage = doc.file_url.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+    
+    return (
+      <div className="bg-white border border-gray-300 shadow-lg mx-auto relative" style={{ width: '680px', minHeight: '880px' }}>
+        <div className="absolute top-2 left-2 z-10">
+          <Badge variant="outline" className="text-xs bg-white/90">
+            {getCategoryDisplayName(category)}: {doc.file_name}
+          </Badge>
+        </div>
+        {isImage ? (
+          <img 
+            src={doc.file_url} 
+            alt={`${getCategoryDisplayName(category)} preview`}
+            className="w-full h-full object-contain p-8"
+            style={{ maxHeight: '880px' }}
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+              target.nextElementSibling?.classList.remove('hidden');
+            }}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-full text-muted-foreground">
+            <div className="text-center">
+              <FileText className="w-16 h-16 mx-auto mb-4" />
+              <p className="font-medium">{getCategoryDisplayName(category)}</p>
+              <p>PDF Document: {doc.file_name}</p>
+              <p className="text-sm">Preview not available</p>
+            </div>
+          </div>
+        )}
+        <div className="hidden flex items-center justify-center h-full text-muted-foreground">
+          <div className="text-center">
+            <FileText className="w-16 h-16 mx-auto mb-4" />
+            <p className="font-medium">{getCategoryDisplayName(category)}</p>
+            <p>Failed to load: {doc.file_name}</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const getCategoryDisplayName = (category: string) => {
+    switch (category) {
+      case 'gov_id': return 'Government ID';
+      case 'proof_of_address': return 'Proof of Address';
+      case 'ssn': return 'Social Security Number';
+      default: return category;
+    }
+  };
   if (!html) {
     return (
       <Card className="h-full">
@@ -84,65 +175,12 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ html, documentSettings, adminFi
                 </Badge>
               </div>
               
-              {/* Show admin preview files or placeholders */}
-              {adminFiles.length > 0 ? (
-                adminFiles.map((file, index) => (
-                  <div key={index} className="bg-white border border-gray-300 shadow-lg mx-auto relative" style={{ width: '680px', minHeight: '880px' }}>
-                    <div className="absolute top-2 left-2 z-10">
-                      <Badge variant="outline" className="text-xs bg-white/90">
-                        Preview: {file.name}
-                      </Badge>
-                    </div>
-                    {file.type.startsWith('image/') ? (
-                      <img 
-                        src={URL.createObjectURL(file)} 
-                        alt={`Preview ${file.name}`}
-                        className="w-full h-full object-contain p-8"
-                        style={{ maxHeight: '880px' }}
-                      />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-muted-foreground">
-                        <div className="text-center">
-                          <FileText className="w-16 h-16 mx-auto mb-4" />
-                          <p>PDF Document: {file.name}</p>
-                          <p className="text-sm">Preview not available</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                // Show placeholders for enabled document types
-                <>
-                  {documentSettings.includeGovId && (
-                    <div className="bg-gray-50 border border-dashed border-gray-300 mx-auto flex items-center justify-center" style={{ width: '680px', height: '400px' }}>
-                      <div className="text-center text-muted-foreground">
-                        <FileText className="w-12 h-12 mx-auto mb-2" />
-                        <p className="font-medium">Government ID</p>
-                        <p className="text-sm">Will be appended here</p>
-                      </div>
-                    </div>
-                  )}
-                  {documentSettings.includeProofOfAddress && (
-                    <div className="bg-gray-50 border border-dashed border-gray-300 mx-auto flex items-center justify-center" style={{ width: '680px', height: '400px' }}>
-                      <div className="text-center text-muted-foreground">
-                        <FileText className="w-12 h-12 mx-auto mb-2" />
-                        <p className="font-medium">Proof of Address</p>
-                        <p className="text-sm">Will be appended here</p>
-                      </div>
-                    </div>
-                  )}
-                  {documentSettings.includeSSN && (
-                    <div className="bg-gray-50 border border-dashed border-gray-300 mx-auto flex items-center justify-center" style={{ width: '680px', height: '400px' }}>
-                      <div className="text-center text-muted-foreground">
-                        <FileText className="w-12 h-12 mx-auto mb-2" />
-                        <p className="font-medium">Social Security Number</p>
-                        <p className="text-sm">Will be appended here</p>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
+              {/* Show actual stored documents */}
+              {React.Children.toArray([
+                documentSettings.includeGovId && <DocumentPreview key="gov_id" category="gov_id" />,
+                documentSettings.includeProofOfAddress && <DocumentPreview key="proof_of_address" category="proof_of_address" />,
+                documentSettings.includeSSN && <DocumentPreview key="ssn" category="ssn" />
+              ]).filter(Boolean)}
             </div>
           )}
         </div>

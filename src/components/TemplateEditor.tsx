@@ -70,6 +70,25 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     loadTinymceApiKey();
   }, []);
 
+  // Load document settings when template changes
+  useEffect(() => {
+    if (template?.id) {
+      loadDocumentSettings();
+    }
+  }, [template?.id]);
+
+  const loadDocumentSettings = async () => {
+    if (!template?.id) return;
+    
+    try {
+      const settings = await DocumentAppendService.loadRoundAppendSettings(template.id);
+      setDocumentSettings(settings);
+    } catch (error) {
+      console.error('Error loading document settings:', error);
+      // Don't show error toast for this, just use defaults
+    }
+  };
+
   useEffect(() => {
     // Update preview when content changes
     if (editorContent) {
@@ -319,6 +338,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
         onSettingsChange={setDocumentSettings}
         isAdmin={isAdmin}
         onAdminFilesChange={setAdminFiles}
+        roundId={template?.id}
       />
 
       {/* Editor and Preview */}

@@ -47,8 +47,8 @@ const TemplateEditorPage: React.FC = () => {
   };
 
   const handleSave = (savedTemplate: TemplateLayout) => {
-    toast.success('Template saved successfully');
-    navigate('/admin');
+    setTemplate(savedTemplate);
+    // Don't navigate away - stay on the same page for continued editing
   };
 
   const handleCancel = () => {

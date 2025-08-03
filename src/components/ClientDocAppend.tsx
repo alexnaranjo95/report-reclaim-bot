@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Paperclip, Upload, X, FileText, Loader2 } from 'lucide-react';
+import { Paperclip, Upload, X, FileText, Loader2, Eye } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { DocumentAppendService } from '@/services/DocumentAppendService';
 
@@ -40,6 +41,7 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
   const [storedExampleDocs, setStoredExampleDocs] = useState<AdminExampleDoc[]>([]);
   const [isUploading, setIsUploading] = useState<Record<string, boolean>>({});
   const [isSaving, setIsSaving] = useState<Record<string, boolean>>({});
+  const [previewDoc, setPreviewDoc] = useState<AdminExampleDoc | null>(null);
 
   // Load stored example documents on mount
   useEffect(() => {
@@ -154,7 +156,7 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
       
       try {
         await DocumentAppendService.saveRoundAppendSettings(roundId, newSettings);
-        toast.success(`Document setting saved automatically`);
+        toast.success(`Document setting saved`, { duration: 2000 });
       } catch (error) {
         // Revert the change on error
         onSettingsChange({
@@ -193,6 +195,10 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
       }
     };
     input.click();
+  };
+
+  const previewDocument = (doc: AdminExampleDoc) => {
+    setPreviewDoc(doc);
   };
 
   const DocumentRow = ({ 
@@ -244,6 +250,17 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
         
         {isAdmin && (
           <div className="flex items-center gap-2">
+            {storedDoc && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => previewDocument(storedDoc)}
+                className="h-8 w-8 p-0"
+                title="Preview document"
+              >
+                <Eye className="w-3 h-3 text-blue-500" />
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -315,6 +332,56 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
             </p>
           </div>
         )}
+
+        {/* Document Preview Modal */}
+        <Dialog open={!!previewDoc} onOpenChange={() => setPreviewDoc(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Document Preview: {previewDoc?.file_name}</DialogTitle>
+            </DialogHeader>
+            <div className="mt-4">
+              {previewDoc && (
+                <div className="flex items-center justify-center bg-gray-50 border rounded-lg min-h-[400px]">
+                  {previewDoc.file_url.toLowerCase().includes('.pdf') ? (
+                    <div className="text-center text-muted-foreground p-8">
+                      <FileText className="w-16 h-16 mx-auto mb-4" />
+                      <p className="font-medium mb-2">PDF Document</p>
+                      <p className="text-sm mb-4">{previewDoc.file_name}</p>
+                      <Button 
+                        onClick={() => window.open(previewDoc.file_url, '_blank')} 
+                        variant="outline"
+                      >
+                        Open in New Tab
+                      </Button>
+                    </div>
+                  ) : (
+                    <img 
+                      src={previewDoc.file_url} 
+                      alt={`Preview of ${previewDoc.file_name}`}
+                      className="max-w-full max-h-[600px] object-contain"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        target.nextElementSibling?.classList.remove('hidden');
+                      }}
+                    />
+                  )}
+                  <div className="hidden text-center text-muted-foreground p-8">
+                    <FileText className="w-16 h-16 mx-auto mb-4" />
+                    <p>Failed to load preview</p>
+                    <Button 
+                      onClick={() => window.open(previewDoc?.file_url, '_blank')} 
+                      variant="outline"
+                      className="mt-2"
+                    >
+                      Open in New Tab
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

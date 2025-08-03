@@ -7,32 +7,69 @@ import { UploadZone } from './UploadZone';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
-import { FileText, TrendingUp, Shield, Clock, Trash2, Bug, RefreshCw, Save, LogOut } from 'lucide-react';
+import { RoundNavigation } from './RoundNavigation';
+import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
+import { SessionService, Session, Round } from '../services/SessionService';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useRole } from '@/hooks/useRole';
 
-interface RoundData {
-  draft: any;
-  letterRound: number;
-  letterStatus: 'draft' | 'saved' | 'sent';
-  savedAt: number;
-  sentAt?: number;
-}
-
 export const Dashboard = () => {
   const [currentRound, setCurrentRound] = useState(1);
+  const [currentSession, setCurrentSession] = useState<Session | null>(null);
+  const [rounds, setRounds] = useState<Round[]>([]);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<CreditAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [draftsByRound, setDraftsByRound] = useState<Record<number, RoundData>>({});
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
   const { signOut } = useAuth();
   const roleData = useRole();
   const { isSuperAdmin = false } = roleData || {};
+
+  // Load session and rounds on component mount
+  useEffect(() => {
+    loadSessionAndRounds();
+  }, []);
+
+  const loadSessionAndRounds = async () => {
+    try {
+      const sessions = await SessionService.getSessions();
+      let session = sessions.find(s => s.status === 'active');
+      
+      if (!session && sessions.length > 0) {
+        session = sessions[0];
+      }
+      
+      if (session) {
+        setCurrentSession(session);
+        const sessionRounds = await SessionService.getRounds(session.id);
+        setRounds(sessionRounds);
+        
+        // If there are rounds, set the current round to the last one
+        if (sessionRounds.length > 0) {
+          const lastRound = sessionRounds[sessionRounds.length - 1];
+          setCurrentRound(lastRound.round_number);
+          
+          // Load the round's snapshot data if it exists
+          if (lastRound.snapshot_data && Object.keys(lastRound.snapshot_data).length > 0) {
+            setAnalysisResults(lastRound.snapshot_data as CreditAnalysisResult);
+            setAnalysisComplete(true);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load session and rounds:', error);
+      toast({
+        title: "Failed to load data",
+        description: "There was an error loading your session data.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -48,52 +85,6 @@ export const Dashboard = () => {
         variant: "destructive",
       });
     }
-  };
-
-  // Load drafts data on component mount
-  useEffect(() => {
-    const loadDraftsData = () => {
-      try {
-        const storedData = localStorage.getItem('draftsByRound');
-        if (storedData) {
-          const parsedData = JSON.parse(storedData);
-          setDraftsByRound(parsedData);
-        }
-      } catch (error) {
-        console.error('Error loading drafts data:', error);
-      }
-    };
-    loadDraftsData();
-  }, []);
-
-  // Load drafts for current round when round changes
-  useEffect(() => {
-    if (draftsByRound[currentRound]) {
-      setAnalysisComplete(true);
-    }
-  }, [currentRound, draftsByRound]);
-
-  // Save drafts data to localStorage when it changes
-  useEffect(() => {
-    if (Object.keys(draftsByRound).length > 0) {
-      try {
-        localStorage.setItem('draftsByRound', JSON.stringify(draftsByRound));
-      } catch (error) {
-        console.error('Error saving drafts data:', error);
-      }
-    }
-  }, [draftsByRound]);
-
-  // Check if a round is unlocked
-  const isRoundUnlocked = (roundNumber: number): boolean => {
-    if (roundNumber === 1) return true; // First round is always unlocked
-    
-    const previousRound = draftsByRound[roundNumber - 1];
-    if (!previousRound || previousRound.letterStatus !== 'sent') return false;
-    
-    const sentAt = previousRound.sentAt || 0;
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    return Date.now() - sentAt >= thirtyDaysMs;
   };
 
   const handleFileUpload = async (file: File) => {
@@ -141,80 +132,159 @@ export const Dashboard = () => {
     });
   };
 
-  const handleTroubleshoot = () => {
-    toast({
-      title: "Troubleshooting",
-      description: "Check edge function logs for detailed error information.",
-    });
-    // Open edge function logs in new tab
-    window.open('https://supabase.com/dashboard/project/rcrpqdhfawtpjicttgvx/functions/openai-analysis/logs', '_blank');
-  };
-
-  const handleRoundClick = (roundNumber: number) => {
-    if (!isRoundUnlocked(roundNumber)) {
+  const handleSaveRound = async () => {
+    if (!analysisResults || !currentSession) {
       toast({
-        title: "Round Locked",
-        description: "This round unlocks 30 days after the previous round is sent.",
+        title: "Nothing to save",
+        description: "Please complete an analysis first.",
         variant: "destructive",
       });
       return;
     }
 
+    setIsSaving(true);
+    try {
+      const snapshotData = {
+        ...analysisResults,
+        uploadedFileName: uploadedFile?.name,
+        savedAt: new Date().toISOString()
+      };
+
+      const round = await SessionService.createOrUpdateRound(
+        currentSession.id,
+        currentRound,
+        snapshotData
+      );
+
+      // Update local rounds state
+      setRounds(prev => {
+        const existing = prev.find(r => r.round_number === currentRound);
+        if (existing) {
+          return prev.map(r => r.round_number === currentRound ? round : r);
+        } else {
+          return [...prev, round].sort((a, b) => a.round_number - b.round_number);
+        }
+      });
+
+      toast({
+        title: "Round Saved ✅",
+        description: `Round ${currentRound} saved successfully to database.`,
+      });
+    } catch (error) {
+      console.error('Failed to save round:', error);
+      toast({
+        title: "Save Failed",
+        description: "Failed to save round data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRoundSelect = async (roundNumber: number, round: Round) => {
     setCurrentRound(roundNumber);
     
-    if (draftsByRound[roundNumber]) {
+    if (round.snapshot_data && Object.keys(round.snapshot_data).length > 0) {
+      setAnalysisResults(round.snapshot_data as CreditAnalysisResult);
       setAnalysisComplete(true);
+      
+      // If there's a saved file name, we could potentially restore that too
+      const snapshotData = round.snapshot_data as any;
+      if (snapshotData.uploadedFileName) {
+        // Note: We can't restore the actual file, but we can show the filename
+        toast({
+          title: `Round ${roundNumber} Loaded`,
+          description: `Loaded saved data from ${snapshotData.uploadedFileName}`,
+        });
+      }
+    } else {
+      setAnalysisResults(null);
+      setAnalysisComplete(false);
+      setUploadedFile(null);
+    }
+  };
+
+  const handleCreateNewRound = async () => {
+    if (!currentSession) {
+      // Create a new session if none exists
+      try {
+        const newSession = await SessionService.createSession(
+          `Session ${new Date().toLocaleDateString()}`,
+          analysisResults || {} as CreditAnalysisResult
+        );
+        setCurrentSession(newSession);
+        const newRound = await SessionService.createOrUpdateRound(newSession.id, 1);
+        setRounds([newRound]);
+        setCurrentRound(1);
+        
+        toast({
+          title: "New Session Created",
+          description: "Started Round 1 of your new session.",
+        });
+      } catch (error) {
+        toast({
+          title: "Failed to create session",
+          description: "Please try again.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
+    const nextRoundNumber = Math.max(...rounds.map(r => r.round_number), 0) + 1;
+    
+    try {
+      const newRound = await SessionService.createOrUpdateRound(
+        currentSession.id,
+        nextRoundNumber
+      );
+      
+      setRounds(prev => [...prev, newRound].sort((a, b) => a.round_number - b.round_number));
+      setCurrentRound(nextRoundNumber);
+      setAnalysisResults(null);
+      setAnalysisComplete(false);
+      setUploadedFile(null);
+      
       toast({
-        title: `Round ${roundNumber} Selected`,
-        description: `Viewing ${draftsByRound[roundNumber].letterStatus} data for Round ${roundNumber}`,
+        title: "New Round Created",
+        description: `Started Round ${nextRoundNumber}. Upload a credit report to begin.`,
+      });
+    } catch (error) {
+      console.error('Failed to create new round:', error);
+      toast({
+        title: "Failed to create round",
+        description: "Please try again.",
+        variant: "destructive",
       });
     }
   };
 
-  const updateRoundStatus = (roundNumber: number, status: 'draft' | 'saved' | 'sent', data?: any) => {
-    setDraftsByRound(prev => ({
-      ...prev,
-      [roundNumber]: {
-        draft: data || prev[roundNumber]?.draft,
-        letterRound: roundNumber,
-        letterStatus: status,
-        savedAt: Date.now(),
-        sentAt: status === 'sent' ? Date.now() : prev[roundNumber]?.sentAt
-      }
-    }));
-  };
+  const handleMarkRoundAsSent = async (roundNumber: number) => {
+    const round = rounds.find(r => r.round_number === roundNumber);
+    if (!round) return;
 
-  const getRoundIcon = (roundNumber: number) => {
-    const roundData = draftsByRound[roundNumber];
-    const status = roundData?.letterStatus;
-    
-    if (status === 'sent') {
-      return <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
-        <span className="text-xs text-white">✓</span>
-      </div>;
-    } else if (status === 'saved') {
-      return <div className="w-4 h-4 rounded-full bg-warning flex items-center justify-center">
-        <span className="text-xs text-white">S</span>
-      </div>;
-    } else if (status === 'draft') {
-      return <div className="w-4 h-4 rounded-full bg-secondary flex items-center justify-center">
-        <span className="text-xs text-muted-foreground">D</span>
-      </div>;
-    }
-    return null;
-  };
+    try {
+      await SessionService.updateRoundStatus(round.id, 'sent');
+      
+      setRounds(prev => 
+        prev.map(r => 
+          r.round_number === roundNumber 
+            ? { ...r, status: 'sent' as Round['status'] }
+            : r
+        )
+      );
 
-  const getRoundStatus = (roundNumber: number) => {
-    const roundData = draftsByRound[roundNumber];
-    return roundData?.letterStatus || 'draft';
-  };
-
-  const saveRoundDraft = (roundNumber: number) => {
-    if (analysisResults) {
-      updateRoundStatus(roundNumber, 'saved', analysisResults);
       toast({
-        title: "Round Saved",
-        description: `Round ${roundNumber} draft has been saved successfully.`,
+        title: "Round Marked as Sent",
+        description: `Round ${roundNumber} has been marked as sent.`,
+      });
+    } catch (error) {
+      console.error('Failed to update round status:', error);
+      toast({
+        title: "Update Failed",
+        description: "Failed to update round status.",
+        variant: "destructive",
       });
     }
   };
@@ -233,7 +303,6 @@ export const Dashboard = () => {
         });
         
         setAnalysisResults(results);
-        updateRoundStatus(roundNumber, 'draft', results);
         
         toast({
           title: "Round Regenerated",
@@ -249,6 +318,12 @@ export const Dashboard = () => {
       } finally {
         setIsAnalyzing(false);
       }
+    } else {
+      toast({
+        title: "No File to Regenerate",
+        description: "Please upload a credit report first.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -306,8 +381,6 @@ export const Dashboard = () => {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Left Sidebar - Progress & Stats */}
           <div className="lg:col-span-1 space-y-4">
-            
-            
             {/* Quick Stats */}
             <Card className="bg-gradient-card shadow-card">
               <CardHeader className="pb-3">
@@ -344,54 +417,19 @@ export const Dashboard = () => {
               </CardContent>
             </Card>
 
-            {/* Dispute Rounds */}
-            <Card className="bg-gradient-card shadow-card">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium">Dispute Rounds</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {Array.from({ length: 12 }, (_, i) => i + 1).map(round => {
-                  const isUnlocked = isRoundUnlocked(round);
-                  const isActive = currentRound === round;
-                  const status = getRoundStatus(round);
-                  
-                  return (
-                    <div 
-                      key={round} 
-                      className={`flex items-center justify-between py-2 px-2 rounded transition-colors ${
-                        !isUnlocked 
-                          ? 'opacity-50 pointer-events-none cursor-not-allowed' 
-                          : isActive 
-                            ? 'bg-primary/10 border border-primary/20 cursor-pointer' 
-                            : 'hover:bg-muted/50 cursor-pointer'
-                      }`}
-                      onClick={() => handleRoundClick(round)}
-                      title={!isUnlocked ? "Unlocks 30 days after last round & when letters are sent." : undefined}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm ${isActive ? 'font-medium text-primary' : ''}`}>
-                          Round {round}
-                        </span>
-                        {isActive && (
-                          <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded">
-                            {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getRoundIcon(round)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
+            {/* Round Navigation */}
+            <RoundNavigation
+              rounds={rounds}
+              currentRound={currentRound}
+              onRoundSelect={handleRoundSelect}
+              onCreateNewRound={handleCreateNewRound}
+            />
           </div>
 
           {/* Main Content Area */}
           <div className="lg:col-span-3 space-y-6">
             {/* Upload Section */}
-            {!uploadedFile && (
+            {!uploadedFile && !analysisComplete && (
               <Card className="bg-gradient-card shadow-card animate-fade-in">
                 <CardHeader>
                   <CardTitle>Upload Your Credit Report</CardTitle>
@@ -406,7 +444,7 @@ export const Dashboard = () => {
             )}
 
             {/* Analysis Section */}
-            {uploadedFile && (
+            {(uploadedFile || analysisComplete) && (
               <div className="space-y-6 animate-fade-in">
                 <Card className="bg-gradient-card shadow-card">
                   <CardHeader>
@@ -417,36 +455,41 @@ export const Dashboard = () => {
                           Round {currentRound} Analysis
                         </CardTitle>
                         <CardDescription>
-                          AI analysis of {uploadedFile.name}
+                          {uploadedFile ? `AI analysis of ${uploadedFile.name}` : 'Saved round data'}
                         </CardDescription>
                       </div>
                       <div className="flex gap-3 ml-auto">
+                        {uploadedFile && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDeleteFile}
+                            className="flex items-center gap-1 text-danger hover:text-danger"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Remove
+                          </Button>
+                        )}
                         <Button
-                          variant="outline"
                           size="sm"
-                          onClick={handleDeleteFile}
-                          className="flex items-center gap-1 text-danger hover:text-danger"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Remove
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => saveRoundDraft(currentRound)}
-                          className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+                          onClick={handleSaveRound}
+                          disabled={!analysisResults || isSaving}
+                          className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
                         >
                           <Save className="h-4 w-4" />
-                          Save
+                          {isSaving ? 'Saving...' : 'Save'}
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => regenerateRound(currentRound)}
-                          className="flex items-center gap-1 border-gray-300 text-gray-700 hover:bg-gray-50"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                          Regenerate
-                        </Button>
+                        {uploadedFile && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => regenerateRound(currentRound)}
+                            className="flex items-center gap-1 border-gray-300 text-gray-700 hover:bg-gray-50"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                            Regenerate
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardHeader>
@@ -466,11 +509,15 @@ export const Dashboard = () => {
 
                 {/* Dispute Letters Section */}
                 {analysisComplete && analysisResults && (
-                <DisputeLetterDrafts 
-                  creditItems={analysisResults.items} 
-                  currentRound={currentRound}
-                  onRoundStatusChange={updateRoundStatus}
-                />
+                  <DisputeLetterDrafts 
+                    creditItems={analysisResults.items} 
+                    currentRound={currentRound}
+                    onRoundStatusChange={(roundNumber, status) => {
+                      if (status === 'sent') {
+                        handleMarkRoundAsSent(roundNumber);
+                      }
+                    }}
+                  />
                 )}
               </div>
             )}

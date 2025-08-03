@@ -397,6 +397,7 @@ export type Database = {
           id: string
           round_number: number
           session_id: string
+          snapshot_data: Json | null
           status: string
           user_id: string
         }
@@ -407,6 +408,7 @@ export type Database = {
           id?: string
           round_number: number
           session_id: string
+          snapshot_data?: Json | null
           status?: string
           user_id: string
         }
@@ -417,6 +419,7 @@ export type Database = {
           id?: string
           round_number?: number
           session_id?: string
+          snapshot_data?: Json | null
           status?: string
           user_id?: string
         }

@@ -14,10 +14,11 @@ export interface Round {
   id: string;
   session_id: string;
   round_number: number;
-  status: 'active' | 'completed' | 'waiting';
+  status: 'draft' | 'saved' | 'sent' | 'active' | 'completed' | 'waiting';
   created_at: string;
   completed_at?: string;
   can_start_at?: string;
+  snapshot_data?: any;
 }
 
 export interface Letter {
@@ -309,5 +310,99 @@ export class SessionService {
     }
 
     return { canStart: true };
+  }
+
+  static async saveRoundSnapshot(roundId: string, snapshotData: any): Promise<void> {
+    const { error } = await supabase
+      .from('rounds')
+      .update({
+        snapshot_data: snapshotData,
+        status: 'saved',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', roundId);
+
+    if (error) throw error;
+  }
+
+  static async createOrUpdateRound(sessionId: string, roundNumber: number, snapshotData?: any): Promise<Round> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    // Check if round already exists
+    const { data: existingRound } = await supabase
+      .from('rounds')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('round_number', roundNumber)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existingRound) {
+      // Update existing round
+      const { data, error } = await supabase
+        .from('rounds')
+        .update({
+          snapshot_data: snapshotData || existingRound.snapshot_data,
+          status: snapshotData ? 'saved' : existingRound.status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingRound.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return {
+        ...data,
+        status: data.status as Round['status']
+      };
+    } else {
+      // Create new round
+      const { data, error } = await supabase
+        .from('rounds')
+        .insert([
+          {
+            session_id: sessionId,
+            round_number: roundNumber,
+            status: snapshotData ? 'saved' : 'draft',
+            snapshot_data: snapshotData || {},
+            user_id: user.id
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return {
+        ...data,
+        status: data.status as Round['status']
+      };
+    }
+  }
+
+  static async updateRoundStatus(roundId: string, status: Round['status']): Promise<void> {
+    const { error } = await supabase
+      .from('rounds')
+      .update({
+        status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', roundId);
+
+    if (error) throw error;
+  }
+
+  static async getRound(roundId: string): Promise<Round | null> {
+    const { data, error } = await supabase
+      .from('rounds')
+      .select('*')
+      .eq('id', roundId)
+      .single();
+
+    if (error) return null;
+    return {
+      ...data,
+      status: data.status as Round['status']
+    };
   }
 }

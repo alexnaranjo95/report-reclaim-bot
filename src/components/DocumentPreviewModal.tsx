@@ -215,6 +215,16 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
       // Trigger a refresh by calling onDocumentUpdated
       onDocumentUpdated?.();
       
+      // Force refresh of parent components to update preview
+      // Dispatch a custom event to notify other components
+      window.dispatchEvent(new CustomEvent('admin-document-updated', { 
+        detail: { 
+          documentId: document.id, 
+          category: document.category,
+          newDimensions: { width: dimensions.width, height: dimensions.height }
+        }
+      }));
+      
       // Close modal to force refresh
       onClose();
       

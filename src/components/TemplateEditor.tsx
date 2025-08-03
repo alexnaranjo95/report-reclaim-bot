@@ -96,6 +96,21 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     }
   }, [editorContent]);
 
+  // Listen for document updates to refresh preview
+  useEffect(() => {
+    const handleDocumentUpdate = (event: CustomEvent) => {
+      console.log('Document updated, refreshing preview', event.detail);
+      // Refresh the preview when documents are updated
+      generatePreview();
+    };
+
+    window.addEventListener('admin-document-updated', handleDocumentUpdate as EventListener);
+    
+    return () => {
+      window.removeEventListener('admin-document-updated', handleDocumentUpdate as EventListener);
+    };
+  }, [editorContent]);
+
   const loadTinymceApiKey = async () => {
     try {
       const { data, error } = await supabase.functions.invoke('get-tinymce-key');

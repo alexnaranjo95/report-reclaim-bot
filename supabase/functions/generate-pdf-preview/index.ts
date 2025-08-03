@@ -59,7 +59,7 @@ serve(async (req) => {
               ${govDoc ? `
                 <img src="${govDoc.file_url}" 
                      alt="Government ID" 
-                     style="${govDoc.edited_width ? `width: ${govDoc.edited_width}px; height: ${govDoc.edited_height}px;` : 'max-width: 100%; max-height: 400px;'} object-fit: contain; display: block; margin: 0 auto;" />
+                     style="width: ${govDoc.edited_width || govDoc.original_width || 'auto'}px; height: ${govDoc.edited_height || govDoc.original_height || 'auto'}px; object-fit: contain; display: block; margin: 0 auto; max-width: 100%;" />
                 <p style="margin-top: 10px; font-size: 10pt; color: #666;">${govDoc.file_name}</p>
               ` : `
                 <p><strong>Government ID Document</strong></p>
@@ -79,7 +79,7 @@ serve(async (req) => {
               ${addressDoc ? `
                 <img src="${addressDoc.file_url}" 
                      alt="Proof of Address" 
-                     style="${addressDoc.edited_width ? `width: ${addressDoc.edited_width}px; height: ${addressDoc.edited_height}px;` : 'max-width: 100%; max-height: 400px;'} object-fit: contain; display: block; margin: 0 auto;" />
+                     style="width: ${addressDoc.edited_width || addressDoc.original_width || 'auto'}px; height: ${addressDoc.edited_height || addressDoc.original_height || 'auto'}px; object-fit: contain; display: block; margin: 0 auto; max-width: 100%;" />
                 <p style="margin-top: 10px; font-size: 10pt; color: #666;">${addressDoc.file_name}</p>
               ` : `
                 <p><strong>Address Verification Document</strong></p>
@@ -99,7 +99,7 @@ serve(async (req) => {
               ${ssnDoc ? `
                 <img src="${ssnDoc.file_url}" 
                      alt="Social Security Number" 
-                     style="${ssnDoc.edited_width ? `width: ${ssnDoc.edited_width}px; height: ${ssnDoc.edited_height}px;` : 'max-width: 100%; max-height: 400px;'} object-fit: contain; display: block; margin: 0 auto;" />
+                     style="width: ${ssnDoc.edited_width || ssnDoc.original_width || 'auto'}px; height: ${ssnDoc.edited_height || ssnDoc.original_height || 'auto'}px; object-fit: contain; display: block; margin: 0 auto; max-width: 100%;" />
                 <p style="margin-top: 10px; font-size: 10pt; color: #666;">${ssnDoc.file_name}</p>
               ` : `
                 <p><strong>Social Security Number Document</strong></p>

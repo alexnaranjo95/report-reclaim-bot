@@ -72,6 +72,36 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
     try {
       setLoading(true);
 
+      // Check if report has been parsed with comprehensive data
+      const { data: reportData } = await supabase
+        .from('credit_reports')
+        .select('raw_text, extraction_status')
+        .eq('id', reportId)
+        .single();
+
+      // If we have raw text but no parsed data, trigger comprehensive parsing
+      if (reportData?.raw_text && reportData.extraction_status === 'completed') {
+        try {
+          // Check if we already have personal info (indicating parsing was done)
+          const { data: existingPersonalInfo } = await supabase
+            .from('personal_information')
+            .select('id')
+            .eq('report_id', reportId)
+            .maybeSingle();
+
+          // If no personal info exists, trigger comprehensive parsing
+          if (!existingPersonalInfo) {
+            console.log('Triggering comprehensive parsing for enhanced data extraction...');
+            const { ComprehensiveCreditParser } = await import('@/services/ComprehensiveCreditParser');
+            await ComprehensiveCreditParser.parseReport(reportId);
+            console.log('Comprehensive parsing completed');
+          }
+        } catch (parseError) {
+          console.error('Error in comprehensive parsing:', parseError);
+          // Continue loading existing data even if parsing fails
+        }
+      }
+
       // Load personal information
       const { data: personalData, error: personalError } = await supabase
         .from('personal_information')
@@ -112,6 +142,21 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
         setInquiries(inquiriesData || []);
       }
 
+      // If still no data, try fallback PDF parsing
+      if ((!personalData && !accountsData?.length && !inquiriesData?.length) && reportData?.raw_text) {
+        console.log('No extracted data found, using fallback PDF parsing...');
+        const PDFProcessor = await import('@/services/PDFProcessor');
+        const parsedData = await import('@/services/CreditReportParser');
+        
+        try {
+          await parsedData.CreditReportParser.parseReport(reportId);
+          // Reload data after parsing
+          setTimeout(() => loadAnalysisData(), 1000);
+        } catch (fallbackError) {
+          console.error('Fallback parsing also failed:', fallbackError);
+        }
+      }
+
     } catch (error) {
       console.error('Error loading analysis data:', error);
       toast.error('Failed to load analysis data');
@@ -122,6 +167,28 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
 
   const handleDownloadReport = () => {
     toast.info('Download functionality will be implemented');
+  };
+
+  const handleForceReparse = async () => {
+    try {
+      toast.info('Starting comprehensive data extraction...');
+      setLoading(true);
+      
+      const { AutoCreditProcessor } = await import('@/services/AutoCreditProcessor');
+      const success = await AutoCreditProcessor.forceReparse(reportId);
+      
+      if (success) {
+        toast.success('Data extraction completed! Refreshing...');
+        await loadAnalysisData();
+      } else {
+        toast.error('Data extraction failed. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error in force reparse:', error);
+      toast.error('Error during data extraction');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Mock rounds data - this would come from actual round system
@@ -167,10 +234,16 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
                 <span className="font-medium">Credit Report</span>
               </div>
             </div>
-            <Button onClick={handleDownloadReport} className="flex items-center gap-2">
-              <Download className="w-4 h-4" />
-              Download Report
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleForceReparse} className="flex items-center gap-2">
+                <Search className="w-4 h-4" />
+                Extract Data
+              </Button>
+              <Button onClick={handleDownloadReport} className="flex items-center gap-2">
+                <Download className="w-4 h-4" />
+                Download Report
+              </Button>
+            </div>
           </div>
           
           <div className="mt-4">

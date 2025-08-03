@@ -147,17 +147,25 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
           return;
         }
         
-        if (data?.apiKey) {
+        if (data?.apiKey && data.apiKey !== 'no-key-configured') {
           console.log('[TinyMCE] ✅ Successfully retrieved API key:', data.apiKey.substring(0, 10) + '...');
           setTinyMCEApiKey(data.apiKey);
         } else {
-          console.error('[TinyMCE] ❌ No API key in response:', data);
+          console.error('[TinyMCE] ❌ No valid API key in response:', data);
           setTinyMCEApiKey(null);
-          toast({
-            title: "Editor Configuration Missing",
-            description: data?.error || "TinyMCE API key not configured",
-            variant: "destructive",
-          });
+          if (data?.apiKey === 'no-key-configured') {
+            toast({
+              title: "TinyMCE Not Configured",
+              description: "TinyMCE API key needs to be configured by admin. Using fallback editor.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Editor Configuration Missing",
+              description: data?.error || "TinyMCE API key not configured. Using fallback editor.",
+              variant: "destructive",
+            });
+          }
         }
       } catch (error) {
         console.error('[TinyMCE] Unexpected error:', error);

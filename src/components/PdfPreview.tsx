@@ -32,23 +32,11 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ html, documentSettings, adminFi
       if (error) throw error;
 
       const docsMap = (data || []).reduce((acc, doc) => {
-        // Ensure we get the correct public URL for storage files
-        let fileUrl = doc.file_url;
-        
-        // If the URL doesn't include the full supabase storage path, construct it
-        if (fileUrl && !fileUrl.includes('supabase.co')) {
-          const { data: publicUrlData } = supabase.storage
-            .from('admin-examples')
-            .getPublicUrl(fileUrl.replace(/.*\/admin-examples\//, ''));
-          fileUrl = publicUrlData.publicUrl;
-        }
-        
-        acc[doc.category] = { file_url: fileUrl, file_name: doc.file_name };
+        acc[doc.category] = { file_url: doc.file_url, file_name: doc.file_name };
         return acc;
       }, {} as Record<string, { file_url: string; file_name: string }>);
 
       setAdminDocs(docsMap);
-      console.log('Loaded admin docs:', docsMap); // Debug log
     } catch (error) {
       console.error('Error loading admin example docs:', error);
     }

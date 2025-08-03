@@ -60,37 +60,37 @@ class PostgridService {
       // Create the correct JSON payload according to PostGrid API docs
       const payload = {
         to: {
-          first_name: letter.to.firstName,
-          last_name: letter.to.lastName,
-          address_line_1: letter.to.addressLine1,
-          address_line_2: letter.to.addressLine2 || undefined,
+          firstName: letter.to.firstName,
+          lastName: letter.to.lastName,
+          addressLine1: letter.to.addressLine1,
+          addressLine2: letter.to.addressLine2 || undefined,
           city: letter.to.city,
-          province_or_state: letter.to.provinceOrState,
-          postal_or_zip: letter.to.postalOrZip,
+          provinceOrState: letter.to.provinceOrState,
+          postalOrZip: letter.to.postalOrZip,
           country: letter.to.country || 'US'
         },
         from: {
-          first_name: letter.from.firstName,
-          last_name: letter.from.lastName,
-          address_line_1: letter.from.addressLine1,
-          address_line_2: letter.from.addressLine2 || undefined,
+          firstName: letter.from.firstName,
+          lastName: letter.from.lastName,
+          addressLine1: letter.from.addressLine1,
+          addressLine2: letter.from.addressLine2 || undefined,
           city: letter.from.city,
-          province_or_state: letter.from.provinceOrState,
-          postal_or_zip: letter.from.postalOrZip,
+          provinceOrState: letter.from.provinceOrState,
+          postalOrZip: letter.from.postalOrZip,
           country: letter.from.country || 'US'
         },
         html: letter.content,
-        double_sided: false,
+        doubleSided: false,
         color: false,
-        address_placement: 'top_first_page'
+        addressPlacement: 'top_first_page'
       };
 
       console.log('📤 Sending letter to PostGrid API...');
       console.log('Payload preview:', {
-        to: `${payload.to.first_name} ${payload.to.last_name}`,
-        from: `${payload.from.first_name} ${payload.from.last_name}`,
+        to: `${payload.to.firstName} ${payload.to.lastName}`,
+        from: `${payload.from.firstName} ${payload.from.lastName}`,
         contentLength: letter.content.length,
-        hasAddressLine2: !!payload.to.address_line_2
+        hasAddressLine2: !!payload.to.addressLine2
       });
       
       const response = await fetch('https://api.postgrid.com/print-mail/v1/letters', {

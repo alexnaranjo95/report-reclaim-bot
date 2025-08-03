@@ -171,45 +171,44 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
 
   const handleForceReparse = async () => {
     try {
-      toast.info('Processing credit report...');
+      toast.info('Running complete pipeline audit...');
       setLoading(true);
       
-      // Simple processing: trigger extraction and wait
-      const { data: report } = await supabase
-        .from('credit_reports')
-        .select('file_path')
-        .eq('id', reportId)
-        .single();
-
-      if (!report?.file_path) {
-        toast.error('No file found to process');
-        return;
-      }
-
-      // Reset status and trigger extraction
-      await supabase
-        .from('credit_reports')
-        .update({ 
-          extraction_status: 'processing',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', reportId);
-
-      // Call Adobe extraction
-      const { error } = await supabase.functions.invoke('adobe-pdf-extract', {
-        body: { reportId, filePath: report.file_path }
+      const { CompletePipelineAudit } = await import('@/services/CompletePipelineAudit');
+      
+      // Run complete audit with processing
+      const { processingResult, auditResults } = await CompletePipelineAudit.triggerProcessingAndAudit(reportId);
+      
+      // Display audit results
+      console.log('=== COMPLETE PIPELINE AUDIT RESULTS ===');
+      auditResults.forEach(result => {
+        console.log(`${result.phase}: ${result.success ? '✅' : '❌'} ${result.details}`);
+        if (result.data) {
+          console.log('Data:', result.data);
+        }
       });
-
-      if (error) {
-        toast.error('Processing failed');
-        return;
+      
+      // Check overall success
+      const failedPhases = auditResults.filter(r => !r.success);
+      
+      if (failedPhases.length === 0) {
+        toast.success('All phases successful! Data should now be visible.');
+        setTimeout(() => loadAnalysisData(), 1000);
+      } else {
+        console.log('=== FAILED PHASES ===');
+        failedPhases.forEach(phase => {
+          console.log(`❌ ${phase.phase}: ${phase.details}`);
+        });
+        
+        toast.error(`Pipeline audit found ${failedPhases.length} failed phases. Check console for details.`);
+        
+        // Still reload to show any partial success
+        setTimeout(() => loadAnalysisData(), 2000);
       }
-
-      toast.success('Processing completed! Refreshing...');
-      setTimeout(() => loadAnalysisData(), 2000);
       
     } catch (error) {
-      toast.error('Processing failed');
+      console.error('Pipeline audit failed:', error);
+      toast.error('Pipeline audit failed');
     } finally {
       setLoading(false);
     }

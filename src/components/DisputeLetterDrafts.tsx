@@ -101,37 +101,6 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
     });
   }, [saveDraftsForCurrentRound, currentRound, onRoundStatusChange, toast, letters]);
 
-  // Reset function to clear analysis state and return to upload-ready state
-  const handleReset = useCallback(() => {
-    // Clear current letters
-    setLetters([]);
-    
-    // Clear drafts for current round
-    setDraftsByRound(prev => {
-      const updated = { ...prev };
-      delete updated[currentRound];
-      return updated;
-    });
-    
-    // Clear any editing states
-    setEditMode(null);
-    setEditContent('');
-    setSelectedLetter(null);
-    
-    // Clear generation states
-    setIsGenerating(false);
-    setGenerationStage('');
-    setLoadingTimer(0);
-    
-    // Update round status to indicate reset
-    onRoundStatusChange(currentRound, 'draft', []);
-    
-    toast({
-      title: "Analysis Reset",
-      description: "Current analysis cleared. You can now upload a new credit report.",
-    });
-  }, [currentRound, onRoundStatusChange, toast]);
-
   // Auto-save drafts when letters change (on blur events)
   const handleAutoSaveLetters = useCallback(() => {
     if (letters.length > 0) {
@@ -724,14 +693,6 @@ Enclosures: Copy of credit report, Copy of ID`;
               className="text-primary hover:text-primary"
             >
               Save
-            </Button>
-            <Button 
-              variant="outline"
-              onClick={() => handleReset()}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <RotateCcw className="h-3 w-3 mr-1" />
-              Reset
             </Button>
             <Button 
               className="bg-gradient-primary text-white"

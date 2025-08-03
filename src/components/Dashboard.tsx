@@ -12,7 +12,7 @@ import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { RegenerateButton } from './RegenerateButton';
 import { CreditAnalysis } from './CreditAnalysis';
-import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight, BarChart3 } from 'lucide-react';
+import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight, BarChart3, RotateCcw } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { SessionService, Session, Round } from '../services/SessionService';
@@ -81,6 +81,29 @@ export const Dashboard = () => {
       });
     }
   };
+
+  // Reset entire round functionality - clear all analysis and return to upload state
+  const handleResetRound = () => {
+    if (!confirm("Reset entire round? This will clear all analysis data and return to the upload screen.")) {
+      return;
+    }
+
+    // Clear all analysis states
+    setUploadedFile(null);
+    setAnalysisComplete(false);
+    setAnalysisResults(null);
+    setIsAnalyzing(false);
+
+    // Clear any saved round data for current round
+    if (currentSession) {
+      setRounds(prev => prev.filter(r => r.round_number !== currentRound));
+    }
+
+    toast({
+      title: "Round Reset Complete",
+      description: "Analysis cleared. You can now upload a new credit report to start fresh.",
+    });
+  };
   const handleLogout = async () => {
     try {
       await signOut();
@@ -102,6 +125,53 @@ export const Dashboard = () => {
     setAnalysisComplete(false);
     try {
       console.log('Starting analysis for file:', file.name);
+      
+      // Store the credit report in the database first
+      try {
+        const { default: CreditReportService } = await import('@/services/CreditReportService');
+        const { data: { user } } = await import('@/integrations/supabase/client').then(mod => mod.supabase.auth.getUser());
+        
+        if (user) {
+          console.log('Storing credit report in database...');
+          
+          // Create file path and upload file
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${Date.now()}-${file.name}`;
+          const filePath = `${user.id}/${fileName}`;
+          
+          // Upload file to storage
+          await CreditReportService.uploadFile(filePath, file);
+          
+          // Create credit report record
+          const reportData = {
+            bureau_name: file.name.toLowerCase().includes('equifax') ? 'Equifax' : 
+                        file.name.toLowerCase().includes('experian') ? 'Experian' : 
+                        file.name.toLowerCase().includes('transunion') ? 'TransUnion' : 'Unknown',
+            file_name: file.name,
+            file_path: filePath,
+            report_date: new Date(),
+            extraction_status: 'pending'
+          };
+          
+          const creditReport = await CreditReportService.createCreditReport(reportData, user.id);
+          console.log('Credit report stored successfully:', creditReport);
+          
+          toast({
+            title: "Credit Report Stored",
+            description: "Your credit report has been saved for future access.",
+          });
+        }
+      } catch (storageError) {
+        console.error('Failed to store credit report:', storageError);
+        // Continue with analysis even if storage fails
+        toast({
+          title: "Storage Warning",
+          description: "Analysis will proceed, but credit report storage failed.",
+          variant: "destructive",
+        });
+      }
+      
+      // Continue with analysis
       const results = await CreditAnalysisService.analyzePDF({
         file,
         round: currentRound
@@ -548,11 +618,20 @@ export const Dashboard = () => {
                           {uploadedFile ? `AI analysis of ${uploadedFile.name}` : 'Saved round data'}
                         </CardDescription>
                       </div>
-                      <div className="flex gap-3 ml-auto">
+                       <div className="flex gap-3 ml-auto">
                         {uploadedFile && <Button variant="outline" size="sm" onClick={handleDeleteFile} className="flex items-center gap-1 text-danger hover:text-danger">
                             <Trash2 className="h-4 w-4" />
                             Remove
                           </Button>}
+                        {(analysisComplete || uploadedFile) && <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={handleResetRound}
+                          className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          Reset Round
+                        </Button>}
                         <Button size="sm" onClick={handleSaveRound} disabled={!analysisResults || isSaving} className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50">
                           <Save className="h-4 w-4" />
                           {isSaving ? 'Saving...' : 'Save'}

@@ -123,13 +123,8 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
     };
   }, [isGenerating]);
 
-  // Generate letters only once when creditItems first load and letters are empty
-  useEffect(() => {
-    if (creditItems.length > 0 && letters.length === 0 && !isGenerating) {
-      console.log('🎯 Generating initial letters - creditItems:', creditItems.length, 'letters:', letters.length);
-      generateInitialLetters();
-    }
-  }, [creditItems.length, letters.length]);
+  // REMOVED: Automatic letter generation to prevent infinite loops
+  // Letters are now generated only when user clicks "Generate Letters" button
 
   // Fetch TinyMCE API key and check profile completion
   useEffect(() => {
@@ -207,24 +202,8 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
     checkProfileCompletion();
   }, []);
 
-  // Load saved drafts from current round
-  useEffect(() => {
-    if (currentRound && letters.length > 0) {
-      console.log('[TinyMCE] Loading drafts for round:', currentRound);
-      const savedKey = `dispute-drafts-round-${currentRound}`;
-      const savedDrafts = localStorage.getItem(savedKey);
-      
-      if (savedDrafts) {
-        try {
-          const parsedDrafts = JSON.parse(savedDrafts);
-          console.log('[TinyMCE] Loaded saved drafts:', parsedDrafts);
-          setLetters(parsedDrafts);
-        } catch (error) {
-          console.error('[TinyMCE] Error parsing saved drafts:', error);
-        }
-      }
-    }
-  }, [currentRound]);
+  // REMOVED: Conflicting localStorage loading that caused loops
+  // Draft loading is now handled by the main draftsByRound system
 
   const generateInitialLetters = async () => {
     if (creditItems.length === 0) return;
@@ -827,6 +806,22 @@ Enclosures: Copy of credit report, Copy of ID`;
           </div>
         ) : letters.length > 0 ? (
           <div className="space-y-4">
+            {/* Regenerate button at top */}
+            <div className="flex gap-2 mb-4 p-4 bg-muted/30 rounded-lg border">
+              <Button 
+                variant="outline"
+                onClick={() => generateInitialLetters()}
+                disabled={isGenerating}
+                className="text-primary hover:text-primary"
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Regenerate Letters
+              </Button>
+              <span className="text-sm text-muted-foreground flex items-center">
+                Generate new letters using AI - only click when needed
+              </span>
+            </div>
+            
             {letters.map((letter) => (
               <div key={letter.id} className="border rounded-lg p-4 space-y-3 bg-card">
                 <div className="flex items-start justify-between">
@@ -990,10 +985,26 @@ Enclosures: Copy of credit report, Copy of ID`;
             ))}
           </div>
         ) : (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="text-center py-8 text-muted-foreground space-y-4">
             <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No dispute letters generated yet.</p>
-            <p className="text-sm">Upload and analyze a credit report to generate dispute letters.</p>
+            <div>
+              <p className="mb-2">No dispute letters generated yet.</p>
+              <p className="text-sm mb-6">Click the button below to generate professional dispute letters using AI.</p>
+            </div>
+            <Button 
+              onClick={() => generateInitialLetters()}
+              disabled={isGenerating || creditItems.length === 0}
+              className="bg-gradient-primary text-white"
+              size="lg"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Generate Dispute Letters
+            </Button>
+            {creditItems.length === 0 && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Please upload and analyze a credit report first
+              </p>
+            )}
           </div>
         )}
 

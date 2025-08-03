@@ -170,7 +170,8 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
       // Trigger Adobe PDF extraction for PDF files
       if (uploadFile.file.type === 'application/pdf') {
         try {
-          const { error: extractError } = await supabase.functions.invoke('adobe-pdf-extract', {
+          console.log('Triggering Adobe extraction for report:', reportRecord.id);
+          const { data, error: extractError } = await supabase.functions.invoke('adobe-pdf-extract', {
             body: {
               reportId: reportRecord.id,
               filePath: storagePath,
@@ -179,12 +180,37 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
 
           if (extractError) {
             console.error('Adobe extraction error:', extractError);
-            // Don't fail the upload, just log the error
+            // Update status to failed
+            await supabase
+              .from('credit_reports')
+              .update({
+                extraction_status: 'failed',
+                processing_errors: extractError.message || 'Adobe extraction failed',
+              })
+              .eq('id', reportRecord.id);
+          } else {
+            console.log('Adobe extraction initiated successfully:', data);
           }
         } catch (extractError) {
           console.error('Failed to trigger Adobe extraction:', extractError);
-          // Don't fail the upload, extraction can be retried later
+          // Update status to failed
+          await supabase
+            .from('credit_reports')
+            .update({
+              extraction_status: 'failed',
+              processing_errors: `Failed to trigger extraction: ${extractError.message}`,
+            })
+            .eq('id', reportRecord.id);
         }
+      } else {
+        // For non-PDF files, mark as completed but not extracted
+        await supabase
+          .from('credit_reports')
+          .update({
+            extraction_status: 'completed',
+            raw_text: 'Non-PDF file uploaded - manual extraction required',
+          })
+          .eq('id', reportRecord.id);
       }
 
       // Update status to completed

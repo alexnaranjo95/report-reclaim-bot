@@ -72,14 +72,28 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
     try {
       setLoading(true);
 
-      // Check if report has been parsed with comprehensive data
+      // Check report status first
       const { data: reportData } = await supabase
         .from('credit_reports')
-        .select('raw_text, extraction_status')
+        .select('raw_text, extraction_status, processing_errors')
         .eq('id', reportId)
         .single();
 
-      // If we have raw text but no parsed data, trigger comprehensive parsing
+      console.log('Report status:', reportData);
+
+      // If still processing, show status
+      if (reportData?.extraction_status === 'processing') {
+        console.log('Report is still processing...');
+        // Continue to load any existing data
+      }
+
+      // If failed, show error but continue loading
+      if (reportData?.extraction_status === 'failed') {
+        console.log('Report extraction failed:', reportData.processing_errors);
+        toast.error(`Extraction failed: ${reportData.processing_errors || 'Unknown error'}`);
+      }
+
+      // If we have raw text but no parsed data, try comprehensive parsing
       if (reportData?.raw_text && reportData.extraction_status === 'completed') {
         try {
           // Check if we already have personal info (indicating parsing was done)

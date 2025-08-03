@@ -12,14 +12,22 @@ import { supabase } from '@/integrations/supabase/client';
 import { templateService, type TemplateLayout } from '@/services/TemplateService';
 import { Save, Eye, RefreshCw, FileText, Settings } from 'lucide-react';
 import PdfPreview from './PdfPreview';
+import ClientDocAppend from './ClientDocAppend';
+
+interface DocumentAppendSettings {
+  includeGovId: boolean;
+  includeProofOfAddress: boolean;
+  includeSSN: boolean;
+}
 
 interface TemplateEditorProps {
   template?: TemplateLayout;
   onSave?: (template: TemplateLayout) => void;
   onCancel?: () => void;
+  isAdmin?: boolean;
 }
 
-const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCancel }) => {
+const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCancel, isAdmin = false }) => {
   const [tinymceApiKey, setTinymceApiKey] = useState<string>('');
   const [editorContent, setEditorContent] = useState(template?.body_html || template?.content || '');
   const [templateName, setTemplateName] = useState(template?.name || '');
@@ -27,6 +35,12 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
   const [isSaving, setSaving] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
+  const [documentSettings, setDocumentSettings] = useState<DocumentAppendSettings>({
+    includeGovId: false,
+    includeProofOfAddress: false,
+    includeSSN: false
+  });
+  const [adminFiles, setAdminFiles] = useState<File[]>([]);
   const editorRef = useRef<any>(null);
 
   // Sample data for template preview
@@ -298,6 +312,14 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
         </CardContent>
       </Card>
 
+      {/* Document Append Settings */}
+      <ClientDocAppend
+        settings={documentSettings}
+        onSettingsChange={setDocumentSettings}
+        isAdmin={isAdmin}
+        onAdminFilesChange={setAdminFiles}
+      />
+
       {/* Editor and Preview */}
       <ResizablePanelGroup direction="horizontal" className="min-h-[600px]">
         {/* Editor Panel */}
@@ -359,7 +381,11 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
 
         {/* Preview Panel */}
         <ResizablePanel defaultSize={50} minSize={30}>
-          <PdfPreview html={previewHtml} />
+          <PdfPreview 
+            html={previewHtml}
+            documentSettings={documentSettings}
+            adminFiles={adminFiles}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>

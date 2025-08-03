@@ -112,6 +112,7 @@ const TemplateEditorPage: React.FC = () => {
           template={template}
           onSave={handleSave}
           onCancel={handleCancel}
+          isAdmin={isSuperAdmin}
         />
       </div>
     </div>

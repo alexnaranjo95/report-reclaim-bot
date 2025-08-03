@@ -4,11 +4,11 @@ import { PostgridAddress } from './PostgridService';
 export interface CreditorAddress {
   id: string;
   creditor: string;
-  bureau: string;
-  street: string;
-  city: string;
-  state: string;
-  zip: string;
+  bureau: string | null;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
 }
 
 class CreditorAddressService {
@@ -49,10 +49,10 @@ class CreditorAddressService {
       firstName: 'Dispute',
       lastName: 'Department',
       companyName: creditor,
-      addressLine1: address.street,
-      city: address.city,
-      provinceOrState: address.state,
-      postalOrZip: address.zip,
+      addressLine1: address.street || '123 Default Street',
+      city: address.city || 'Default City',
+      provinceOrState: address.state || 'CA',
+      postalOrZip: address.zip || '90210',
       country: 'US'
     };
   }
@@ -61,7 +61,11 @@ class CreditorAddressService {
     const address = await this.getCreditorAddress(creditor, bureau);
     
     if (address) {
-      const fullAddress = `${address.street}\n${address.city}, ${address.state} ${address.zip}`;
+      const street = address.street || '[STREET NOT AVAILABLE]';
+      const city = address.city || '[CITY NOT AVAILABLE]';
+      const state = address.state || '[STATE NOT AVAILABLE]';
+      const zip = address.zip || '[ZIP NOT AVAILABLE]';
+      const fullAddress = `${street}\n${city}, ${state} ${zip}`;
       return content.replace(/\[CREDITOR_ADDRESS\]/g, fullAddress);
     } else {
       return content.replace(/\[CREDITOR_ADDRESS\]/g, '[ADDRESS NOT FOUND - PLEASE UPDATE MANUALLY]');

@@ -112,40 +112,40 @@ export type Database = {
       }
       creditor_addresses: {
         Row: {
-          bureau: string
-          city: string
+          bureau: string | null
+          city: string | null
           created_at: string | null
           created_by: string | null
           creditor: string
           id: string
-          state: string
-          street: string
+          state: string | null
+          street: string | null
           updated_at: string | null
-          zip: string
+          zip: string | null
         }
         Insert: {
-          bureau: string
-          city: string
+          bureau?: string | null
+          city?: string | null
           created_at?: string | null
           created_by?: string | null
           creditor: string
           id?: string
-          state: string
-          street: string
+          state?: string | null
+          street?: string | null
           updated_at?: string | null
-          zip: string
+          zip?: string | null
         }
         Update: {
-          bureau?: string
-          city?: string
+          bureau?: string | null
+          city?: string | null
           created_at?: string | null
           created_by?: string | null
           creditor?: string
           id?: string
-          state?: string
-          street?: string
+          state?: string | null
+          street?: string | null
           updated_at?: string | null
-          zip?: string
+          zip?: string | null
         }
         Relationships: []
       }

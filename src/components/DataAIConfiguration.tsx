@@ -311,7 +311,9 @@ export const DataAIConfiguration = () => {
         
         headers.forEach((header, headerIndex) => {
           if (requiredHeaders.includes(header)) {
-            address[header] = values[headerIndex] || '';
+            const value = values[headerIndex] || '';
+            // Store null for empty values instead of empty strings
+            address[header] = value.length > 0 ? value : null;
           }
         });
         

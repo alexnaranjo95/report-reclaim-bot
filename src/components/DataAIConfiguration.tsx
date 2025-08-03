@@ -317,12 +317,12 @@ export const DataAIConfiguration = () => {
         
         console.log(`Row ${index + 1}:`, address);
         return address;
-      }).filter(addr => addr.creditor && addr.bureau && addr.street && addr.city && addr.state && addr.zip);
+      }).filter(addr => addr.creditor && addr.creditor.trim().length > 0);
 
       console.log('Final addresses to upload:', addresses.length, addresses);
 
       if (addresses.length === 0) {
-        throw new Error('No valid address records found. Please check that all required fields (creditor, bureau, street, city, state, zip) are filled.');
+        throw new Error('No valid address records found. Please check that at least the creditor field is filled.');
       }
 
       const { data, error } = await supabase.functions.invoke('admin-addresses', {

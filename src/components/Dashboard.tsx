@@ -463,10 +463,8 @@ export const Dashboard = () => {
                         </div>
 
                         {/* Collapsible Round Content */}
-                        {isExpanded && round?.snapshot_data && Object.keys(round.snapshot_data).length > 0 && <div className="ml-6 p-3 bg-muted/30 rounded border-l-2 border-primary/30 space-y-2">
-                            <div className="text-sm text-muted-foreground">
-                              Round {roundNumber} Details
-                            </div>
+                        {isExpanded && round?.snapshot_data && Object.keys(round.snapshot_data).length > 0 && <div className="ml-6 p-3 bg-muted/30 rounded border-l-2 border-primary/30 space-y-2 mx-[14px] py-0">
+                            
                             {round.snapshot_data.uploadedFileName && <div className="text-xs text-muted-foreground">
                                 📄 {round.snapshot_data.uploadedFileName}
                               </div>}

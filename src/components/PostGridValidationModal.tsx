@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { AlertTriangle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface ValidationError {
   isValid: boolean;
@@ -58,6 +60,7 @@ const PostGridValidationModal: React.FC<PostGridValidationModalProps> = ({
   initialData,
   letterCount
 }) => {
+  const { user } = useAuth();
   const [formData, setFormData] = useState<PostGridData>({
     sender: {
       name: '',
@@ -80,6 +83,8 @@ const PostGridValidationModal: React.FC<PostGridValidationModalProps> = ({
     missingSenderFields: [],
     missingRecipientFields: []
   });
+
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
 
   // Initialize form data with any provided initial data
   useEffect(() => {
@@ -118,15 +123,60 @@ const PostGridValidationModal: React.FC<PostGridValidationModalProps> = ({
     }
   };
 
-  // Load saved data on mount
+  // Auto-fill sender data from user profile
   useEffect(() => {
-    const savedSender = localStorage.getItem('postgrid_sender_data');
+    const loadUserProfile = async () => {
+      if (!user?.id) return;
+
+      try {
+        const { data: profile, error } = await supabase.rpc('get_user_profile', {
+          profile_user_id: user.id
+        });
+
+        if (error) throw error;
+
+        if (profile && profile.length > 0) {
+          const userProfile = profile[0];
+          
+          // Check if profile is complete
+          const requiredFields = ['full_name', 'address_line1', 'city', 'state', 'postal_code'];
+          const missingFields = requiredFields.filter(field => !userProfile[field]?.trim());
+          
+          if (missingFields.length > 0) {
+            setProfileIncomplete(true);
+          } else {
+            // Auto-fill sender information from profile
+            setFormData(prev => ({
+              ...prev,
+              sender: {
+                name: userProfile.full_name || '',
+                address_line1: userProfile.address_line1 || '',
+                city: userProfile.city || '',
+                state: userProfile.state || '',
+                postal_code: userProfile.postal_code || ''
+              }
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading user profile:', error);
+      }
+    };
+
+    // Only load profile if modal is open and user is available
+    if (isOpen && user?.id) {
+      loadUserProfile();
+    }
+  }, [isOpen, user?.id]);
+
+  // Load saved data on mount (fallback for recipients)
+  useEffect(() => {
     const savedRecipient = localStorage.getItem('postgrid_recipient_data');
     
-    if (savedSender || savedRecipient) {
+    if (savedRecipient) {
       setFormData(prev => ({
-        sender: savedSender ? JSON.parse(savedSender) : prev.sender,
-        recipient: savedRecipient ? JSON.parse(savedRecipient) : prev.recipient
+        ...prev,
+        recipient: JSON.parse(savedRecipient)
       }));
     }
   }, []);
@@ -220,6 +270,22 @@ const PostGridValidationModal: React.FC<PostGridValidationModalProps> = ({
         </DialogHeader>
 
         <div className="space-y-6">
+          {profileIncomplete && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>Profile Incomplete:</strong> Please complete your profile information in Settings to auto-fill sender details.
+                <Button 
+                  variant="link" 
+                  className="p-0 h-auto font-normal text-destructive underline ml-1"
+                  onClick={() => window.location.href = '/settings'}
+                >
+                  Go to Settings
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+          
           {renderFieldErrors(validation.missingSenderFields, 'Missing Sender Information')}
           {renderFieldErrors(validation.missingRecipientFields, 'Missing Recipient Information')}
 

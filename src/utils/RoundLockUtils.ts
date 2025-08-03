@@ -27,11 +27,21 @@ export const getRoundAccessibility = (
   currentRoundNumber: number,
   rounds: Round[]
 ): RoundAccessibilityCheck => {
+  // Round 1 is always accessible
+  if (targetRoundNumber === 1) {
+    return {
+      isAccessible: true,
+      isCurrentRound: targetRoundNumber === currentRoundNumber,
+      canGraduate: false,
+      daysRemaining: 0,
+      hasMailResponses: true
+    };
+  }
+
   const isCurrentRound = targetRoundNumber === currentRoundNumber;
-  const isAccessible = targetRoundNumber <= currentRoundNumber;
   
-  // For future rounds, check graduation criteria
-  if (targetRoundNumber > currentRoundNumber) {
+  // For all rounds beyond Round 1, check graduation criteria from previous round
+  if (targetRoundNumber > 1) {
     const previousRound = rounds.find(r => r.round_number === targetRoundNumber - 1);
     
     if (!previousRound) {
@@ -82,12 +92,14 @@ export const getRoundAccessibility = (
     };
   }
 
-  // Past or current rounds are always accessible
+  // This should not be reached since Round 1 is handled above
+  // and all other rounds are checked for graduation criteria
   return {
-    isAccessible: true,
+    isAccessible: false,
     isCurrentRound,
     canGraduate: false,
-    daysRemaining: 0,
-    hasMailResponses: true
+    daysRemaining: 30,
+    hasMailResponses: false,
+    lockReason: 'Unknown round accessibility state'
   };
 };

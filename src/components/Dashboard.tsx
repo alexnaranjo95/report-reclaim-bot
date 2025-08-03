@@ -18,7 +18,7 @@ import { useRole } from '@/hooks/useRole';
 import { getRoundAccessibility } from '@/utils/RoundLockUtils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 export const Dashboard = () => {
-  const [currentRound, setCurrentRound] = useState(1);
+  const [currentRound, setCurrentRound] = useState(1); // Always start on Round 1
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -54,14 +54,11 @@ export const Dashboard = () => {
         const sessionRounds = await SessionService.getRounds(session.id);
         setRounds(sessionRounds);
 
-        // If there are rounds, set the current round to the last one
+        // Always default to Round 1, but load Round 1 data if it exists
         if (sessionRounds.length > 0) {
-          const lastRound = sessionRounds[sessionRounds.length - 1];
-          setCurrentRound(lastRound.round_number);
-
-          // Load the round's snapshot data if it exists
-          if (lastRound.snapshot_data && Object.keys(lastRound.snapshot_data).length > 0) {
-            setAnalysisResults(lastRound.snapshot_data as CreditAnalysisResult);
+          const round1 = sessionRounds.find(r => r.round_number === 1);
+          if (round1 && round1.snapshot_data && Object.keys(round1.snapshot_data).length > 0) {
+            setAnalysisResults(round1.snapshot_data as CreditAnalysisResult);
             setAnalysisComplete(true);
           }
         }
@@ -238,8 +235,8 @@ export const Dashboard = () => {
     }
   };
   const handleRoundClick = async (roundNumber: number) => {
-    // Check if round is accessible
-    const accessibility = getRoundAccessibility(roundNumber, currentRound, rounds);
+    // Check if round is accessible using the updated logic
+    const accessibility = getRoundAccessibility(roundNumber, 1, rounds); // Always compare against Round 1 as baseline
     if (!accessibility.isAccessible) {
       toast({
         title: "Round Locked",
@@ -413,7 +410,7 @@ export const Dashboard = () => {
                   {Array.from({ length: 12 }, (_, i) => i + 1).map(roundNumber => {
                     const round = rounds.find(r => r.round_number === roundNumber);
                     const status = round?.status || 'draft';
-                    const accessibility = getRoundAccessibility(roundNumber, currentRound, rounds);
+                    const accessibility = getRoundAccessibility(roundNumber, 1, rounds); // Always check against Round 1 baseline
                     const isExpanded = expandedRoundIndex === roundNumber;
                     
                     // Calculate countdown for rounds that are sent
@@ -438,12 +435,14 @@ export const Dashboard = () => {
                     const roundButton = (
                       <div 
                         key={roundNumber} 
-                        className={`space-y-2 ${accessibility.isAccessible ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}
+                        className={`space-y-2`}
                       >
                         {/* Round Button/Header */}
                         <div 
                           className={`flex items-center justify-between py-2 px-3 rounded transition-colors ${
-                            accessibility.isAccessible ? 'hover:bg-muted/50' : ''
+                            accessibility.isAccessible 
+                              ? 'hover:bg-muted/50 cursor-pointer' 
+                              : 'opacity-50 cursor-not-allowed bg-muted/20'
                           } ${accessibility.isCurrentRound ? 'bg-primary/10 border border-primary/20' : 'border border-transparent'}`}
                           onClick={() => {
                             if (accessibility.isAccessible) {
@@ -465,28 +464,39 @@ export const Dashboard = () => {
                                 )}
                               </div>
                             )}
-                            <span className={`text-sm w-20 ${
-                              accessibility.isCurrentRound ? 'font-medium text-primary' : 
-                              accessibility.isAccessible ? '' : 'text-muted-foreground'
-                            }`}>
-                              Round {roundNumber}
-                            </span>
-                            {getRoundIcon(roundNumber, status)}
+                             <span className={`text-sm w-20 ${
+                               accessibility.isCurrentRound ? 'font-medium text-primary' : 
+                               accessibility.isAccessible ? '' : 'text-muted-foreground'
+                             }`}>
+                               Round {roundNumber}
+                             </span>
+                             {!accessibility.isAccessible ? (
+                               <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
+                                 <span className="text-xs text-muted-foreground">🔒</span>
+                               </div>
+                             ) : (
+                               getRoundIcon(roundNumber, status)
+                             )}
                           </div>
                           
-                          <div className="flex items-center gap-2">
-                            {countdownDisplay}
-                            {accessibility.isCurrentRound && (
-                              <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded">
-                                {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
-                              </Badge>
-                            )}
-                            {accessibility.canGraduate && !accessibility.isCurrentRound && (
-                              <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">
-                                🟢 Ready
-                              </Badge>
-                            )}
-                          </div>
+                           <div className="flex items-center gap-2">
+                             {!accessibility.isAccessible && accessibility.lockReason && (
+                               <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-dashed">
+                                 🔒 {accessibility.lockReason}
+                               </Badge>
+                             )}
+                             {countdownDisplay}
+                             {accessibility.isCurrentRound && (
+                               <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded">
+                                 {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
+                               </Badge>
+                             )}
+                             {accessibility.canGraduate && !accessibility.isCurrentRound && (
+                               <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">
+                                 🟢 Ready
+                               </Badge>
+                             )}
+                           </div>
                         </div>
 
                         {/* Collapsible Round Content */}

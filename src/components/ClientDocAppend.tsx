@@ -6,9 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { Paperclip, Upload, X, FileText, Loader2, Eye } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { DocumentAppendService } from '@/services/DocumentAppendService';
+import { DocumentPreviewModal } from './DocumentPreviewModal';
 
 interface DocumentAppendSettings {
   includeGovId: boolean;
@@ -342,54 +342,12 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
         )}
 
         {/* Document Preview Modal */}
-        <Dialog open={!!previewDoc} onOpenChange={() => setPreviewDoc(null)}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Document Preview: {previewDoc?.file_name}</DialogTitle>
-            </DialogHeader>
-            <div className="mt-4">
-              {previewDoc && (
-                <div className="flex items-center justify-center bg-gray-50 border rounded-lg min-h-[400px]">
-                  {previewDoc.file_url.toLowerCase().includes('.pdf') ? (
-                    <div className="text-center text-muted-foreground p-8">
-                      <FileText className="w-16 h-16 mx-auto mb-4" />
-                      <p className="font-medium mb-2">PDF Document</p>
-                      <p className="text-sm mb-4">{previewDoc.file_name}</p>
-                      <Button 
-                        onClick={() => window.open(previewDoc.file_url, '_blank')} 
-                        variant="outline"
-                      >
-                        Open in New Tab
-                      </Button>
-                    </div>
-                  ) : (
-                    <img 
-                      src={previewDoc.file_url} 
-                      alt={`Preview of ${previewDoc.file_name}`}
-                      className="max-w-full max-h-[600px] object-contain"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        target.nextElementSibling?.classList.remove('hidden');
-                      }}
-                    />
-                  )}
-                  <div className="hidden text-center text-muted-foreground p-8">
-                    <FileText className="w-16 h-16 mx-auto mb-4" />
-                    <p>Failed to load preview</p>
-                    <Button 
-                      onClick={() => window.open(previewDoc?.file_url, '_blank')} 
-                      variant="outline"
-                      className="mt-2"
-                    >
-                      Open in New Tab
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <DocumentPreviewModal
+          document={previewDoc}
+          isOpen={!!previewDoc}
+          onClose={() => setPreviewDoc(null)}
+          onDocumentUpdated={loadStoredExampleDocs}
+        />
       </CardContent>
     </Card>
   );

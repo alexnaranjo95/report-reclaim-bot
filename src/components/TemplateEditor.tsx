@@ -180,31 +180,49 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
 
   const handleGeneratePdfPreview = async () => {
     if (!previewHtml) {
-      toast.error('No content to preview');
+      toast.error('No content to preview. Please add template content first.');
+      return;
+    }
+
+    if (!templateName.trim()) {
+      toast.error('Please enter a template name before generating preview');
       return;
     }
 
     setIsGeneratingPreview(true);
 
     try {
+      // Include document settings in the preview
+      const previewData = {
+        html: previewHtml,
+        templateId: template?.id,
+        fileName: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-preview.html`,
+        documentSettings: documentSettings,
+        templateName: templateName
+      };
+
       const { data, error } = await supabase.functions.invoke('generate-pdf-preview', {
-        body: {
-          html: previewHtml,
-          templateId: template?.id,
-          fileName: `${templateName || 'template'}-preview.html`
-        }
+        body: previewData
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Edge function error:', error);
+        throw error;
+      }
 
-      if (data?.preview_url) {
+      if (data?.success && data.preview_url) {
         // Open preview in new tab
         window.open(data.preview_url, '_blank');
-        toast.success('PDF preview generated');
+        toast.success('PDF preview generated successfully');
+      } else if (data?.error) {
+        throw new Error(data.error);
+      } else {
+        throw new Error('No preview URL returned from server');
       }
     } catch (error) {
       console.error('Error generating PDF preview:', error);
-      toast.error('Failed to generate PDF preview');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      toast.error(`Failed to generate PDF preview: ${errorMessage}`);
     } finally {
       setIsGeneratingPreview(false);
     }
@@ -308,6 +326,15 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
         </CardContent>
       </Card>
 
+      {/* Document Append Settings */}
+      <ClientDocAppend
+        settings={documentSettings}
+        onSettingsChange={setDocumentSettings}
+        isAdmin={isAdmin}
+        onAdminFilesChange={setAdminFiles}
+        roundId={template?.id}
+      />
+
       {/* Placeholder Helper */}
       <Card>
         <CardHeader>
@@ -331,15 +358,6 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
           </div>
         </CardContent>
       </Card>
-
-      {/* Document Append Settings */}
-      <ClientDocAppend
-        settings={documentSettings}
-        onSettingsChange={setDocumentSettings}
-        isAdmin={isAdmin}
-        onAdminFilesChange={setAdminFiles}
-        roundId={template?.id}
-      />
 
       {/* Editor and Preview */}
       <ResizablePanelGroup direction="horizontal" className="min-h-[600px]">

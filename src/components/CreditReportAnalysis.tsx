@@ -171,30 +171,45 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
 
   const handleForceReparse = async () => {
     try {
-      toast.info('Running comprehensive system diagnostics...');
+      toast.info('Processing credit report...');
       setLoading(true);
       
-      // Run full diagnostics first
-      const { CreditReportDiagnostics } = await import('@/services/CreditReportDiagnostics');
-      console.log('🔍 Starting full system diagnostics...');
-      await CreditReportDiagnostics.runFullDiagnostics(reportId);
-      
-      // Attempt emergency recovery
-      console.log('🚨 Attempting emergency recovery...');
-      const recoverySuccess = await CreditReportDiagnostics.attemptEmergencyRecovery(reportId);
-      
-      if (recoverySuccess) {
-        toast.success('Emergency recovery initiated! Check console for detailed diagnostics. Refreshing in 5 seconds...');
-        setTimeout(async () => {
-          await loadAnalysisData();
-        }, 5000);
-      } else {
-        toast.error('Emergency recovery failed. Check console for detailed diagnostics.');
+      // Simple processing: trigger extraction and wait
+      const { data: report } = await supabase
+        .from('credit_reports')
+        .select('file_path')
+        .eq('id', reportId)
+        .single();
+
+      if (!report?.file_path) {
+        toast.error('No file found to process');
+        return;
       }
+
+      // Reset status and trigger extraction
+      await supabase
+        .from('credit_reports')
+        .update({ 
+          extraction_status: 'processing',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', reportId);
+
+      // Call Adobe extraction
+      const { error } = await supabase.functions.invoke('adobe-pdf-extract', {
+        body: { reportId, filePath: report.file_path }
+      });
+
+      if (error) {
+        toast.error('Processing failed');
+        return;
+      }
+
+      toast.success('Processing completed! Refreshing...');
+      setTimeout(() => loadAnalysisData(), 2000);
       
     } catch (error) {
-      console.error('❌ Diagnostics and recovery failed:', error);
-      toast.error('System diagnostics failed. Check console for details.');
+      toast.error('Processing failed');
     } finally {
       setLoading(false);
     }
@@ -246,7 +261,7 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleForceReparse} className="flex items-center gap-2">
                 <Search className="w-4 h-4" />
-                Run Diagnostics & Fix
+                Process Report
               </Button>
               <Button onClick={handleDownloadReport} className="flex items-center gap-2">
                 <Download className="w-4 h-4" />

@@ -33,27 +33,19 @@ export const CreditReportPreviewModal: React.FC<CreditReportPreviewModalProps> =
     setError(null);
     
     try {
-      console.log('🔍 Loading preview for:', report.file_name);
-      
-      // Use the enhanced preview fix service
-      const { PDFPreviewFix } = await import('@/services/PDFPreviewFix');
-      const previewUrl = await PDFPreviewFix.testAndFixPreview(report);
-      
-      if (previewUrl) {
-        setPreviewUrl(previewUrl);
-        console.log('✅ Preview loaded successfully');
-      } else {
-        throw new Error('Unable to generate preview URL');
+      // Simple, direct file access
+      const { data, error } = await supabase.storage
+        .from('credit-reports')
+        .createSignedUrl(report.file_path, 3600);
+
+      if (error || !data?.signedUrl) {
+        throw new Error('Cannot access file');
       }
       
+      setPreviewUrl(data.signedUrl);
     } catch (error) {
-      console.error('❌ Preview loading failed:', error);
-      setError(`Failed to load document preview: ${error.message}`);
-      
-      // Diagnose bucket configuration on error
-      const { PDFPreviewFix } = await import('@/services/PDFPreviewFix');
-      await PDFPreviewFix.diagnoseBucketConfig();
-      
+      setError('Cannot load document');
+      toast.error('Cannot load document');
     } finally {
       setLoading(false);
     }

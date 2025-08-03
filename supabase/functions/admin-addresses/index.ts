@@ -103,16 +103,20 @@ serve(async (req) => {
           created_by: user.id
         }));
 
-        // Check for duplicates
-        const duplicateCheck = await supabase
-          .from('creditor_addresses')
-          .select('creditor, bureau')
-          .in('creditor', addresses.map(a => a.creditor))
-          .in('bureau', addresses.map(a => a.bureau));
-
-        const existingCombos = new Set(
-          duplicateCheck.data?.map(d => `${d.creditor}-${d.bureau}`) || []
-        );
+        // Check for duplicates - more efficient approach
+        const existingCombos = new Set();
+        
+        if (addresses.length > 0) {
+          const { data: existingAddresses } = await supabase
+            .from('creditor_addresses')
+            .select('creditor, bureau');
+          
+          if (existingAddresses) {
+            existingAddresses.forEach(addr => {
+              existingCombos.add(`${addr.creditor}-${addr.bureau}`);
+            });
+          }
+        }
 
         const newAddresses = addresses.filter(
           addr => !existingCombos.has(`${addr.creditor}-${addr.bureau}`)

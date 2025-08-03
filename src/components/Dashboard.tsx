@@ -60,9 +60,17 @@ export const Dashboard = () => {
         setCurrentSession(session);
         const sessionRounds = await SessionService.getRounds(session.id);
         setRounds(sessionRounds);
-
-        // Don't auto-load any round data to prevent regeneration loops
-        // User must manually click a round to load its data
+        
+        // Properly set current round to 1 initially
+        setCurrentRound(1);
+        
+        // Only auto-load Round 1 data if it exists and user has completed a previous analysis
+        const round1 = sessionRounds.find(r => r.round_number === 1);
+        if (round1 && round1.snapshot_data && Object.keys(round1.snapshot_data).length > 0) {
+          console.log('Auto-loading existing Round 1 data');
+          setAnalysisResults(round1.snapshot_data as CreditAnalysisResult);
+          setAnalysisComplete(true);
+        }
       }
     } catch (error) {
       console.error('Failed to load session and rounds:', error);

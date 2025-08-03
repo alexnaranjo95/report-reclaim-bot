@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate, Link } from 'react-router-dom';
-import CreditReportUpload from '@/components/CreditReportUpload';
 import { CreditReportCard } from '@/components/CreditReportCard';
 import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
 import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
@@ -14,10 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { 
   FileText, 
-  Upload, 
   Filter,
-  Plus,
-  TrendingUp,
   ArrowLeft,
   RefreshCw,
   AlertCircle
@@ -31,7 +25,6 @@ const CreditReportsPage: React.FC = () => {
   const [selectedBureau, setSelectedBureau] = useState<string>('all');
   const [sortBy, setSortBy] = useState<string>('date-desc');
   const [loading, setLoading] = useState(true);
-  const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [reportCounts, setReportCounts] = useState<Record<string, { accounts: number; negatives: number }>>({});
   const [error, setError] = useState<string | null>(null);
@@ -146,11 +139,6 @@ const CreditReportsPage: React.FC = () => {
     setSelectedReportId(null);
   };
 
-  const handleUploadComplete = () => {
-    setShowUploadModal(false);
-    loadReports();
-  };
-
   const getBureauCounts = () => {
     const counts = { Equifax: 0, Experian: 0, TransUnion: 0 };
     reports.forEach(report => {
@@ -183,21 +171,6 @@ const CreditReportsPage: React.FC = () => {
     );
   }
 
-  // Show upload modal if requested
-  if (showUploadModal) {
-    return (
-      <div className="container mx-auto p-6 space-y-6">
-        <div className="flex items-center justify-between mb-6">
-          <Button variant="outline" onClick={() => setShowUploadModal(false)}>
-            ← Back to Reports
-          </Button>
-          <h1 className="text-3xl font-bold">Upload New Credit Report</h1>
-          <div></div>
-        </div>
-        <CreditReportUpload />
-      </div>
-    );
-  }
 
   const bureauCounts = getBureauCounts();
 
@@ -234,9 +207,10 @@ const CreditReportsPage: React.FC = () => {
                 <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
-              <Button onClick={() => setShowUploadModal(true)} size="sm" className="flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                Upload New Report
+              <Button asChild size="sm" className="flex items-center gap-2">
+                <Link to="/">
+                  Go to Dashboard to Upload
+                </Link>
               </Button>
             </div>
           </div>
@@ -362,14 +336,15 @@ const CreditReportsPage: React.FC = () => {
             </h3>
             <p className="text-muted-foreground mb-6">
               {reports.length === 0 
-                ? 'Get started by uploading your credit reports from all three bureaus for the most complete analysis.'
+                ? 'Get started by uploading your credit reports from the Dashboard for complete analysis.'
                 : 'Try adjusting your filter settings to see more reports.'
               }
             </p>
             {reports.length === 0 && (
-              <Button onClick={() => setShowUploadModal(true)} size="lg">
-                <Upload className="w-5 h-5 mr-2" />
-                Upload Your First Report
+              <Button asChild size="lg">
+                <Link to="/">
+                  Go to Dashboard to Upload
+                </Link>
               </Button>
             )}
           </CardContent>

@@ -22,7 +22,8 @@ import {
   DollarSign, 
   TrendingUp,
   Clock,
-  FileText
+  FileText,
+  Brain
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRole } from '@/hooks/useRole';
@@ -185,12 +186,20 @@ const Admin = () => {
             Client Management
           </Button>
           <Button
-            variant={activeView === 'data-ai' ? 'default' : 'ghost'}
-            onClick={() => setActiveView('data-ai')}
+            variant={activeView === 'templates' ? 'default' : 'ghost'}
+            onClick={() => setActiveView('templates')}
             className="flex items-center gap-2"
           >
             <FileText className="h-4 w-4" />
-            Data & AI
+            Templates
+          </Button>
+          <Button
+            variant={activeView === 'ai' ? 'default' : 'ghost'}
+            onClick={() => setActiveView('ai')}
+            className="flex items-center gap-2"
+          >
+            <Brain className="h-4 w-4" />
+            AI Training
           </Button>
         </div>
 
@@ -230,23 +239,24 @@ const Admin = () => {
           </>
         )}
 
-        {/* Data & AI Configuration Tab */}
-        {activeView === 'data-ai' && (
-          <div className="space-y-6">
-            <DataAIConfiguration />
-            
-            <Card className="bg-gradient-card shadow-card">
-              <CardHeader>
-                <CardTitle>Template Management System</CardTitle>
-                <CardDescription>
-                  Manage letter layouts and round-specific templates with placeholder support
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <TemplateManager />
-              </CardContent>
-            </Card>
-          </div>
+        {/* Templates Tab */}
+        {activeView === 'templates' && (
+          <Card className="bg-gradient-card shadow-card">
+            <CardHeader>
+              <CardTitle>Template Management System</CardTitle>
+              <CardDescription>
+                Manage letter layouts and round-specific templates with placeholder support
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TemplateManager />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* AI Training Tab */}
+        {activeView === 'ai' && (
+          <DataAIConfiguration />
         )}
       </div>
     </div>

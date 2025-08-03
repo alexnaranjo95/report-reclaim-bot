@@ -142,37 +142,10 @@ serve(async (req) => {
     // In a production environment, you might want to use a service like Puppeteer
     const pdfFileName = fileName || `template-preview-${Date.now()}.html`;
     
-    // Store the preview HTML in Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('verification-documents')
-      .upload(`pdf-previews/${pdfFileName}`, new Blob([fullHtml], { type: 'text/html' }), {
-        cacheControl: '3600',
-        upsert: true
-      });
-
-    if (uploadError) {
-      console.error('Error uploading preview:', uploadError);
-      throw uploadError;
-    }
-
-    // Get signed URL for the preview
-    const { data: signedUrlData } = await supabase.storage
-      .from('verification-documents')
-      .createSignedUrl(`pdf-previews/${pdfFileName}`, 3600);
-
     console.log('PDF preview generated successfully');
-
-    // Update template with preview URL if templateId provided
-    if (templateId && signedUrlData?.signedUrl) {
-      await supabase
-        .from('template_layouts')
-        .update({ preview_pdf_url: signedUrlData.signedUrl })
-        .eq('id', templateId);
-    }
 
     return new Response(
       JSON.stringify({ 
-        preview_url: signedUrlData?.signedUrl,
         html: fullHtml,
         success: true 
       }),

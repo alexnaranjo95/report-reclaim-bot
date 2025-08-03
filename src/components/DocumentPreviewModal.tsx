@@ -107,63 +107,26 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
   };
 
   const saveResizedImage = async () => {
-    if (!document || !imgRef.current || !canvasRef.current) return;
+    if (!document) return;
 
     setIsSaving(true);
     try {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Cannot get canvas context');
-
-      canvas.width = dimensions.width;
-      canvas.height = dimensions.height;
-
-      // Draw the resized image
-      ctx.drawImage(imgRef.current, 0, 0, dimensions.width, dimensions.height);
-
-      // Convert canvas to blob
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error('Failed to create blob'));
-        }, 'image/jpeg', 0.9);
-      });
-
-      // Generate new filename with dimensions
-      const fileExt = document.file_name.split('.').pop();
-      const baseName = document.file_name.replace(/\.[^/.]+$/, '');
-      const newFileName = `${baseName}_${dimensions.width}x${dimensions.height}.${fileExt}`;
-      const filePath = `examples/${document.category}_resized.${fileExt}`;
-
-      // Upload to storage
-      const { error: uploadError } = await supabase.storage
-        .from('admin-examples')
-        .upload(filePath, blob, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      // Get new public URL
-      const { data } = supabase.storage
-        .from('admin-examples')
-        .getPublicUrl(filePath);
-
-      // Update database record
+      // Update database with new dimensions
       const { error: dbError } = await supabase
         .from('admin_example_documents')
         .update({
-          file_url: data.publicUrl,
-          file_name: newFileName
+          file_name: `${document.file_name.replace(/\.[^/.]+$/, '')}_${dimensions.width}x${dimensions.height}.${document.file_name.split('.').pop()}`
         })
         .eq('category', document.category);
 
       if (dbError) throw dbError;
 
-      toast.success('Image resized and saved successfully');
+      toast.success('Image dimensions saved successfully');
       setIsEditing(false);
       onDocumentUpdated?.();
     } catch (error) {
-      console.error('Error saving resized image:', error);
-      toast.error('Failed to save resized image');
+      console.error('Error saving image dimensions:', error);
+      toast.error('Failed to save image dimensions');
     } finally {
       setIsSaving(false);
     }

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NavigationTest } from '@/components/NavigationTest';
 import { UploadZone } from './UploadZone';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
@@ -11,6 +12,7 @@ import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { RegenerateButton } from './RegenerateButton';
 import { CreditAnalysis } from './CreditAnalysis';
+import CreditReportsPage from '@/pages/CreditReports';
 import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight, BarChart3 } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
@@ -21,6 +23,7 @@ import { useRole } from '@/hooks/useRole';
 import { getRoundAccessibility } from '@/utils/RoundLockUtils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 export const Dashboard = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentRound, setCurrentRound] = useState(1); // Always start on Round 1
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
   const [rounds, setRounds] = useState<Round[]>([]);
@@ -30,6 +33,7 @@ export const Dashboard = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [expandedRoundIndex, setExpandedRoundIndex] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'rounds');
   const {
     toast
   } = useToast();
@@ -45,6 +49,19 @@ export const Dashboard = () => {
   useEffect(() => {
     loadSessionAndRounds();
   }, []);
+
+  // Handle URL tab parameter changes
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && (tab === 'rounds' || tab === 'credit-reports')) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    setSearchParams({ tab: value });
+  };
   const loadSessionAndRounds = async () => {
     try {
       const sessions = await SessionService.getSessions();
@@ -345,17 +362,10 @@ export const Dashboard = () => {
               <Button 
                 variant="outline" 
                 size="sm" 
-                asChild
-                onClick={() => {
-                  console.log('🔍 NAVIGATION DEBUG: Credit Reports button clicked');
-                  console.log('🔍 Current URL:', window.location.href);
-                  console.log('🔍 About to navigate to /credit-reports');
-                }}
+                onClick={() => handleTabChange('credit-reports')}
               >
-                <Link to="/credit-reports">
-                  <BarChart3 className="h-4 w-4 mr-2" />
-                  Credit Reports
-                </Link>
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Credit Reports
               </Button>
               <Button variant="outline" size="sm" asChild>
                 <Link to="/settings">
@@ -385,8 +395,15 @@ export const Dashboard = () => {
         
         {/* Document Notification Banner */}
         <DocumentNotificationBanner />
-        
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsTrigger value="rounds">Dispute Rounds</TabsTrigger>
+            <TabsTrigger value="credit-reports">Credit Reports</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="rounds" className="space-y-0">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Left Sidebar - Progress & Stats */}
           <div className="lg:col-span-1 space-y-4">
             {/* Quick Stats */}
@@ -587,7 +604,13 @@ export const Dashboard = () => {
             }} />}
               </div>}
           </div>
-        </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="credit-reports" className="space-y-0">
+            <CreditReportsPage />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>;
 };

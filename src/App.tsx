@@ -71,11 +71,9 @@ const App = () => {
               } />
               <Route path="/credit-reports" element={
                 <ProtectedRoute>
-                  {(() => {
-                    console.log('🎯 ROUTE MATCH: /credit-reports route activated');
-                    console.log('🎯 About to render CreditReports component');
-                    return <CreditReports />;
-                  })()}
+                  <div className="min-h-screen w-full">
+                    <CreditReports />
+                  </div>
                 </ProtectedRoute>
               } />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

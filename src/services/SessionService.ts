@@ -317,8 +317,7 @@ export class SessionService {
       .from('rounds')
       .update({
         snapshot_data: snapshotData,
-        status: 'saved',
-        updated_at: new Date().toISOString()
+        status: 'saved'
       })
       .eq('id', roundId);
 
@@ -356,8 +355,7 @@ export class SessionService {
       // Update existing round
       const updateData = {
         snapshot_data: snapshotData || existingRound.snapshot_data,
-        status: snapshotData ? 'saved' : existingRound.status,
-        updated_at: new Date().toISOString()
+        status: snapshotData ? 'saved' : existingRound.status
       };
 
       console.log('[SessionService] Updating round with data:', updateData);
@@ -414,8 +412,7 @@ export class SessionService {
     const { error } = await supabase
       .from('rounds')
       .update({
-        status,
-        updated_at: new Date().toISOString()
+        status
       })
       .eq('id', roundId);
 

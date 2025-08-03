@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Calendar, Building2, AlertTriangle, TrendingUp } from 'lucide-react';
+import { FileText, Calendar, Building2, AlertTriangle, TrendingUp, Eye } from 'lucide-react';
 import { CreditReport } from '@/services/CreditReportService';
 
 interface CreditReportCardProps {
@@ -10,13 +10,15 @@ interface CreditReportCardProps {
   accountCount?: number;
   negativeItemCount?: number;
   onViewReport: () => void;
+  onPreviewReport?: () => void;
 }
 
 export const CreditReportCard: React.FC<CreditReportCardProps> = ({
   report,
   accountCount = 0,
   negativeItemCount = 0,
-  onViewReport
+  onViewReport,
+  onPreviewReport
 }) => {
   const getBureauLogo = (bureau: string) => {
     const bureauName = bureau.toLowerCase();
@@ -91,14 +93,26 @@ export const CreditReportCard: React.FC<CreditReportCardProps> = ({
           </div>
         )}
 
-        <Button 
-          onClick={onViewReport} 
-          className="w-full"
-          disabled={report.extraction_status !== 'completed'}
-        >
-          <TrendingUp className="w-4 h-4 mr-2" />
-          View Full Report
-        </Button>
+        <div className="flex gap-2">
+          {onPreviewReport && report.file_path && (
+            <Button 
+              onClick={onPreviewReport}
+              variant="outline"
+              className="flex-1"
+            >
+              <Eye className="w-4 h-4 mr-2" />
+              Preview
+            </Button>
+          )}
+          <Button 
+            onClick={onViewReport} 
+            className="flex-1"
+            disabled={report.extraction_status !== 'completed'}
+          >
+            <TrendingUp className="w-4 h-4 mr-2" />
+            View Report
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

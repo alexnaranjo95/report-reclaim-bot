@@ -45,7 +45,11 @@ const bureauOptions = [
   { value: 'TransUnion', label: 'TransUnion' },
 ];
 
-const CreditReportUpload: React.FC = () => {
+interface CreditReportUploadProps {
+  onUploadSuccess?: () => void;
+}
+
+const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess }) => {
   const { user } = useAuth();
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -231,6 +235,10 @@ const CreditReportUpload: React.FC = () => {
 
       if (successful > 0) {
         toast.success(`Successfully uploaded ${successful} file(s)`);
+        // Call success callback after successful upload
+        if (onUploadSuccess) {
+          onUploadSuccess();
+        }
       }
       if (failed > 0) {
         toast.error(`Failed to upload ${failed} file(s)`);

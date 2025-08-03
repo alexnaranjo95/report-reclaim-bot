@@ -7,6 +7,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { CreditReportCard } from '@/components/CreditReportCard';
 import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
 import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
+import CreditReportUpload from '@/components/CreditReportUpload';
+import { CreditReportPreviewModal } from '@/components/CreditReportPreviewModal';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { 
@@ -14,7 +16,10 @@ import {
   Filter,
   ArrowLeft,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  Eye,
+  X
 } from 'lucide-react';
 
 const CreditReportsPage: React.FC = () => {
@@ -29,6 +34,8 @@ const CreditReportsPage: React.FC = () => {
   const [reportCounts, setReportCounts] = useState<Record<string, { accounts: number; negatives: number }>>({});
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [previewReport, setPreviewReport] = useState<CreditReport | null>(null);
 
   // Debug: Log when component mounts to verify correct page is loading
   useEffect(() => {
@@ -139,6 +146,16 @@ const CreditReportsPage: React.FC = () => {
     setSelectedReportId(null);
   };
 
+  const handlePreviewReport = (report: CreditReport) => {
+    setPreviewReport(report);
+  };
+
+  const handleUploadSuccess = () => {
+    loadReports(); // Refresh the reports list
+    setShowUpload(false);
+    toast.success('Credit report uploaded successfully');
+  };
+
   const getBureauCounts = () => {
     const counts = { Equifax: 0, Experian: 0, TransUnion: 0 };
     reports.forEach(report => {
@@ -206,10 +223,13 @@ const CreditReportsPage: React.FC = () => {
                 <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
-              <Button asChild size="sm" className="flex items-center gap-2">
-                <Link to="/">
-                  Go to Dashboard to Upload
-                </Link>
+              <Button 
+                onClick={() => setShowUpload(true)}
+                size="sm" 
+                className="flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                Upload Reports
               </Button>
             </div>
           </div>
@@ -340,10 +360,13 @@ const CreditReportsPage: React.FC = () => {
               }
             </p>
             {reports.length === 0 && (
-              <Button asChild size="lg">
-                <Link to="/">
-                  Go to Dashboard to Upload
-                </Link>
+              <Button 
+                onClick={() => setShowUpload(true)}
+                size="lg" 
+                className="flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                Upload Credit Reports
               </Button>
             )}
           </CardContent>
@@ -357,10 +380,39 @@ const CreditReportsPage: React.FC = () => {
               accountCount={reportCounts[report.id]?.accounts || 0}
               negativeItemCount={reportCounts[report.id]?.negatives || 0}
               onViewReport={() => handleViewReport(report.id)}
+              onPreviewReport={() => handlePreviewReport(report)}
             />
           ))}
         </div>
       )}
+
+      {/* Upload Modal */}
+      {showUpload && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">Upload Credit Reports</h2>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowUpload(false)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <CreditReportUpload onUploadSuccess={handleUploadSuccess} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      <CreditReportPreviewModal
+        report={previewReport}
+        isOpen={!!previewReport}
+        onClose={() => setPreviewReport(null)}
+      />
       </div>
     </div>
   );

@@ -404,6 +404,47 @@ export type Database = {
           },
         ]
       }
+      round_templates: {
+        Row: {
+          content_template: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean | null
+          layout_id: string | null
+          round_number: number
+          updated_at: string
+        }
+        Insert: {
+          content_template: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          layout_id?: string | null
+          round_number: number
+          updated_at?: string
+        }
+        Update: {
+          content_template?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          layout_id?: string | null
+          round_number?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_templates_layout_id_fkey"
+            columns: ["layout_id"]
+            isOneToOne: false
+            referencedRelation: "template_layouts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rounds: {
         Row: {
           can_start_at: string | null
@@ -488,6 +529,39 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      template_layouts: {
+        Row: {
+          content: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_default: boolean | null
+          name: string
+          placeholders: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_default?: boolean | null
+          name: string
+          placeholders?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_default?: boolean | null
+          name?: string
+          placeholders?: string[] | null
+          updated_at?: string
         }
         Relationships: []
       }

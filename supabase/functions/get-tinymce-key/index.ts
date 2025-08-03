@@ -25,11 +25,15 @@ serve(async (req) => {
       );
     }
 
-    // Create Supabase client to verify user
+    // Create Supabase client
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        },
         global: {
           headers: {
             Authorization: authHeader,
@@ -39,7 +43,7 @@ serve(async (req) => {
     );
 
     // Verify user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
     if (authError || !user) {
       console.error('Authentication error:', authError);
       return new Response(

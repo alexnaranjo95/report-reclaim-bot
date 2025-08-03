@@ -96,20 +96,39 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     }
   }, [editorContent]);
 
-  // Listen for document updates to refresh preview
+  // Listen for document updates to refresh preview with debounce
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
     const handleDocumentUpdate = (event: CustomEvent) => {
-      console.log('Document updated, refreshing preview', event.detail);
-      // Refresh the preview when documents are updated
-      generatePreview();
+      console.log('Document updated, scheduling preview refresh', event.detail);
+      
+      // Clear existing timeout
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
+      // Debounce the preview regeneration to allow database updates to propagate
+      timeoutId = setTimeout(() => {
+        console.log('Regenerating preview with updated document dimensions');
+        generatePreview();
+        
+        // Also trigger a fresh PDF preview if one is currently being generated
+        if (isGeneratingPreview) {
+          handleGeneratePdfPreview();
+        }
+      }, 500); // 500ms delay to ensure database updates are complete
     };
 
     window.addEventListener('admin-document-updated', handleDocumentUpdate as EventListener);
     
     return () => {
       window.removeEventListener('admin-document-updated', handleDocumentUpdate as EventListener);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     };
-  }, [editorContent]);
+  }, [editorContent, isGeneratingPreview]);
 
   const loadTinymceApiKey = async () => {
     try {

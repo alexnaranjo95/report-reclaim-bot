@@ -17,7 +17,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useRole } from '@/hooks/useRole';
 import { getRoundAccessibility } from '@/utils/RoundLockUtils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-
 export const Dashboard = () => {
   const [currentRound, setCurrentRound] = useState(1);
   const [currentSession, setCurrentSession] = useState<Session | null>(null);
@@ -27,35 +26,38 @@ export const Dashboard = () => {
   const [analysisResults, setAnalysisResults] = useState<CreditAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const { toast } = useToast();
-  const { signOut } = useAuth();
+  const {
+    toast
+  } = useToast();
+  const {
+    signOut
+  } = useAuth();
   const roleData = useRole();
-  const { isSuperAdmin = false } = roleData || {};
+  const {
+    isSuperAdmin = false
+  } = roleData || {};
 
   // Load session and rounds on component mount
   useEffect(() => {
     loadSessionAndRounds();
   }, []);
-
   const loadSessionAndRounds = async () => {
     try {
       const sessions = await SessionService.getSessions();
       let session = sessions.find(s => s.status === 'active');
-      
       if (!session && sessions.length > 0) {
         session = sessions[0];
       }
-      
       if (session) {
         setCurrentSession(session);
         const sessionRounds = await SessionService.getRounds(session.id);
         setRounds(sessionRounds);
-        
+
         // If there are rounds, set the current round to the last one
         if (sessionRounds.length > 0) {
           const lastRound = sessionRounds[sessionRounds.length - 1];
           setCurrentRound(lastRound.round_number);
-          
+
           // Load the round's snapshot data if it exists
           if (lastRound.snapshot_data && Object.keys(lastRound.snapshot_data).length > 0) {
             setAnalysisResults(lastRound.snapshot_data as CreditAnalysisResult);
@@ -68,61 +70,53 @@ export const Dashboard = () => {
       toast({
         title: "Failed to load data",
         description: "There was an error loading your session data.",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   const handleLogout = async () => {
     try {
       await signOut();
       toast({
         title: "Logged out successfully",
-        description: "You have been logged out of your account.",
+        description: "You have been logged out of your account."
       });
     } catch (error) {
       toast({
         title: "Logout failed",
         description: "There was an error logging out. Please try again.",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
     setIsAnalyzing(true);
     setAnalysisComplete(false);
-
     try {
       console.log('Starting analysis for file:', file.name);
-      
       const results = await CreditAnalysisService.analyzePDF({
         file,
         round: currentRound
       });
-      
       console.log('Analysis results received:', results);
-      
       setAnalysisResults(results);
       setAnalysisComplete(true);
-      
       toast({
         title: "Analysis Complete",
-        description: `Found ${results.summary.totalNegativeItems} negative items, ${results.summary.totalPositiveAccounts} positive accounts out of ${results.summary.totalAccounts} total accounts.`,
+        description: `Found ${results.summary.totalNegativeItems} negative items, ${results.summary.totalPositiveAccounts} positive accounts out of ${results.summary.totalAccounts} total accounts.`
       });
     } catch (error) {
       console.error('Analysis failed:', error);
       toast({
         title: "Analysis Failed",
         description: "Failed to analyze credit report. Please try again.",
-        variant: "destructive",
+        variant: "destructive"
       });
     } finally {
       setIsAnalyzing(false);
     }
   };
-
   const handleDeleteFile = () => {
     setUploadedFile(null);
     setAnalysisComplete(false);
@@ -130,20 +124,18 @@ export const Dashboard = () => {
     setIsAnalyzing(false);
     toast({
       title: "File Removed",
-      description: "Upload a new credit report to begin analysis.",
+      description: "Upload a new credit report to begin analysis."
     });
   };
-
   const handleSaveRound = async () => {
     if (!analysisResults || !currentSession) {
       toast({
         title: "Nothing to save",
         description: "Please complete an analysis first.",
-        variant: "destructive",
+        variant: "destructive"
       });
       return;
     }
-
     setIsSaving(true);
     try {
       const snapshotData = {
@@ -159,13 +151,7 @@ export const Dashboard = () => {
         status: 'saved',
         snapshot_data: snapshotData
       });
-
-      const round = await SessionService.createOrUpdateRound(
-        currentSession.id,
-        currentRound,
-        snapshotData
-      );
-
+      const round = await SessionService.createOrUpdateRound(currentSession.id, currentRound, snapshotData);
       console.log('[Round Saved Successfully]', round);
 
       // Update local rounds state
@@ -177,57 +163,47 @@ export const Dashboard = () => {
           return [...prev, round].sort((a, b) => a.round_number - b.round_number);
         }
       });
-
       toast({
         title: "Round Saved ✅",
-        description: `Round ${currentRound} saved successfully to database.`,
+        description: `Round ${currentRound} saved successfully to database.`
       });
     } catch (error) {
       console.error('[Save Round Failed]', error);
       toast({
         title: "Save Failed",
         description: `Failed to save round data: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        variant: "destructive",
+        variant: "destructive"
       });
     } finally {
       setIsSaving(false);
     }
   };
-
   const handleMarkRoundAsSent = async (roundNumber: number) => {
     const round = rounds.find(r => r.round_number === roundNumber);
     if (!round) return;
-
     try {
       await SessionService.updateRoundStatus(round.id, 'sent');
-      
-      setRounds(prev => 
-        prev.map(r => 
-          r.round_number === roundNumber 
-            ? { ...r, status: 'sent' as Round['status'] }
-            : r
-        )
-      );
-
+      setRounds(prev => prev.map(r => r.round_number === roundNumber ? {
+        ...r,
+        status: 'sent' as Round['status']
+      } : r));
       toast({
         title: "Round Marked as Sent",
-        description: `Round ${roundNumber} has been marked as sent.`,
+        description: `Round ${roundNumber} has been marked as sent.`
       });
     } catch (error) {
       console.error('Failed to update round status:', error);
       toast({
         title: "Update Failed",
         description: "Failed to update round status.",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   const regenerateRound = async (roundNumber: number) => {
     if (!confirm("Regenerate this round? This will overwrite the current draft.")) {
       return;
     }
-    
     if (uploadedFile) {
       setIsAnalyzing(true);
       try {
@@ -235,19 +211,17 @@ export const Dashboard = () => {
           file: uploadedFile,
           round: roundNumber
         });
-        
         setAnalysisResults(results);
-        
         toast({
           title: "Round Regenerated",
-          description: `Round ${roundNumber} has been regenerated with new analysis.`,
+          description: `Round ${roundNumber} has been regenerated with new analysis.`
         });
       } catch (error) {
         console.error('Regeneration failed:', error);
         toast({
           title: "Regeneration Failed",
           description: "Failed to regenerate round. Please try again.",
-          variant: "destructive",
+          variant: "destructive"
         });
       } finally {
         setIsAnalyzing(false);
@@ -256,55 +230,46 @@ export const Dashboard = () => {
       toast({
         title: "No File to Regenerate",
         description: "Please upload a credit report first.",
-        variant: "destructive",
+        variant: "destructive"
       });
     }
   };
-
   const handleRoundClick = async (roundNumber: number) => {
     // Check if round is accessible
     const accessibility = getRoundAccessibility(roundNumber, currentRound, rounds);
-    
     if (!accessibility.isAccessible) {
       toast({
         title: "Round Locked",
         description: accessibility.lockReason || "This round is not yet available.",
-        variant: "destructive",
+        variant: "destructive"
       });
       return;
     }
     if (!currentSession) {
       try {
-        const newSession = await SessionService.createSession(
-          `Session ${new Date().toLocaleDateString()}`,
-          {} as CreditAnalysisResult
-        );
+        const newSession = await SessionService.createSession(`Session ${new Date().toLocaleDateString()}`, {} as CreditAnalysisResult);
         setCurrentSession(newSession);
       } catch (error) {
         toast({
           title: "Failed to create session",
           description: "Please try again.",
-          variant: "destructive",
+          variant: "destructive"
         });
         return;
       }
     }
-
     const round = rounds.find(r => r.round_number === roundNumber);
-    
     if (round && round.snapshot_data && Object.keys(round.snapshot_data).length > 0) {
       // Load existing round data
       setCurrentRound(roundNumber);
       setAnalysisResults(round.snapshot_data as CreditAnalysisResult);
       setAnalysisComplete(true);
       setUploadedFile(null); // Clear file since we're loading saved data
-      
+
       const snapshotData = round.snapshot_data as any;
       toast({
         title: `Round ${roundNumber} Loaded`,
-        description: snapshotData.uploadedFileName 
-          ? `Loaded saved data from ${snapshotData.uploadedFileName}`
-          : `Loaded saved round data`,
+        description: snapshotData.uploadedFileName ? `Loaded saved data from ${snapshotData.uploadedFileName}` : `Loaded saved round data`
       });
     } else {
       // Create a new round or switch to empty round
@@ -312,14 +277,9 @@ export const Dashboard = () => {
       setAnalysisResults(null);
       setAnalysisComplete(false);
       setUploadedFile(null);
-      
       if (currentSession) {
         try {
-          const newRound = await SessionService.createOrUpdateRound(
-            currentSession.id,
-            roundNumber
-          );
-          
+          const newRound = await SessionService.createOrUpdateRound(currentSession.id, roundNumber);
           setRounds(prev => {
             const existing = prev.find(r => r.round_number === roundNumber);
             if (existing) {
@@ -332,14 +292,12 @@ export const Dashboard = () => {
           console.error('Failed to create round:', error);
         }
       }
-      
       toast({
         title: `Round ${roundNumber} Selected`,
-        description: "Upload a credit report to begin analysis.",
+        description: "Upload a credit report to begin analysis."
       });
     }
   };
-
   const getRoundIcon = (roundNumber: number, status: string) => {
     if (status === 'sent') {
       return <div className="w-4 h-4 rounded-full bg-success flex items-center justify-center">
@@ -356,9 +314,7 @@ export const Dashboard = () => {
     }
     return null;
   };
-
-  return (
-    <div className="min-h-screen bg-gradient-dashboard">
+  return <div className="min-h-screen bg-gradient-dashboard">
       {/* Header */}
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
@@ -374,28 +330,13 @@ export const Dashboard = () => {
                 <Shield className="h-3 w-3 mr-1" />
                 Secure
               </Badge>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => window.location.href = '/settings'}
-              >
+              <Button variant="outline" size="sm" onClick={() => window.location.href = '/settings'}>
                 Settings
               </Button>
-              {isSuperAdmin && (
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => window.location.href = '/admin'}
-                >
+              {isSuperAdmin && <Button variant="outline" size="sm" onClick={() => window.location.href = '/admin'}>
                   Admin
-                </Button>
-              )}
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={handleLogout}
-                className="flex items-center gap-2"
-              >
+                </Button>}
+              <Button variant="outline" size="sm" onClick={handleLogout} className="flex items-center gap-2">
                 <LogOut className="h-4 w-4" />
                 Logout
               </Button>
@@ -457,60 +398,35 @@ export const Dashboard = () => {
               </CardHeader>
               <CardContent className="space-y-2">
                 <TooltipProvider>
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map(roundNumber => {
-                    const round = rounds.find(r => r.round_number === roundNumber);
-                    const status = round?.status || 'draft';
-                    const accessibility = getRoundAccessibility(roundNumber, currentRound, rounds);
-                    
-                    const roundElement = (
-                      <div 
-                        key={roundNumber} 
-                        className={`flex items-center justify-between py-2 px-2 rounded transition-colors ${
-                          accessibility.isAccessible 
-                            ? 'cursor-pointer hover:bg-muted/50' 
-                            : 'cursor-not-allowed opacity-50'
-                        } ${
-                          accessibility.isCurrentRound 
-                            ? 'bg-primary/10 border border-primary/20' 
-                            : ''
-                        }`}
-                        onClick={() => accessibility.isAccessible && handleRoundClick(roundNumber)}
-                      >
+                  {Array.from({
+                  length: 12
+                }, (_, i) => i + 1).map(roundNumber => {
+                  const round = rounds.find(r => r.round_number === roundNumber);
+                  const status = round?.status || 'draft';
+                  const accessibility = getRoundAccessibility(roundNumber, currentRound, rounds);
+                  const roundElement = <div key={roundNumber} className={`flex items-center justify-between py-2 px-2 rounded transition-colors ${accessibility.isAccessible ? 'cursor-pointer hover:bg-muted/50' : 'cursor-not-allowed opacity-50'} ${accessibility.isCurrentRound ? 'bg-primary/10 border border-primary/20' : ''}`} onClick={() => accessibility.isAccessible && handleRoundClick(roundNumber)}>
                         <div className="flex items-center gap-2">
-                          <span className={`text-sm ${
-                            accessibility.isCurrentRound ? 'font-medium text-primary' : 
-                            accessibility.isAccessible ? '' : 'text-muted-foreground'
-                          }`}>
+                          <span className={`text-sm ${accessibility.isCurrentRound ? 'font-medium text-primary' : accessibility.isAccessible ? '' : 'text-muted-foreground'}`}>
                             Round {roundNumber}
                           </span>
-                          {accessibility.isCurrentRound && (
-                            <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded">
+                          {accessibility.isCurrentRound && <Badge variant="secondary" className="bg-gray-200 text-gray-600 text-xs px-2 py-0.5 rounded mx-[148px]">
                               {status === 'draft' ? 'Draft' : status === 'saved' ? 'Saved' : 'Sent'}
-                            </Badge>
-                          )}
-                          {accessibility.canGraduate && !accessibility.isCurrentRound && (
-                            <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">
+                            </Badge>}
+                          {accessibility.canGraduate && !accessibility.isCurrentRound && <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded">
                               🟢 Ready
-                            </Badge>
-                          )}
+                            </Badge>}
                         </div>
-                        <div className="flex items-center gap-2">
-                          {getRoundIcon(roundNumber, status)}
-                        </div>
-                      </div>
-                    );
-
-                    return accessibility.lockReason ? (
-                      <Tooltip key={roundNumber}>
+                        
+                      </div>;
+                  return accessibility.lockReason ? <Tooltip key={roundNumber}>
                         <TooltipTrigger asChild>
                           {roundElement}
                         </TooltipTrigger>
                         <TooltipContent>
                           <p>{accessibility.lockReason}</p>
                         </TooltipContent>
-                      </Tooltip>
-                    ) : roundElement;
-                  })}
+                      </Tooltip> : roundElement;
+                })}
                 </TooltipProvider>
               </CardContent>
             </Card>
@@ -519,8 +435,7 @@ export const Dashboard = () => {
           {/* Main Content Area */}
           <div className="lg:col-span-3 space-y-6">
             {/* Upload Section */}
-            {!uploadedFile && !analysisComplete && (
-              <Card className="bg-gradient-card shadow-card animate-fade-in">
+            {!uploadedFile && !analysisComplete && <Card className="bg-gradient-card shadow-card animate-fade-in">
                 <CardHeader>
                   <CardTitle>Upload Your Credit Report</CardTitle>
                   <CardDescription>
@@ -530,12 +445,10 @@ export const Dashboard = () => {
                 <CardContent>
                   <UploadZone onFileUpload={handleFileUpload} />
                 </CardContent>
-              </Card>
-            )}
+              </Card>}
 
             {/* Analysis Section */}
-            {(uploadedFile || analysisComplete) && (
-              <div className="space-y-6 animate-fade-in">
+            {(uploadedFile || analysisComplete) && <div className="space-y-6 animate-fade-in">
                 <Card className="bg-gradient-card shadow-card">
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -549,71 +462,40 @@ export const Dashboard = () => {
                         </CardDescription>
                       </div>
                       <div className="flex gap-3 ml-auto">
-                        {uploadedFile && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleDeleteFile}
-                            className="flex items-center gap-1 text-danger hover:text-danger"
-                          >
+                        {uploadedFile && <Button variant="outline" size="sm" onClick={handleDeleteFile} className="flex items-center gap-1 text-danger hover:text-danger">
                             <Trash2 className="h-4 w-4" />
                             Remove
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          onClick={handleSaveRound}
-                          disabled={!analysisResults || isSaving}
-                          className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
-                        >
+                          </Button>}
+                        <Button size="sm" onClick={handleSaveRound} disabled={!analysisResults || isSaving} className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50">
                           <Save className="h-4 w-4" />
                           {isSaving ? 'Saving...' : 'Save'}
                         </Button>
-                        {uploadedFile && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => regenerateRound(currentRound)}
-                            className="flex items-center gap-1 border-gray-300 text-gray-700 hover:bg-gray-50"
-                          >
+                        {uploadedFile && <Button variant="outline" size="sm" onClick={() => regenerateRound(currentRound)} className="flex items-center gap-1 border-gray-300 text-gray-700 hover:bg-gray-50">
                             <RefreshCw className="h-4 w-4" />
                             Regenerate
-                          </Button>
-                        )}
+                          </Button>}
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent>
-                    {isAnalyzing ? (
-                      <div className="space-y-4">
+                    {isAnalyzing ? <div className="space-y-4">
                         <div className="text-sm text-muted-foreground">
                           Analyzing credit report...
                         </div>
                         <Progress value={75} className="h-2" />
-                      </div>
-                    ) : analysisComplete && analysisResults ? (
-                      <CreditAnalysis analysisResults={analysisResults} />
-                    ) : null}
+                      </div> : analysisComplete && analysisResults ? <CreditAnalysis analysisResults={analysisResults} /> : null}
                   </CardContent>
                 </Card>
 
                 {/* Dispute Letters Section */}
-                {analysisComplete && analysisResults && (
-                  <DisputeLetterDrafts 
-                    creditItems={analysisResults.items} 
-                    currentRound={currentRound}
-                    onRoundStatusChange={(roundNumber, status) => {
-                      if (status === 'sent') {
-                        handleMarkRoundAsSent(roundNumber);
-                      }
-                    }}
-                  />
-                )}
-              </div>
-            )}
+                {analysisComplete && analysisResults && <DisputeLetterDrafts creditItems={analysisResults.items} currentRound={currentRound} onRoundStatusChange={(roundNumber, status) => {
+              if (status === 'sent') {
+                handleMarkRoundAsSent(roundNumber);
+              }
+            }} />}
+              </div>}
           </div>
         </div>
       </div>
-    </div>
-  );
+    </div>;
 };

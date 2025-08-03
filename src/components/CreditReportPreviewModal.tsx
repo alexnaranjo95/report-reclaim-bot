@@ -31,26 +31,29 @@ export const CreditReportPreviewModal: React.FC<CreditReportPreviewModalProps> =
     if (!report?.file_path) return;
     setLoading(true);
     setError(null);
+    
     try {
-      // Get signed URL for the file from credit-reports bucket
-      const { data, error } = await supabase.storage
-        .from('credit-reports')
-        .createSignedUrl(report.file_path, 3600); // 1 hour expiry
-
-      if (error) {
-        console.error('Storage error:', error);
-        throw new Error(`Failed to access file: ${error.message}`);
+      console.log('🔍 Loading preview for:', report.file_name);
+      
+      // Use the enhanced preview fix service
+      const { PDFPreviewFix } = await import('@/services/PDFPreviewFix');
+      const previewUrl = await PDFPreviewFix.testAndFixPreview(report);
+      
+      if (previewUrl) {
+        setPreviewUrl(previewUrl);
+        console.log('✅ Preview loaded successfully');
+      } else {
+        throw new Error('Unable to generate preview URL');
       }
       
-      if (!data?.signedUrl) {
-        throw new Error('No signed URL returned from storage');
-      }
-      
-      setPreviewUrl(data.signedUrl);
     } catch (error) {
-      console.error('Error loading preview:', error);
-      setError('Failed to load document preview');
-      toast.error('Failed to load document preview');
+      console.error('❌ Preview loading failed:', error);
+      setError(`Failed to load document preview: ${error.message}`);
+      
+      // Diagnose bucket configuration on error
+      const { PDFPreviewFix } = await import('@/services/PDFPreviewFix');
+      await PDFPreviewFix.diagnoseBucketConfig();
+      
     } finally {
       setLoading(false);
     }

@@ -171,22 +171,30 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
 
   const handleForceReparse = async () => {
     try {
-      toast.info('Emergency data extraction starting...');
+      toast.info('Running comprehensive system diagnostics...');
       setLoading(true);
       
-      // First try emergency fix for stuck processing
-      const { CreditReportEmergencyFix } = await import('@/services/CreditReportEmergencyFix');
-      await CreditReportEmergencyFix.forceReprocess(reportId);
+      // Run full diagnostics first
+      const { CreditReportDiagnostics } = await import('@/services/CreditReportDiagnostics');
+      console.log('🔍 Starting full system diagnostics...');
+      await CreditReportDiagnostics.runFullDiagnostics(reportId);
       
-      toast.success('Emergency extraction completed! Refreshing...');
-      // Wait a moment for data to be processed
-      setTimeout(async () => {
-        await loadAnalysisData();
-      }, 3000);
+      // Attempt emergency recovery
+      console.log('🚨 Attempting emergency recovery...');
+      const recoverySuccess = await CreditReportDiagnostics.attemptEmergencyRecovery(reportId);
+      
+      if (recoverySuccess) {
+        toast.success('Emergency recovery initiated! Check console for detailed diagnostics. Refreshing in 5 seconds...');
+        setTimeout(async () => {
+          await loadAnalysisData();
+        }, 5000);
+      } else {
+        toast.error('Emergency recovery failed. Check console for detailed diagnostics.');
+      }
       
     } catch (error) {
-      console.error('Error in emergency extraction:', error);
-      toast.error('Emergency extraction failed. Please contact support.');
+      console.error('❌ Diagnostics and recovery failed:', error);
+      toast.error('System diagnostics failed. Check console for details.');
     } finally {
       setLoading(false);
     }
@@ -238,7 +246,7 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleForceReparse} className="flex items-center gap-2">
                 <Search className="w-4 h-4" />
-                Extract Data
+                Run Diagnostics & Fix
               </Button>
               <Button onClick={handleDownloadReport} className="flex items-center gap-2">
                 <Download className="w-4 h-4" />

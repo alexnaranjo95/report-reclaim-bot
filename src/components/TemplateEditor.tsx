@@ -192,13 +192,22 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     setIsGeneratingPreview(true);
 
     try {
-      // Include document settings in the preview
+      // Get admin example documents for preview
+      const { data: adminDocs, error: adminError } = await supabase
+        .from('admin_example_documents')
+        .select('*');
+
+      if (adminError) {
+        console.error('Error fetching admin docs:', adminError);
+      }
+
       const previewData = {
         html: previewHtml,
         templateId: template?.id,
         fileName: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-preview.html`,
         documentSettings: documentSettings,
-        templateName: templateName
+        templateName: templateName,
+        adminDocs: adminDocs || []
       };
 
       const { data, error } = await supabase.functions.invoke('generate-pdf-preview', {
@@ -228,6 +237,72 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
       toast.error(`Failed to generate PDF preview: ${errorMessage}`);
     } finally {
       setIsGeneratingPreview(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!previewHtml) {
+      toast.error('No content to download. Please add template content first.');
+      return;
+    }
+
+    if (!templateName.trim()) {
+      toast.error('Please enter a template name before downloading');
+      return;
+    }
+
+    try {
+      // Get admin example documents for PDF
+      const { data: adminDocs, error: adminError } = await supabase
+        .from('admin_example_documents')
+        .select('*');
+
+      if (adminError) {
+        console.error('Error fetching admin docs:', adminError);
+      }
+
+      const previewData = {
+        html: previewHtml,
+        templateId: template?.id,
+        fileName: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.html`,
+        documentSettings: documentSettings,
+        templateName: templateName,
+        adminDocs: adminDocs || []
+      };
+
+      const { data, error } = await supabase.functions.invoke('generate-pdf-preview', {
+        body: previewData
+      });
+
+      if (error) {
+        console.error('Edge function error:', error);
+        throw error;
+      }
+
+      if (data?.success && data.html) {
+        // Create a downloadable blob
+        const blob = new Blob([data.html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        
+        // Create download link
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        toast.success('PDF template downloaded successfully');
+      } else if (data?.error) {
+        throw new Error(data.error);
+      } else {
+        throw new Error('Failed to generate PDF for download');
+      }
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      toast.error(`Failed to download PDF: ${errorMessage}`);
     }
   };
 
@@ -280,6 +355,13 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
               <Eye className="w-4 h-4 mr-2" />
             )}
             PDF Preview
+          </Button>
+          <Button 
+            onClick={handleDownloadPdf} 
+            variant="outline"
+          >
+            <FileText className="w-4 h-4 mr-2" />
+            Download PDF
           </Button>
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving ? (

@@ -21,7 +21,7 @@ serve(async (req) => {
   try {
     console.log('Generating PDF preview');
     
-    const { html, templateId, fileName, documentSettings, adminFiles } = await req.json();
+    const { html, templateId, fileName, documentSettings, adminFiles, adminDocs } = await req.json();
     
     if (!html) {
       return new Response(
@@ -44,37 +44,67 @@ serve(async (req) => {
           </h3>
       `;
       
+      // Create document map for easy lookup
+      const docsMap = (adminDocs || []).reduce((acc, doc) => {
+        acc[doc.category] = doc;
+        return acc;
+      }, {});
+
       if (documentSettings.includeGovId) {
+        const govDoc = docsMap['gov_id'];
         documentAppendages += `
           <div style="margin-bottom: 40px;">
             <h4 style="margin-bottom: 15px;">Government Identification</h4>
-            <div style="border: 2px dashed #ccc; padding: 40px; text-align: center; background: #f9f9f9;">
-              <p><strong>Government ID Document</strong></p>
-              <p style="color: #666; font-size: 11pt;">Driver's License, State ID, or Passport will be attached here</p>
+            <div style="border: 1px solid #ccc; padding: 20px; text-align: center; background: #fff;">
+              ${govDoc ? `
+                <img src="${govDoc.file_url}" 
+                     alt="Government ID" 
+                     style="max-width: 100%; max-height: 400px; object-fit: contain;" />
+                <p style="margin-top: 10px; font-size: 10pt; color: #666;">${govDoc.file_name}</p>
+              ` : `
+                <p><strong>Government ID Document</strong></p>
+                <p style="color: #666; font-size: 11pt;">Driver's License, State ID, or Passport will be attached here</p>
+              `}
             </div>
           </div>
         `;
       }
       
       if (documentSettings.includeProofOfAddress) {
+        const addressDoc = docsMap['proof_of_address'];
         documentAppendages += `
           <div style="margin-bottom: 40px;">
             <h4 style="margin-bottom: 15px;">Proof of Address</h4>
-            <div style="border: 2px dashed #ccc; padding: 40px; text-align: center; background: #f9f9f9;">
-              <p><strong>Address Verification Document</strong></p>
-              <p style="color: #666; font-size: 11pt;">Utility Bill, Bank Statement, or Lease Agreement will be attached here</p>
+            <div style="border: 1px solid #ccc; padding: 20px; text-align: center; background: #fff;">
+              ${addressDoc ? `
+                <img src="${addressDoc.file_url}" 
+                     alt="Proof of Address" 
+                     style="max-width: 100%; max-height: 400px; object-fit: contain;" />
+                <p style="margin-top: 10px; font-size: 10pt; color: #666;">${addressDoc.file_name}</p>
+              ` : `
+                <p><strong>Address Verification Document</strong></p>
+                <p style="color: #666; font-size: 11pt;">Utility Bill, Bank Statement, or Lease Agreement will be attached here</p>
+              `}
             </div>
           </div>
         `;
       }
       
       if (documentSettings.includeSSN) {
+        const ssnDoc = docsMap['ssn'];
         documentAppendages += `
           <div style="margin-bottom: 40px;">
             <h4 style="margin-bottom: 15px;">Social Security Verification</h4>
-            <div style="border: 2px dashed #ccc; padding: 40px; text-align: center; background: #f9f9f9;">
-              <p><strong>Social Security Number Document</strong></p>
-              <p style="color: #666; font-size: 11pt;">SSN Card, W-2, or Tax Document will be attached here</p>
+            <div style="border: 1px solid #ccc; padding: 20px; text-align: center; background: #fff;">
+              ${ssnDoc ? `
+                <img src="${ssnDoc.file_url}" 
+                     alt="Social Security Number" 
+                     style="max-width: 100%; max-height: 400px; object-fit: contain;" />
+                <p style="margin-top: 10px; font-size: 10pt; color: #666;">${ssnDoc.file_name}</p>
+              ` : `
+                <p><strong>Social Security Number Document</strong></p>
+                <p style="color: #666; font-size: 11pt;">SSN Card, W-2, or Tax Document will be attached here</p>
+              `}
             </div>
           </div>
         `;

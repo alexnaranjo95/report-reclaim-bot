@@ -139,13 +139,30 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         }, 'image/jpeg', 0.9);
       });
 
+      // First, create a backup of the original if this is the first resize
+      const hasBackup = document.file_name.includes('_original');
+      if (!hasBackup) {
+        const fileExt = document.file_name.split('.').pop();
+        const baseName = document.file_name.replace(/\.[^/.]+$/, '');
+        const backupFileName = `${baseName}_original.${fileExt}`;
+        const backupPath = `examples/backups/${backupFileName}`;
+        
+        // Fetch the current image and create backup
+        const response = await fetch(document.file_url);
+        const originalBlob = await response.blob();
+        
+        await supabase.storage
+          .from('admin-examples')
+          .upload(backupPath, originalBlob, { upsert: true });
+      }
+
       // Generate new filename with dimensions
       const fileExt = document.file_name.split('.').pop();
-      const baseName = document.file_name.replace(/\.[^/.]+$/, '').replace(/_\d+x\d+$/, ''); // Remove existing dimensions
+      const baseName = document.file_name.replace(/\.[^/.]+$/, '').replace(/_\d+x\d+$/, '').replace(/_original$/, '');
       const newFileName = `${baseName}_${dimensions.width}x${dimensions.height}.${fileExt}`;
       const filePath = `examples/${newFileName}`;
 
-      // Upload to storage
+      // Upload the resized image to storage
       const { error: uploadError } = await supabase.storage
         .from('admin-examples')
         .upload(filePath, blob, { upsert: true });
@@ -170,7 +187,13 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
 
       toast.success('Image resized and saved successfully');
       setIsEditing(false);
+      
+      // Trigger a refresh by calling onDocumentUpdated
       onDocumentUpdated?.();
+      
+      // Close and reopen the modal to force refresh
+      onClose();
+      
     } catch (error) {
       console.error('Error saving resized image:', error);
       toast.error('Failed to save resized image');

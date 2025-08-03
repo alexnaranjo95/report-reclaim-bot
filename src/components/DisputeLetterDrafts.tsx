@@ -125,33 +125,47 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
   useEffect(() => {
     const fetchTinyMCEKey = async () => {
       try {
-        console.log('Fetching TinyMCE API key...');
-        const { data, error } = await supabase.functions.invoke('openai-analysis', {
-          body: { action: 'getTinyMCEKey' }
+        console.log('[TinyMCE] Fetching API key...');
+        
+        const { data, error } = await supabase.functions.invoke('get-tinymce-key');
+        
+        console.log('[TinyMCE] Response:', { 
+          hasData: !!data, 
+          hasApiKey: !!data?.apiKey, 
+          error: error?.message 
         });
         
-        console.log('TinyMCE key response:', { data, error });
-        
         if (error) {
-          console.error('Error fetching TinyMCE API key:', error);
-          setTinyMCEApiKey('no-api-key'); // Fallback
-          setIsLoadingApiKey(false);
+          console.error('[TinyMCE] Function invocation error:', error);
+          setTinyMCEApiKey(null);
+          toast({
+            title: "Editor Configuration Error",
+            description: "Failed to load TinyMCE editor. Please contact support.",
+            variant: "destructive",
+          });
           return;
         }
         
-        if (data?.apiKey && data.apiKey !== 'no-api-key') {
-          console.log('✅ Successfully retrieved TinyMCE API key:', data.apiKey.substring(0, 10) + '...');
+        if (data?.apiKey) {
+          console.log('[TinyMCE] ✅ Successfully retrieved API key:', data.apiKey.substring(0, 10) + '...');
           setTinyMCEApiKey(data.apiKey);
         } else {
-          console.log('❌ TinyMCE API key not available in response:', data);
-          if (data?.error) {
-            console.error('TinyMCE API key error:', data.error);
-          }
-          setTinyMCEApiKey('no-api-key');
+          console.error('[TinyMCE] ❌ No API key in response:', data);
+          setTinyMCEApiKey(null);
+          toast({
+            title: "Editor Configuration Missing",
+            description: data?.error || "TinyMCE API key not configured",
+            variant: "destructive",
+          });
         }
       } catch (error) {
-        console.error('Error fetching TinyMCE API key:', error);
-        setTinyMCEApiKey('no-api-key'); // Fallback
+        console.error('[TinyMCE] Unexpected error:', error);
+        setTinyMCEApiKey(null);
+        toast({
+          title: "Editor Error",
+          description: "Failed to initialize editor",
+          variant: "destructive",
+        });
       } finally {
         setIsLoadingApiKey(false);
       }

@@ -157,11 +157,31 @@ const CreditReportUpload: React.FC = () => {
         .from('credit_reports')
         .update({
           file_path: storagePath,
-          extraction_status: 'completed',
+          extraction_status: 'processing', // Set to processing for Adobe extraction
         })
         .eq('id', reportRecord.id);
 
       if (updateError) throw updateError;
+
+      // Trigger Adobe PDF extraction for PDF files
+      if (uploadFile.file.type === 'application/pdf') {
+        try {
+          const { error: extractError } = await supabase.functions.invoke('adobe-pdf-extract', {
+            body: {
+              reportId: reportRecord.id,
+              filePath: storagePath,
+            },
+          });
+
+          if (extractError) {
+            console.error('Adobe extraction error:', extractError);
+            // Don't fail the upload, just log the error
+          }
+        } catch (extractError) {
+          console.error('Failed to trigger Adobe extraction:', extractError);
+          // Don't fail the upload, extraction can be retried later
+        }
+      }
 
       // Update status to completed
       setUploadFiles(prev => 

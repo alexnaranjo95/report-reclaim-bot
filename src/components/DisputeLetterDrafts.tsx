@@ -98,7 +98,7 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
   }, [saveDraftsForCurrentRound, currentRound, onRoundStatusChange, toast, letters]);
 
   // Auto-save drafts when letters change (on blur events)
-  const handleAutoSave = useCallback(() => {
+  const handleAutoSaveLetters = useCallback(() => {
     if (letters.length > 0) {
       saveDraftsForCurrentRound();
       onRoundStatusChange(currentRound, 'draft', letters);
@@ -123,10 +123,12 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
     generateInitialLetters();
   }, [creditItems]);
 
+  // Fetch TinyMCE API key
   useEffect(() => {
     const fetchTinyMCEKey = async () => {
       try {
         console.log('[TinyMCE] Fetching API key...');
+        setIsLoadingApiKey(true);
         
         const { data, error } = await supabase.functions.invoke('get-tinymce-key');
         
@@ -141,38 +143,30 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
           setTinyMCEApiKey(null);
           toast({
             title: "Editor Configuration Error",
-            description: "Failed to load TinyMCE editor. Please contact support.",
+            description: "Failed to load TinyMCE editor. Using fallback editor.",
             variant: "destructive",
           });
           return;
         }
         
         if (data?.apiKey && data.apiKey !== 'no-key-configured') {
-          console.log('[TinyMCE] ✅ Successfully retrieved API key:', data.apiKey.substring(0, 10) + '...');
+          console.log('[TinyMCE] ✅ Successfully retrieved API key');
           setTinyMCEApiKey(data.apiKey);
         } else {
           console.error('[TinyMCE] ❌ No valid API key in response:', data);
           setTinyMCEApiKey(null);
-          if (data?.apiKey === 'no-key-configured') {
-            toast({
-              title: "TinyMCE Not Configured",
-              description: "TinyMCE API key needs to be configured by admin. Using fallback editor.",
-              variant: "destructive",
-            });
-          } else {
-            toast({
-              title: "Editor Configuration Missing",
-              description: data?.error || "TinyMCE API key not configured. Using fallback editor.",
-              variant: "destructive",
-            });
-          }
+          toast({
+            title: "TinyMCE Not Configured", 
+            description: "TinyMCE API key not configured. Using fallback editor.",
+            variant: "destructive",
+          });
         }
       } catch (error) {
         console.error('[TinyMCE] Unexpected error:', error);
         setTinyMCEApiKey(null);
         toast({
           title: "Editor Error",
-          description: "Failed to initialize editor",
+          description: "Failed to initialize editor. Using fallback editor.",
           variant: "destructive",
         });
       } finally {
@@ -182,6 +176,25 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
 
     fetchTinyMCEKey();
   }, []);
+
+  // Load saved drafts from current round
+  useEffect(() => {
+    if (currentRound && letters.length > 0) {
+      console.log('[TinyMCE] Loading drafts for round:', currentRound);
+      const savedKey = `dispute-drafts-round-${currentRound}`;
+      const savedDrafts = localStorage.getItem(savedKey);
+      
+      if (savedDrafts) {
+        try {
+          const parsedDrafts = JSON.parse(savedDrafts);
+          console.log('[TinyMCE] Loaded saved drafts:', parsedDrafts);
+          setLetters(parsedDrafts);
+        } catch (error) {
+          console.error('[TinyMCE] Error parsing saved drafts:', error);
+        }
+      }
+    }
+  }, [currentRound]);
 
   const generateInitialLetters = async () => {
     if (creditItems.length === 0) return;
@@ -376,9 +389,22 @@ Enclosures: Copy of credit report, Copy of ID`;
     }
   };
 
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'validation': return 'bg-primary/10 text-primary';
+      case 'verification': return 'bg-secondary/10 text-secondary';
+      case 'goodwill': return 'bg-success/10 text-success';
+      case 'cease_and_desist': return 'bg-danger/10 text-danger';
+      case 'comprehensive': return 'bg-warning/10 text-warning';
+      case 'follow_up': return 'bg-info/10 text-info';
+      default: return 'bg-muted/10 text-muted-foreground';
+    }
+  };
+
   const handleEditLetter = (letterId: string, content: string) => {
-    setEditContent(content);
     setEditMode(letterId);
+    setEditContent(content);
+    console.log('[TinyMCE] Starting edit for letter:', letterId);
   };
 
   const handleSaveEdit = (letterId: string) => {
@@ -394,10 +420,32 @@ Enclosures: Copy of credit report, Copy of ID`;
     }));
     setEditMode(null);
     setEditContent('');
+    console.log('[TinyMCE] Saved edit for letter:', letterId);
+    
     toast({
       title: "Letter Updated",
-      description: "Your dispute letter has been successfully updated.",
+      description: "Your changes have been saved successfully.",
     });
+  };
+
+  const handleAutoSave = () => {
+    if (editMode) {
+      console.log('[TinyMCE] Auto-saving content...');
+      // Auto-save the content without closing the editor
+      const currentLetter = letters.find(l => l.id === editMode);
+      if (currentLetter) {
+        const updatedLetters = letters.map(letter => 
+          letter.id === editMode 
+            ? { ...letter, content: editContent }
+            : letter
+        );
+        setLetters(updatedLetters);
+        setDraftsByRound(prev => ({
+          ...prev,
+          [currentRound]: updatedLetters
+        }));
+      }
+    }
   };
 
   const handleCopyLetter = async (content: string) => {
@@ -458,18 +506,6 @@ Enclosures: Copy of credit report, Copy of ID`;
     setShowCostConfirmation('send-all');
   };
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'validation': return 'bg-primary/10 text-primary';
-      case 'verification': return 'bg-secondary/10 text-secondary';
-      case 'goodwill': return 'bg-success/10 text-success';
-      case 'cease_and_desist': return 'bg-danger/10 text-danger';
-      case 'comprehensive': return 'bg-warning/10 text-warning';
-      case 'follow_up': return 'bg-info/10 text-info';
-      default: return 'bg-muted/10 text-muted-foreground';
-    }
-  };
-
   if (creditItems.length === 0) {
     return (
       <Card className="bg-gradient-card shadow-card">
@@ -483,12 +519,11 @@ Enclosures: Copy of credit report, Copy of ID`;
           <div className="text-center py-8 text-muted-foreground">
             <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>Upload and analyze a credit report to generate professional dispute letters.</p>
-        </div>
-      </CardContent>
-
-    </Card>
-  );
-}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="bg-gradient-card shadow-card">
@@ -700,23 +735,33 @@ Enclosures: Copy of credit report, Copy of ID`;
                             onEditorChange={(content) => setEditContent(content)}
                             onBlur={handleAutoSave}
                             init={{
-                              height: 600,
+                              height: 500,
                               menubar: false,
                               plugins: [
-                                'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
-                                'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
-                                'insertdatetime', 'media', 'table', 'code', 'help', 'wordcount'
+                                'advlist', 'autolink', 'lists', 'link', 'charmap', 'preview',
+                                'searchreplace', 'visualblocks', 'code', 'fullscreen',
+                                'insertdatetime', 'table', 'help', 'wordcount', 'autoresize'
                               ],
-                              toolbar: 'undo redo | blocks | ' +
-                                'bold italic forecolor | alignleft aligncenter ' +
-                                'alignright alignjustify | bullist numlist outdent indent | ' +
-                                'removeformat | help',
-                              content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.6; }'
+                              toolbar: 'undo redo | blocks | bold italic underline | ' +
+                                'alignleft aligncenter alignright alignjustify | ' +
+                                'bullist numlist outdent indent | removeformat | help',
+                              content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.6; margin: 1rem; }',
+                              branding: false,
+                              resize: false,
+                              autoresize_bottom_margin: 16,
+                              setup: (editor) => {
+                                editor.on('init', () => {
+                                  console.log('[TinyMCE] Editor initialized successfully');
+                                });
+                                editor.on('change', () => {
+                                  console.log('[TinyMCE] Content changed');
+                                });
+                              }
                             }}
                           />
                         ) : (
-                          <div className="bg-muted/30 p-4 rounded-md">
-                            <p className="text-sm text-muted-foreground">
+                          <div className="bg-muted/30 border-2 border-dashed border-muted-foreground/20 p-8 rounded-md text-center">
+                            <p className="text-muted-foreground mb-4">
                               TinyMCE editor unavailable. Using fallback text editor.
                             </p>
                             <Textarea
@@ -977,3 +1022,5 @@ Enclosures: Copy of credit report, Copy of ID`;
     </Card>
   );
 };
+
+export default DisputeLetterDrafts;

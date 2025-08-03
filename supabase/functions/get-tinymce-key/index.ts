@@ -25,15 +25,17 @@ serve(async (req) => {
       );
     }
 
-// Create Supabase client with anon key for proper JWT validation
+    // Create Supabase client with service role for database access
     const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
+    // Verify user authentication using anon client
+    const anonSupabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        },
         global: {
           headers: {
             Authorization: authHeader,
@@ -42,8 +44,7 @@ serve(async (req) => {
       }
     );
 
-    // Verify user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+    const { data: { user }, error: authError } = await anonSupabase.auth.getUser();
     if (authError || !user) {
       console.error('Authentication error:', authError);
       return new Response(
@@ -55,12 +56,12 @@ serve(async (req) => {
       );
     }
 
-    // Get TinyMCE API key from admin_settings table
+    // Get TinyMCE API key from admin_settings table using service role
     console.log('TinyMCE API key request from user:', user.id);
     
     const { data: settingData, error: settingError } = await supabase
       .from('admin_settings')
-      .select('setting_value, is_encrypted')
+      .select('setting_value')
       .eq('setting_key', 'tinymce_key')
       .maybeSingle();
     
@@ -89,13 +90,16 @@ serve(async (req) => {
     // Extract the API key from the JSONB structure
     let tinyMCEApiKey;
     try {
-      // Handle JSONB which can be string, object, or plain value
       if (typeof settingData.setting_value === 'string') {
-        // Direct string value
         tinyMCEApiKey = settingData.setting_value;
       } else {
-        // JSONB object or value
+        // Handle JSONB value - it should be the direct value
         tinyMCEApiKey = settingData.setting_value;
+      }
+      
+      // Remove quotes if it's a quoted string (from JSON storage)
+      if (typeof tinyMCEApiKey === 'string' && tinyMCEApiKey.startsWith('"') && tinyMCEApiKey.endsWith('"')) {
+        tinyMCEApiKey = tinyMCEApiKey.slice(1, -1);
       }
     } catch (parseError) {
       console.error('Error parsing TinyMCE key:', parseError);

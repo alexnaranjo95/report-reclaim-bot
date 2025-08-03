@@ -604,6 +604,30 @@ export type Database = {
           },
         ]
       }
+      organizations: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       personal_information: {
         Row: {
           created_at: string | null
@@ -703,6 +727,8 @@ export type Database = {
           email_notifications: boolean | null
           full_name: string | null
           id: string
+          organization_id: string | null
+          organization_name: string | null
           phone_number: string | null
           postal_code: string | null
           state: string | null
@@ -722,6 +748,8 @@ export type Database = {
           email_notifications?: boolean | null
           full_name?: string | null
           id?: string
+          organization_id?: string | null
+          organization_name?: string | null
           phone_number?: string | null
           postal_code?: string | null
           state?: string | null
@@ -741,6 +769,8 @@ export type Database = {
           email_notifications?: boolean | null
           full_name?: string | null
           id?: string
+          organization_id?: string | null
+          organization_name?: string | null
           phone_number?: string | null
           postal_code?: string | null
           state?: string | null
@@ -1181,6 +1211,22 @@ export type Database = {
               profile_city?: string
               profile_state?: string
               profile_postal_code?: string
+            }
+          | {
+              profile_user_id: string
+              profile_email: string
+              profile_phone_number: string
+              profile_email_notifications: boolean
+              profile_text_notifications: boolean
+              profile_display_name: string
+              profile_verification_documents?: Json
+              profile_full_name?: string
+              profile_address_line1?: string
+              profile_city?: string
+              profile_state?: string
+              profile_postal_code?: string
+              profile_organization_id?: string
+              profile_organization_name?: string
             }
         Returns: string
       }

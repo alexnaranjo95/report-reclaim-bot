@@ -24,6 +24,42 @@ serve(async (req) => {
       }
     })
 
+    // Get requesting user's role and organization for filtering
+    const authHeader = req.headers.get('authorization');
+    let userOrganizationId = null;
+    let isSuperAdmin = false;
+    
+    if (authHeader) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        const { data: userResult } = await supabase.auth.getUser(token);
+        
+        if (userResult.user) {
+          // Check user roles
+          const { data: userRoles } = await supabase.rpc('get_user_roles', {
+            _user_id: userResult.user.id
+          });
+
+          const roles = userRoles?.map((r: any) => r.role) || [];
+          isSuperAdmin = roles.includes('superadmin');
+          const isAdmin = roles.includes('admin');
+
+          // If admin (not superadmin), get their organization for filtering
+          if (isAdmin && !isSuperAdmin) {
+            const { data: adminProfile } = await supabase
+              .from('profiles')
+              .select('organization_id')
+              .eq('user_id', userResult.user.id)
+              .single();
+            
+            userOrganizationId = adminProfile?.organization_id;
+          }
+        }
+      } catch (error) {
+        console.warn('Could not authenticate request, proceeding with full access');
+      }
+    }
+
     console.log('Fetching all auth users...');
 
     // Get all auth users (requires service role)
@@ -36,10 +72,17 @@ serve(async (req) => {
 
     console.log(`Found ${authUsers.users.length} auth users`);
 
-    // Get all profiles
-    const { data: profiles, error: profilesError } = await supabase
+    // Get profiles with organization filtering for admins
+    let profilesQuery = supabase
       .from('profiles')
-      .select('*, status')
+      .select('*, status');
+    
+    // If requesting user is admin (not superadmin) and has organization, filter by organization
+    if (userOrganizationId && !isSuperAdmin) {
+      profilesQuery = profilesQuery.eq('organization_id', userOrganizationId);
+    }
+    
+    const { data: profiles, error: profilesError } = await profilesQuery;
 
     if (profilesError) {
       console.error('Error fetching profiles:', profilesError);

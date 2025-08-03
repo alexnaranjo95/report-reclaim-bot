@@ -13,11 +13,13 @@ import { AdminMetrics } from '@/components/AdminMetrics';
 import { TenantDataGrid } from '@/components/TenantDataGrid';
 import { DataAIConfiguration } from '@/components/DataAIConfiguration';
 import TemplateManager from '@/components/TemplateManager';
-import { LogOut } from 'lucide-react';
+import { AdminSettings } from '@/components/AdminSettings';
+import { LogOut, Settings } from 'lucide-react';
 const Admin = () => {
   const navigate = useNavigate();
   const {
     isSuperAdmin,
+    isAdmin,
     loading: roleLoading
   } = useRole();
   const {
@@ -38,10 +40,10 @@ const Admin = () => {
     }
   }, []);
 
-  // Redirect if not superadmin (with better timing logic)
+  // Redirect if not admin or superadmin (with better timing logic)
   useEffect(() => {
     // Only check access after role loading is complete and no impersonation
-    if (!roleLoading && !isSuperAdmin && !isImpersonating) {
+    if (!roleLoading && !isSuperAdmin && !isAdmin && !isImpersonating) {
       // Add a delay to prevent rapid toast notifications
       const timer = setTimeout(() => {
         toast({
@@ -53,7 +55,7 @@ const Admin = () => {
       }, 200);
       return () => clearTimeout(timer);
     }
-  }, [isSuperAdmin, roleLoading, navigate, toast, isImpersonating]);
+  }, [isSuperAdmin, isAdmin, roleLoading, navigate, toast, isImpersonating]);
   const handleRevertImpersonation = async () => {
     try {
       const impersonationData = sessionStorage.getItem('impersonation_data');
@@ -112,7 +114,7 @@ const Admin = () => {
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
       </div>;
   }
-  if (!isSuperAdmin && !isImpersonating) {
+  if (!isSuperAdmin && !isAdmin && !isImpersonating) {
     return null; // Will redirect via useEffect
   }
   return <div className="min-h-screen bg-gradient-dashboard">
@@ -123,13 +125,15 @@ const Admin = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                Super Admin Portal
+                {isSuperAdmin ? 'Super Admin Portal' : 'Admin Portal'}
               </h1>
-              <p className="text-muted-foreground">Monitor and control all customer instances</p>
+              <p className="text-muted-foreground">
+                {isSuperAdmin ? 'Monitor and control all customer instances' : 'Manage your organization customers'}
+              </p>
             </div>
             <div className="flex items-center gap-3">
-              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                Super Admin Access
+              <Badge variant="outline" className={isSuperAdmin ? "bg-red-50 text-red-700 border-red-200" : "bg-blue-50 text-blue-700 border-blue-200"}>
+                {isSuperAdmin ? 'Super Admin Access' : 'Admin Access'}
               </Badge>
               <Button variant="outline" onClick={handleLogout} className="flex items-center gap-2">
                 <LogOut className="h-4 w-4" />
@@ -151,13 +155,19 @@ const Admin = () => {
             <Users className="h-4 w-4" />
             Client Management
           </Button>
-          <Button variant={activeView === 'templates' ? 'default' : 'ghost'} onClick={() => setActiveView('templates')} className="flex items-center gap-2">
-            <FileText className="h-4 w-4" />
-            Templates
-          </Button>
+          {isSuperAdmin && (
+            <Button variant={activeView === 'templates' ? 'default' : 'ghost'} onClick={() => setActiveView('templates')} className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Templates
+            </Button>
+          )}
           <Button variant={activeView === 'ai' ? 'default' : 'ghost'} onClick={() => setActiveView('ai')} className="flex items-center gap-2">
             <Brain className="h-4 w-4" />
             AI Training
+          </Button>
+          <Button variant={activeView === 'settings' ? 'default' : 'ghost'} onClick={() => setActiveView('settings')} className="flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            Settings
           </Button>
         </div>
 
@@ -190,16 +200,20 @@ const Admin = () => {
             </Card>
           </>}
 
-        {/* Templates Tab */}
-        {activeView === 'templates' && <Card className="bg-gradient-card shadow-card">
-            
+        {/* Templates Tab - Only for Super Admins */}
+        {activeView === 'templates' && isSuperAdmin && (
+          <Card className="bg-gradient-card shadow-card">
             <CardContent>
               <TemplateManager />
             </CardContent>
-          </Card>}
+          </Card>
+        )}
 
         {/* AI Training Tab */}
         {activeView === 'ai' && <DataAIConfiguration />}
+
+        {/* Settings Tab */}
+        {activeView === 'settings' && <AdminSettings />}
       </div>
     </div>;
 };

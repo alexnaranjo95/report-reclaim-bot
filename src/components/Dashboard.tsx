@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 
-
 import { UploadZone } from './UploadZone';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
@@ -21,6 +20,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useRole } from '@/hooks/useRole';
 import { getRoundAccessibility } from '@/utils/RoundLockUtils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { supabase } from '@/integrations/supabase/client';
 export const Dashboard = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [currentRound, setCurrentRound] = useState(1); // Always start on Round 1
@@ -128,44 +128,62 @@ export const Dashboard = () => {
       
       // Store the credit report in the database first
       try {
-        const { default: CreditReportService } = await import('@/services/CreditReportService');
-        const { data: { user } } = await import('@/integrations/supabase/client').then(mod => mod.supabase.auth.getUser());
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
         
-        if (user) {
-          console.log('Storing credit report in database...');
-          
-          // Create file path and upload file
-          const fileExt = file.name.split('.').pop();
-          const fileName = `${Date.now()}-${file.name}`;
-          const filePath = `${user.id}/${fileName}`;
-          
-          // Upload file to storage
-          await CreditReportService.uploadFile(filePath, file);
-          
-          // Create credit report record
-          const reportData = {
+        if (userError || !user) {
+          throw new Error('User not authenticated');
+        }
+
+        console.log('Storing credit report in database...');
+        
+        // Create file path and upload file
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}-${file.name}`;
+        const filePath = `${user.id}/${fileName}`;
+        
+        // Upload file to storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('credit-reports')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw new Error(`File upload failed: ${uploadError.message}`);
+        }
+
+        // Create credit report record
+        const { data: reportData, error: reportError } = await supabase
+          .from('credit_reports')
+          .insert({
+            user_id: user.id,
             bureau_name: file.name.toLowerCase().includes('equifax') ? 'Equifax' : 
                         file.name.toLowerCase().includes('experian') ? 'Experian' : 
                         file.name.toLowerCase().includes('transunion') ? 'TransUnion' : 'Unknown',
             file_name: file.name,
-            file_path: filePath,
-            report_date: new Date(),
+            file_path: uploadData.path,
+            report_date: new Date().toISOString().split('T')[0],
             extraction_status: 'pending'
-          };
-          
-          const creditReport = await CreditReportService.createCreditReport(reportData, user.id);
-          console.log('Credit report stored successfully:', creditReport);
-          
-          toast({
-            title: "Credit Report Stored",
-            description: "Your credit report has been saved for future access.",
-          });
+          })
+          .select()
+          .single();
+
+        if (reportError) {
+          throw new Error(`Database insert failed: ${reportError.message}`);
         }
+
+        console.log('Credit report stored successfully:', reportData);
+        
+        toast({
+          title: "Credit Report Stored",
+          description: "Your credit report has been saved for future access.",
+        });
       } catch (storageError) {
         console.error('Failed to store credit report:', storageError);
         // Continue with analysis even if storage fails
         toast({
-          title: "Storage Warning",
+          title: "Storage Warning", 
           description: "Analysis will proceed, but credit report storage failed.",
           variant: "destructive",
         });

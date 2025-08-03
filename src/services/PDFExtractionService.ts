@@ -35,9 +35,10 @@ export class PDFExtractionService {
       throw new Error(`Failed to update report status: ${updateError.message}`);
     }
 
-    // Try Adobe PDF extraction first, then fallback to local processing
+    // Use enhanced PDF extraction system
     try {
-      const { error: extractError } = await supabase.functions.invoke('adobe-pdf-extract', {
+      console.log('Using enhanced PDF extraction system...');
+      const { error: extractError } = await supabase.functions.invoke('enhanced-pdf-extract', {
         body: {
           reportId,
           filePath: report.file_path,
@@ -45,18 +46,14 @@ export class PDFExtractionService {
       });
 
       if (extractError) {
-        console.warn('Adobe extraction failed, using fallback processing:', extractError);
-        // Use fallback PDF processing instead of failing
-        const { FallbackPDFParser } = await import('./FallbackPDFParser');
-        await FallbackPDFParser.processPDFReport(reportId);
-        return;
+        console.error('Enhanced extraction failed:', extractError);
+        throw new Error(`PDF extraction failed: ${extractError.message}`);
       }
-    } catch (adobeError) {
-      console.warn('Adobe service unavailable, using fallback processing:', adobeError);
-      // Use fallback PDF processing instead of failing
-      const { FallbackPDFParser } = await import('./FallbackPDFParser');
-      await FallbackPDFParser.processPDFReport(reportId);
-      return;
+      
+      console.log('Enhanced PDF extraction completed successfully');
+    } catch (extractionError) {
+      console.error('Enhanced PDF extraction error:', extractionError);
+      throw new Error(`PDF extraction failed: ${extractionError.message}`);
     }
 
     // Auto-trigger parsing after successful extraction

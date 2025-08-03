@@ -1,5 +1,8 @@
 project_id = "rcrpqdhfawtpjicttgvx"
 
+[functions.enhanced-pdf-extract]
+verify_jwt = false
+
 [functions.openai-analysis]
 verify_jwt = true
 

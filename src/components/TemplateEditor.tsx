@@ -10,6 +10,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { templateService, type TemplateLayout } from '@/services/TemplateService';
+import { DocumentAppendService } from '@/services/DocumentAppendService';
 import { Save, Eye, RefreshCw, FileText, Settings } from 'lucide-react';
 import PdfPreview from './PdfPreview';
 import ClientDocAppend from './ClientDocAppend';

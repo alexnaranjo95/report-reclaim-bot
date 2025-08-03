@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_example_documents: {
+        Row: {
+          category: string
+          file_name: string
+          file_url: string
+          id: string
+          uploaded_at: string | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          category: string
+          file_name: string
+          file_url: string
+          id?: string
+          uploaded_at?: string | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          category?: string
+          file_name?: string
+          file_url?: string
+          id?: string
+          uploaded_at?: string | null
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
       admin_prompts: {
         Row: {
           created_at: string
@@ -453,6 +480,7 @@ export type Database = {
       }
       rounds: {
         Row: {
+          append_settings: Json | null
           can_start_at: string | null
           completed_at: string | null
           created_at: string
@@ -466,6 +494,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          append_settings?: Json | null
           can_start_at?: string | null
           completed_at?: string | null
           created_at?: string
@@ -479,6 +508,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          append_settings?: Json | null
           can_start_at?: string | null
           completed_at?: string | null
           created_at?: string

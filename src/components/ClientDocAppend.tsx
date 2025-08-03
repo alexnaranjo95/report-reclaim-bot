@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { Paperclip, Upload, X, FileImage, FileText, Settings } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface DocumentAppendSettings {
   includeGovId: boolean;
@@ -21,6 +22,13 @@ interface ClientDocAppendProps {
   onAdminFilesChange?: (files: File[]) => void;
 }
 
+interface AdminExampleDoc {
+  id: string;
+  category: 'gov_id' | 'proof_of_address' | 'ssn';
+  file_url: string;
+  file_name: string;
+}
+
 const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
   settings,
   onSettingsChange,
@@ -28,8 +36,61 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
   onAdminFilesChange
 }) => {
   const [adminFiles, setAdminFiles] = useState<File[]>([]);
+  const [storedExampleDocs, setStoredExampleDocs] = useState<AdminExampleDoc[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
+  // Load stored example documents on mount
+  useEffect(() => {
+    if (isAdmin) {
+      loadStoredExampleDocs();
+    }
+  }, [isAdmin]);
+
+  const loadStoredExampleDocs = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('admin_example_documents')
+        .select('*')
+        .order('uploaded_at', { ascending: false });
+
+      if (error) throw error;
+      setStoredExampleDocs((data as AdminExampleDoc[]) || []);
+    } catch (error) {
+      console.error('Error loading stored example docs:', error);
+    }
+  };
+
+  const uploadFileToStorage = async (file: File, category: string): Promise<string> => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${category}.${fileExt}`;
+    const filePath = `examples/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('admin-examples')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage
+      .from('admin-examples')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  };
+
+  const saveExampleDocToDB = async (file: File, category: string, fileUrl: string) => {
+    const { error } = await supabase
+      .from('admin_example_documents')
+      .upsert({
+        category,
+        file_url: fileUrl,
+        file_name: file.name
+      }, { onConflict: 'category' });
+
+    if (error) throw error;
+  };
+
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!isAdmin) return;
     
     // Validate file types
@@ -41,8 +102,35 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
       return isValidType;
     });
 
-    setAdminFiles(prev => [...prev, ...validFiles]);
-    onAdminFilesChange?.(adminFiles.concat(validFiles));
+    if (validFiles.length === 0) return;
+
+    setIsUploading(true);
+    
+    try {
+      // For now, we'll determine category based on file name or ask user
+      // Simplified: assign first file as gov_id, second as proof_of_address, third as ssn
+      const categories = ['gov_id', 'proof_of_address', 'ssn'];
+      
+      for (let i = 0; i < validFiles.length && i < categories.length; i++) {
+        const file = validFiles[i];
+        const category = categories[i];
+        
+        const fileUrl = await uploadFileToStorage(file, category);
+        await saveExampleDocToDB(file, category, fileUrl);
+        
+        toast.success(`Uploaded ${file.name} as ${category.replace('_', ' ')}`);
+      }
+      
+      await loadStoredExampleDocs();
+      setAdminFiles(prev => [...prev, ...validFiles]);
+      onAdminFilesChange?.(adminFiles.concat(validFiles));
+      
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      toast.error('Failed to upload files');
+    } finally {
+      setIsUploading(false);
+    }
   }, [isAdmin, adminFiles, onAdminFilesChange]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -52,13 +140,39 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
       'image/jpeg': ['.jpg', '.jpeg'],
       'application/pdf': ['.pdf']
     },
-    disabled: !isAdmin
+    disabled: !isAdmin || isUploading
   });
 
   const removeAdminFile = (index: number) => {
     const newFiles = adminFiles.filter((_, i) => i !== index);
     setAdminFiles(newFiles);
     onAdminFilesChange?.(newFiles);
+  };
+
+  const removeStoredDoc = async (docId: string, category: string) => {
+    try {
+      // Delete from database
+      const { error: dbError } = await supabase
+        .from('admin_example_documents')
+        .delete()
+        .eq('id', docId);
+
+      if (dbError) throw dbError;
+
+      // Delete from storage
+      const { error: storageError } = await supabase.storage
+        .from('admin-examples')
+        .remove([`examples/${category}.png`, `examples/${category}.jpg`, `examples/${category}.pdf`]);
+
+      // Don't throw on storage error as file might not exist
+      if (storageError) console.warn('Storage deletion error:', storageError);
+
+      await loadStoredExampleDocs();
+      toast.success('Example document removed');
+    } catch (error) {
+      console.error('Error removing document:', error);
+      toast.error('Failed to remove document');
+    }
   };
 
   const handleToggleChange = (key: keyof DocumentAppendSettings) => {
@@ -73,6 +187,15 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
       return <FileImage className="w-4 h-4" />;
     }
     return <FileText className="w-4 h-4" />;
+  };
+
+  const getCategoryLabel = (category: string) => {
+    switch (category) {
+      case 'gov_id': return 'Government ID';
+      case 'proof_of_address': return 'Proof of Address';
+      case 'ssn': return 'Social Security';
+      default: return category;
+    }
   };
 
   return (
@@ -190,10 +313,43 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
               </p>
             </div>
 
-            {/* Uploaded Files */}
+            {/* Stored Example Documents */}
+            {storedExampleDocs.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Stored Example Documents:</Label>
+                <div className="space-y-2">
+                  {storedExampleDocs.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center justify-between p-2 bg-green-50 rounded border border-green-200"
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-green-600" />
+                        <span className="text-sm font-medium text-green-800">
+                          {getCategoryLabel(doc.category)}
+                        </span>
+                        <Badge variant="secondary" className="text-xs">
+                          {doc.file_name}
+                        </Badge>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeStoredDoc(doc.id, doc.category)}
+                        className="h-6 w-6 p-0 hover:bg-red-50"
+                      >
+                        <X className="w-3 h-3 text-red-500" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Temporary Upload Files */}
             {adminFiles.length > 0 && (
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Uploaded Example Files:</Label>
+                <Label className="text-sm font-medium">Recent Uploads:</Label>
                 <div className="space-y-2">
                   {adminFiles.map((file, index) => (
                     <div
@@ -225,10 +381,10 @@ const ClientDocAppend: React.FC<ClientDocAppendProps> = ({
 
             <Separator />
             
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <p className="text-sm text-amber-800">
-                <strong>Preview Only:</strong> These files are used for template preview and testing. 
-                They are not stored permanently and will not be included in actual client letters.
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                <strong>Persistent Storage:</strong> Uploaded files are stored permanently and used across all template previews. 
+                These example documents help visualize how client documents will appear when appended to letters.
               </p>
             </div>
           </CardContent>

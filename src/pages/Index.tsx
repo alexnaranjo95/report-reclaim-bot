@@ -44,8 +44,6 @@ const Index = () => {
     return null; // Will redirect to admin
   }
 
-  console.log('🏠 Index page rendering Dashboard component');
-  console.log('🏠 Current URL:', window.location.pathname);
   
   return (
     <div className="min-h-screen w-full">

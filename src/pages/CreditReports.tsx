@@ -37,21 +37,12 @@ const CreditReportsPage: React.FC = () => {
   const [showUpload, setShowUpload] = useState(false);
   const [previewReport, setPreviewReport] = useState<CreditReport | null>(null);
 
-  // Debug: Log when component mounts to verify correct page is loading
-  useEffect(() => {
-    console.log('🎯✅ CreditReports page loaded - URL:', window.location.pathname);
-    console.log('🎯✅ This is the CREDIT REPORTS page, not rounds page');
-    console.log('🎯✅ CreditReports component mounted successfully');
-    console.log('🎯✅ User:', user ? 'authenticated' : 'not authenticated');
-  }, []);
-
   useEffect(() => {
     if (!user) {
-      console.log('❌ No user found, but allowing page to render with empty state');
       setLoading(false);
       return;
     }
-    console.log('✅ User authenticated, loading reports');
+    
     loadReports();
   }, [user]);
 
@@ -59,10 +50,8 @@ const CreditReportsPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔄 Loading credit reports...');
       
       const reportsData = await CreditReportService.getUserCreditReports();
-      console.log('✅ Reports loaded successfully:', reportsData.length);
       setReports(reportsData);
       
       // Load counts for each report - but don't fail if this fails
@@ -81,15 +70,13 @@ const CreditReportsPage: React.FC = () => {
             negatives: negativesResult.data?.length || 0
           };
         } catch (error) {
-          console.warn(`Failed to load counts for report ${report.id}:`, error);
+          // Silently fail for individual report counts
           counts[report.id] = { accounts: 0, negatives: 0 };
         }
       }
       
       setReportCounts(counts);
-      console.log('✅ Report counts loaded:', counts);
     } catch (error) {
-      console.error('❌ Error loading reports:', error);
       // Always allow the page to render, even if loading fails
       setReports([]);
       setReportCounts({});

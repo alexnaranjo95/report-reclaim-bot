@@ -35,8 +35,6 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 const App = () => {
-  // Debug routing
-  console.log('🚀 App.tsx loaded');
   
   return (
     <QueryClientProvider client={queryClient}>

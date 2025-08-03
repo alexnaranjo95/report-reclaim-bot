@@ -67,7 +67,6 @@ export const Dashboard = () => {
         // Only auto-load Round 1 data if it exists and user has completed a previous analysis
         const round1 = sessionRounds.find(r => r.round_number === 1);
         if (round1 && round1.snapshot_data && Object.keys(round1.snapshot_data).length > 0) {
-          console.log('Auto-loading existing Round 1 data');
           setAnalysisResults(round1.snapshot_data as CreditAnalysisResult);
           setAnalysisComplete(true);
         }
@@ -124,8 +123,6 @@ export const Dashboard = () => {
     setIsAnalyzing(true);
     setAnalysisComplete(false);
     try {
-      console.log('Starting analysis for file:', file.name);
-      
       // Store the credit report in the database first
       try {
         const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -133,8 +130,6 @@ export const Dashboard = () => {
         if (userError || !user) {
           throw new Error('User not authenticated');
         }
-
-        console.log('Storing credit report in database...');
         
         // Create file path and upload file
         // Generate storage path like CreditReportUpload component
@@ -177,15 +172,12 @@ export const Dashboard = () => {
           throw new Error(`Database insert failed: ${reportError.message}`);
         }
 
-        console.log('Credit report stored successfully:', reportData);
         
         toast({
           title: "Credit Report Stored",
           description: "Your credit report has been saved for future access.",
         });
       } catch (storageError) {
-        console.error('Failed to store credit report:', storageError);
-        console.error('Error details:', storageError.message, storageError.details, storageError.hint);
         // Continue with analysis even if storage fails
         toast({
           title: "Storage Warning", 
@@ -199,7 +191,6 @@ export const Dashboard = () => {
         file,
         round: currentRound
       });
-      console.log('Analysis results received:', results);
       setAnalysisResults(results);
       setAnalysisComplete(true);
       toast({
@@ -244,15 +235,7 @@ export const Dashboard = () => {
         savedAt: new Date().toISOString()
       };
 
-      // Log the data being saved for debugging
-      console.log('[Saving Round]', {
-        session_id: currentSession.id,
-        round_number: currentRound,
-        status: 'saved',
-        snapshot_data: snapshotData
-      });
       const round = await SessionService.createOrUpdateRound(currentSession.id, currentRound, snapshotData);
-      console.log('[Round Saved Successfully]', round);
 
       // Update local rounds state
       setRounds(prev => {

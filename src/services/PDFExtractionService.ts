@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { CreditReportParser } from './CreditReportParser';
 
 export class PDFExtractionService {
   /**
@@ -54,6 +55,16 @@ export class PDFExtractionService {
         .eq('id', reportId);
       
       throw new Error(`Text extraction failed: ${extractError.message}`);
+    }
+
+    // Auto-trigger parsing after successful extraction
+    try {
+      console.log('Auto-triggering report parsing...');
+      await CreditReportParser.parseReport(reportId);
+      console.log('Auto-parsing completed successfully');
+    } catch (parseError) {
+      console.warn('Auto-parsing failed, but extraction was successful:', parseError);
+      // Don't throw here - extraction was successful, parsing can be done manually
     }
   }
 

@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import CreditReportUpload from '@/components/CreditReportUpload';
+import { CreditReportParsing } from '@/components/CreditReportParsing';
 import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
 import { PDFExtractionService } from '@/services/PDFExtractionService';
 import { toast } from 'sonner';
@@ -245,6 +246,10 @@ const CreditReportsPage: React.FC = () => {
             <FileText className="w-4 h-4 mr-2" />
             My Reports ({reports.length})
           </TabsTrigger>
+          <TabsTrigger value="parsing">
+            <BarChart3 className="w-4 h-4 mr-2" />
+            Parse Reports
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="upload" className="space-y-6">
@@ -374,6 +379,57 @@ const CreditReportsPage: React.FC = () => {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="parsing" className="space-y-6">
+          {reports.length === 0 ? (
+            <Card>
+              <CardContent className="p-6 text-center">
+                <BarChart3 className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Reports to Parse</h3>
+                <p className="text-muted-foreground mb-4">
+                  Upload some credit reports first to start parsing.
+                </p>
+                <Button onClick={() => setActiveTab('upload')}>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload Reports
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-6">
+              {reports.filter(r => r.raw_text && r.extraction_status === 'completed').length === 0 ? (
+                <Card>
+                  <CardContent className="p-6 text-center">
+                    <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium mb-2">No Extracted Text Available</h3>
+                    <p className="text-muted-foreground mb-4">
+                      You need to extract text from your reports before parsing. 
+                      Go to "My Reports" tab to extract text first.
+                    </p>
+                    <Button onClick={() => setActiveTab('reports')}>
+                      <FileText className="w-4 h-4 mr-2" />
+                      View My Reports
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-4">
+                  {reports
+                    .filter(r => r.raw_text && r.extraction_status === 'completed')
+                    .map((report) => (
+                      <CreditReportParsing
+                        key={report.id}
+                        reportId={report.id}
+                        reportName={report.file_name || `${report.bureau_name} Report`}
+                        hasRawText={!!report.raw_text}
+                        onParsingComplete={loadReports}
+                      />
+                    ))}
+                </div>
+              )}
             </div>
           )}
         </TabsContent>

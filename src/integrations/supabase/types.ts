@@ -576,6 +576,20 @@ export type Database = {
               profile_display_name: string
               profile_verification_documents?: Json
             }
+          | {
+              profile_user_id: string
+              profile_email: string
+              profile_phone_number: string
+              profile_email_notifications: boolean
+              profile_text_notifications: boolean
+              profile_display_name: string
+              profile_verification_documents?: Json
+              profile_full_name?: string
+              profile_address_line1?: string
+              profile_city?: string
+              profile_state?: string
+              profile_postal_code?: string
+            }
         Returns: string
       }
     }

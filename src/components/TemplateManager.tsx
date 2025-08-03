@@ -312,7 +312,7 @@ const LayoutCard: React.FC<LayoutCardProps> = ({ layout, isEditing, onEdit, onSa
     );
   }
 
-  const placeholders = templateService.extractPlaceholders(layout.content);
+  const placeholders = templateService.extractPlaceholders ? templateService.extractPlaceholders(layout.content) : [];
 
   return (
     <Card>

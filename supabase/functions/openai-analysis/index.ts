@@ -23,62 +23,86 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Verify authentication since JWT verification is now enabled
-  const authHeader = req.headers.get('Authorization');
-  console.log('Auth header present:', !!authHeader);
-  console.log('Auth header preview:', authHeader ? authHeader.substring(0, 20) + '...' : 'none');
+  // Since verify_jwt = true is set in config.toml, Supabase handles JWT verification
+  // We can access user info from the context
+  console.log('Request received, checking user context...');
   
-  if (!authHeader) {
-    console.error('Missing Authorization header');
-    return new Response(
-      JSON.stringify({ error: 'Authorization header required' }),
-      {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
-    );
-  }
-
-  // Create Supabase client to verify user
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-    {
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
+  try {
+    // Get user from Supabase context (automatically populated when JWT verification passes)
+    const authHeader = req.headers.get('Authorization');
+    console.log('Auth header present:', !!authHeader);
+    
+    if (!authHeader) {
+      console.error('No authorization header found');
+      return new Response(
+        JSON.stringify({ error: 'Authentication required - no auth header' }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        }
+      );
     }
-  );
 
-  // Verify user authentication
-  console.log('Verifying user authentication...');
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  
-  if (authError) {
-    console.error('Auth error:', authError);
+    // Create Supabase client with the auth header
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY');
+    
+    console.log('Supabase URL configured:', !!supabaseUrl);
+    console.log('Supabase Key configured:', !!supabaseKey);
+    
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Supabase configuration missing');
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error' }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: {
+        headers: { Authorization: authHeader },
+      },
+    });
+
+    // Test the authentication
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError) {
+      console.error('Auth verification failed:', authError.message);
+      return new Response(
+        JSON.stringify({ error: 'Authentication failed: ' + authError.message }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        }
+      );
+    }
+    
+    if (!user) {
+      console.error('No user found after auth verification');
+      return new Response(
+        JSON.stringify({ error: 'User not found' }),
+        {
+          status: 401,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        }
+      );
+    }
+    
+    console.log('User authenticated successfully:', user.id);
+  } catch (authSetupError) {
+    console.error('Authentication setup error:', authSetupError);
     return new Response(
-      JSON.stringify({ error: 'Authentication failed', details: authError.message }),
+      JSON.stringify({ error: 'Authentication setup failed' }),
       {
-        status: 401,
+        status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       }
     );
   }
-  
-  if (!user) {
-    console.error('No user found after auth verification');
-    return new Response(
-      JSON.stringify({ error: 'User not authenticated' }),
-      {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
-    );
-  }
-  
-  console.log('User authenticated:', user.id);
 
   try {
     const contentType = req.headers.get('content-type');

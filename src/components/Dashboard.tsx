@@ -181,84 +181,6 @@ export const Dashboard = () => {
     }
   };
 
-  const handleRoundSelect = async (roundNumber: number, round: Round) => {
-    setCurrentRound(roundNumber);
-    
-    if (round.snapshot_data && Object.keys(round.snapshot_data).length > 0) {
-      setAnalysisResults(round.snapshot_data as CreditAnalysisResult);
-      setAnalysisComplete(true);
-      
-      // If there's a saved file name, we could potentially restore that too
-      const snapshotData = round.snapshot_data as any;
-      if (snapshotData.uploadedFileName) {
-        // Note: We can't restore the actual file, but we can show the filename
-        toast({
-          title: `Round ${roundNumber} Loaded`,
-          description: `Loaded saved data from ${snapshotData.uploadedFileName}`,
-        });
-      }
-    } else {
-      setAnalysisResults(null);
-      setAnalysisComplete(false);
-      setUploadedFile(null);
-    }
-  };
-
-  const handleCreateNewRound = async () => {
-    if (!currentSession) {
-      // Create a new session if none exists
-      try {
-        const newSession = await SessionService.createSession(
-          `Session ${new Date().toLocaleDateString()}`,
-          analysisResults || {} as CreditAnalysisResult
-        );
-        setCurrentSession(newSession);
-        const newRound = await SessionService.createOrUpdateRound(newSession.id, 1);
-        setRounds([newRound]);
-        setCurrentRound(1);
-        
-        toast({
-          title: "New Session Created",
-          description: "Started Round 1 of your new session.",
-        });
-      } catch (error) {
-        toast({
-          title: "Failed to create session",
-          description: "Please try again.",
-          variant: "destructive",
-        });
-      }
-      return;
-    }
-
-    const nextRoundNumber = Math.max(...rounds.map(r => r.round_number), 0) + 1;
-    
-    try {
-      const newRound = await SessionService.createOrUpdateRound(
-        currentSession.id,
-        nextRoundNumber
-      );
-      
-      setRounds(prev => [...prev, newRound].sort((a, b) => a.round_number - b.round_number));
-      setCurrentRound(nextRoundNumber);
-      setAnalysisResults(null);
-      setAnalysisComplete(false);
-      setUploadedFile(null);
-      
-      toast({
-        title: "New Round Created",
-        description: `Started Round ${nextRoundNumber}. Upload a credit report to begin.`,
-      });
-    } catch (error) {
-      console.error('Failed to create new round:', error);
-      toast({
-        title: "Failed to create round",
-        description: "Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
   const handleMarkRoundAsSent = async (roundNumber: number) => {
     const round = rounds.find(r => r.round_number === roundNumber);
     if (!round) return;
@@ -414,6 +336,7 @@ export const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-gradient-dashboard">
+      {/* Header */}
       <header className="border-b bg-card/80 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">

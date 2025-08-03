@@ -224,7 +224,8 @@ serve(async (req) => {
     }
 
     if (method === 'DELETE') {
-      const id = url.searchParams.get('id');
+      const body = await req.json();
+      const id = body.id || url.searchParams.get('id');
 
       if (!id) {
         return new Response(JSON.stringify({ error: 'Address ID required' }), {

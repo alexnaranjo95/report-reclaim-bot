@@ -33,7 +33,9 @@ import {
   Play,
   RefreshCw,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Plus,
+  X
 } from 'lucide-react';
 
 interface CreditorAddress {
@@ -76,6 +78,16 @@ export const DataAIConfiguration = () => {
   const [addressSearch, setAddressSearch] = useState('');
   const [addressFilter, setAddressFilter] = useState({ bureau: '', creditor: '' });
   const [uploadingAddresses, setUploadingAddresses] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newAddress, setNewAddress] = useState({
+    creditor: '',
+    bureau: '',
+    street: '',
+    city: '',
+    state: '',
+    zip: ''
+  });
+  const [addingAddress, setAddingAddress] = useState(false);
   
   // Templates state
   const [templates, setTemplates] = useState<DisputeTemplate[]>([]);
@@ -252,25 +264,66 @@ export const DataAIConfiguration = () => {
     
     try {
       const text = await file.text();
-      const lines = text.split('\n').filter(line => line.trim());
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      console.log('Raw CSV text:', text.substring(0, 200) + '...');
+      
+      const lines = text.split('\n').filter(line => line.trim() && !line.trim().startsWith('#'));
+      console.log('Filtered lines:', lines.length);
+      
+      if (lines.length < 2) {
+        throw new Error('CSV file must contain at least a header row and one data row');
+      }
+      
+      // Parse CSV properly handling quoted fields
+      const parseCSVLine = (line: string) => {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim());
+        return result;
+      };
+      
+      const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/['"]/g, ''));
+      console.log('Parsed headers:', headers);
       
       // Validate headers
       const requiredHeaders = ['creditor', 'bureau', 'street', 'city', 'state', 'zip'];
       const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
       
       if (missingHeaders.length > 0) {
-        throw new Error(`Missing required headers: ${missingHeaders.join(', ')}`);
+        throw new Error(`Missing required headers: ${missingHeaders.join(', ')}. Found headers: ${headers.join(', ')}`);
       }
       
-      const addresses = lines.slice(1).map(line => {
-        const values = line.split(',').map(v => v.trim());
+      const addresses = lines.slice(1).map((line, index) => {
+        const values = parseCSVLine(line).map(v => v.replace(/['"]/g, '').trim());
         const address: any = {};
-        headers.forEach((header, index) => {
-          address[header] = values[index] || '';
+        
+        headers.forEach((header, headerIndex) => {
+          if (requiredHeaders.includes(header)) {
+            address[header] = values[headerIndex] || '';
+          }
         });
+        
+        console.log(`Row ${index + 1}:`, address);
         return address;
-      }).filter(addr => addr.creditor && addr.bureau);
+      }).filter(addr => addr.creditor && addr.bureau && addr.street && addr.city && addr.state && addr.zip);
+
+      console.log('Final addresses to upload:', addresses.length, addresses);
+
+      if (addresses.length === 0) {
+        throw new Error('No valid address records found. Please check that all required fields (creditor, bureau, street, city, state, zip) are filled.');
+      }
 
       const { data, error } = await supabase.functions.invoke('admin-addresses', {
         method: 'POST',
@@ -640,6 +693,80 @@ export const DataAIConfiguration = () => {
     }
   };
 
+  const handleAddAddress = async () => {
+    if (!newAddress.creditor || !newAddress.bureau || !newAddress.street || !newAddress.city || !newAddress.state || !newAddress.zip) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAddingAddress(true);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-addresses', {
+        method: 'POST',
+        body: newAddress
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Address added successfully",
+      });
+      
+      setNewAddress({
+        creditor: '',
+        bureau: '',
+        street: '',
+        city: '',
+        state: '',
+        zip: ''
+      });
+      setShowAddForm(false);
+      loadAddresses();
+    } catch (error) {
+      console.error('Error adding address:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add address",
+        variant: "destructive",
+      });
+    } finally {
+      setAddingAddress(false);
+    }
+  };
+
+  const handleDeleteAddress = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this address?')) return;
+    
+    try {
+      const { error } = await supabase.functions.invoke('admin-addresses', {
+        method: 'DELETE',
+        body: { id }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Address deleted successfully",
+      });
+      
+      loadAddresses();
+    } catch (error) {
+      console.error('Error deleting address:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete address",
+        variant: "destructive",
+      });
+    }
+  };
+
   const filteredAddresses = addresses.filter(addr => {
     const searchMatch = !addressSearch || 
       addr.creditor.toLowerCase().includes(addressSearch.toLowerCase()) ||
@@ -708,6 +835,14 @@ export const DataAIConfiguration = () => {
                   />
                 </div>
                 <div className="flex items-center gap-2">
+                  <Button 
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    variant="outline"
+                    className="flex items-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Address
+                  </Button>
                   <input
                     type="file"
                     accept=".csv,.xlsx"
@@ -739,6 +874,99 @@ export const DataAIConfiguration = () => {
                 </div>
               </div>
 
+              {showAddForm && (
+                <Card className="bg-muted/50">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">Add New Address</CardTitle>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => setShowAddForm(false)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div>
+                        <Label htmlFor="creditor">Creditor</Label>
+                        <Input
+                          id="creditor"
+                          value={newAddress.creditor}
+                          onChange={(e) => setNewAddress(prev => ({ ...prev, creditor: e.target.value }))}
+                          placeholder="Creditor name"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="bureau">Bureau</Label>
+                        <Input
+                          id="bureau"
+                          value={newAddress.bureau}
+                          onChange={(e) => setNewAddress(prev => ({ ...prev, bureau: e.target.value }))}
+                          placeholder="Experian, Equifax, or TransUnion"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="street">Street Address</Label>
+                        <Input
+                          id="street"
+                          value={newAddress.street}
+                          onChange={(e) => setNewAddress(prev => ({ ...prev, street: e.target.value }))}
+                          placeholder="Street address"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="city">City</Label>
+                        <Input
+                          id="city"
+                          value={newAddress.city}
+                          onChange={(e) => setNewAddress(prev => ({ ...prev, city: e.target.value }))}
+                          placeholder="City"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="state">State</Label>
+                        <Input
+                          id="state"
+                          value={newAddress.state}
+                          onChange={(e) => setNewAddress(prev => ({ ...prev, state: e.target.value }))}
+                          placeholder="State (e.g., CA)"
+                          maxLength={2}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="zip">ZIP Code</Label>
+                        <Input
+                          id="zip"
+                          value={newAddress.zip}
+                          onChange={(e) => setNewAddress(prev => ({ ...prev, zip: e.target.value }))}
+                          placeholder="ZIP code"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-4">
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setShowAddForm(false)}
+                        disabled={addingAddress}
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        onClick={handleAddAddress}
+                        disabled={addingAddress}
+                        className="flex items-center gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        {addingAddress ? 'Adding...' : 'Add Address'}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <div className="border rounded-lg">
                 <Table>
                   <TableHeader>
@@ -762,7 +990,12 @@ export const DataAIConfiguration = () => {
                         <TableCell>{address.city}, {address.state}</TableCell>
                         <TableCell>{address.zip}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="sm">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleDeleteAddress(address.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </TableCell>

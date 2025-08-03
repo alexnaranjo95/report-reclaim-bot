@@ -23,23 +23,9 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // With verify_jwt = true, Supabase automatically handles JWT verification
-  // We just need to ensure we have the auth header for any downstream calls
-  console.log('Request received, user authenticated by Supabase JWT verification');
-  
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader) {
-    console.error('Missing Authorization header');
-    return new Response(
-      JSON.stringify({ error: 'Authorization header required' }),
-      {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
-    );
-  }
-  
-  console.log('Auth header present, proceeding with request processing');
+  // Supabase handles JWT verification automatically when verify_jwt = true
+  // If we reach here, user is authenticated
+  console.log('✅ User authenticated by Supabase JWT verification');
 
   try {
     const contentType = req.headers.get('content-type');

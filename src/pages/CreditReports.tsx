@@ -47,9 +47,11 @@ const CreditReportsPage: React.FC = () => {
 
   useEffect(() => {
     if (!user) {
+      console.log('❌ No user found, redirecting to auth');
       navigate('/auth');
       return;
     }
+    console.log('✅ User authenticated, loading reports');
     loadReports();
   }, [user, navigate]);
 
@@ -57,37 +59,42 @@ const CreditReportsPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+      console.log('🔄 Loading credit reports...');
       
       const reportsData = await CreditReportService.getUserCreditReports();
+      console.log('✅ Reports loaded successfully:', reportsData.length);
       setReports(reportsData);
       
-      // Load counts for each report
+      // Load counts for each report - but don't fail if this fails
       const counts: Record<string, { accounts: number; negatives: number }> = {};
       
-      await Promise.all(
-        reportsData.map(async (report) => {
-          try {
-            const [accountsResult, negativesResult] = await Promise.all([
-              supabase.from('credit_accounts').select('id').eq('report_id', report.id),
-              supabase.from('credit_accounts').select('id').eq('report_id', report.id).eq('is_negative', true)
-            ]);
-            
-            counts[report.id] = {
-              accounts: accountsResult.data?.length || 0,
-              negatives: negativesResult.data?.length || 0
-            };
-          } catch (error) {
-            console.error(`Error loading counts for report ${report.id}:`, error);
-            counts[report.id] = { accounts: 0, negatives: 0 };
-          }
-        })
-      );
+      // Process reports one by one to avoid overwhelming the database
+      for (const report of reportsData) {
+        try {
+          const [accountsResult, negativesResult] = await Promise.all([
+            supabase.from('credit_accounts').select('id').eq('report_id', report.id),
+            supabase.from('credit_accounts').select('id').eq('report_id', report.id).eq('is_negative', true)
+          ]);
+          
+          counts[report.id] = {
+            accounts: accountsResult.data?.length || 0,
+            negatives: negativesResult.data?.length || 0
+          };
+        } catch (error) {
+          console.warn(`Failed to load counts for report ${report.id}:`, error);
+          counts[report.id] = { accounts: 0, negatives: 0 };
+        }
+      }
       
       setReportCounts(counts);
+      console.log('✅ Report counts loaded:', counts);
     } catch (error) {
-      console.error('Error loading reports:', error);
-      setError('Failed to load credit reports. Please try refreshing the page.');
-      toast.error('Failed to load credit reports');
+      console.error('❌ Error loading reports:', error);
+      // Always allow the page to render, even if loading fails
+      setReports([]);
+      setReportCounts({});
+      setError(`Failed to load credit reports: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast.error('Failed to load credit reports - you can try refreshing');
     } finally {
       setLoading(false);
     }

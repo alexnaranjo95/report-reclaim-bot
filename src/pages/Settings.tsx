@@ -25,6 +25,11 @@ const Settings = () => {
   const [textNotifications, setTextNotifications] = useState(false);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [addressLine1, setAddressLine1] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [postalCode, setPostalCode] = useState('');
   const [verificationDocuments, setVerificationDocuments] = useState<VerificationDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -97,6 +102,11 @@ const Settings = () => {
           setTextNotifications(profile.text_notifications ?? false);
           setEmail(profile.email || user.email || '');
           setPhone(profile.phone_number || '');
+          setFullName(profile.full_name || '');
+          setAddressLine1(profile.address_line1 || '');
+          setCity(profile.city || '');
+          setState(profile.state || '');
+          setPostalCode(profile.postal_code || '');
           setVerificationDocuments(profile.verification_documents || []);
         } else {
           // Set defaults if no profile exists yet
@@ -125,8 +135,21 @@ const Settings = () => {
         profile_phone_number: phone,
         profile_email_notifications: emailNotifications,
         profile_text_notifications: textNotifications,
-        profile_display_name: user.user_metadata?.display_name || user.email || ''
+        profile_display_name: fullName || user.user_metadata?.display_name || user.email || '',
+        profile_verification_documents: JSON.parse(JSON.stringify(verificationDocuments))
       });
+
+      // Update profile with address fields separately since the function may not support them yet
+      const { error: addressError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: fullName,
+          address_line1: addressLine1,
+          city: city,
+          state: state,
+          postal_code: postalCode
+        })
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
@@ -486,6 +509,99 @@ const Settings = () => {
                 <Button onClick={handleSave} className="flex items-center gap-2">
                   <Save className="h-4 w-4" />
                   Save Preferences
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Required Profile Information */}
+          <Card className="bg-gradient-card shadow-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <File className="h-5 w-5 text-primary" />
+                Required Profile Information
+              </CardTitle>
+              <CardDescription>
+                Complete your profile information. All fields marked with <span className="text-red-500">*</span> are required for letter sending.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="full-name">
+                    Full Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="full-name"
+                    type="text"
+                    placeholder="Your full legal name"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="address-line1">
+                    Address <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="address-line1"
+                    type="text"
+                    placeholder="Street address"
+                    value={addressLine1}
+                    onChange={(e) => setAddressLine1(e.target.value)}
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="city">
+                    City <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="city"
+                    type="text"
+                    placeholder="City"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="state">
+                    State <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="state"
+                    type="text"
+                    placeholder="State/Province"
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    required
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="postal-code">
+                    Postal Code <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="postal-code"
+                    type="text"
+                    placeholder="ZIP/Postal code"
+                    value={postalCode}
+                    onChange={(e) => setPostalCode(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+              
+              <div className="flex justify-end pt-4">
+                <Button onClick={handleSave} className="flex items-center gap-2">
+                  <Save className="h-4 w-4" />
+                  Save Profile
                 </Button>
               </div>
             </CardContent>

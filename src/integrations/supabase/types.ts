@@ -295,12 +295,17 @@ export type Database = {
       }
       profiles: {
         Row: {
+          address_line1: string | null
+          city: string | null
           created_at: string
           display_name: string | null
           email: string | null
           email_notifications: boolean | null
+          full_name: string | null
           id: string
           phone_number: string | null
+          postal_code: string | null
+          state: string | null
           status: string | null
           text_notifications: boolean | null
           updated_at: string
@@ -309,12 +314,17 @@ export type Database = {
           verification_documents: Json | null
         }
         Insert: {
+          address_line1?: string | null
+          city?: string | null
           created_at?: string
           display_name?: string | null
           email?: string | null
           email_notifications?: boolean | null
+          full_name?: string | null
           id?: string
           phone_number?: string | null
+          postal_code?: string | null
+          state?: string | null
           status?: string | null
           text_notifications?: boolean | null
           updated_at?: string
@@ -323,12 +333,17 @@ export type Database = {
           verification_documents?: Json | null
         }
         Update: {
+          address_line1?: string | null
+          city?: string | null
           created_at?: string
           display_name?: string | null
           email?: string | null
           email_notifications?: boolean | null
+          full_name?: string | null
           id?: string
           phone_number?: string | null
+          postal_code?: string | null
+          state?: string | null
           status?: string | null
           text_notifications?: boolean | null
           updated_at?: string

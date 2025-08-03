@@ -38,6 +38,7 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
   const [showCostConfirmation, setShowCostConfirmation] = useState<string | null>(null);
   const [showPostGridValidation, setShowPostGridValidation] = useState(false);
   const [pendingSendData, setPendingSendData] = useState<any>(null);
+  const [profileComplete, setProfileComplete] = useState(false);
   const { toast } = useToast();
 
   // Load drafts from localStorage on component mount
@@ -126,7 +127,7 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
     generateInitialLetters();
   }, [creditItems]);
 
-  // Fetch TinyMCE API key
+  // Fetch TinyMCE API key and check profile completion
   useEffect(() => {
     const fetchTinyMCEKey = async () => {
       try {
@@ -152,7 +153,7 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
           return;
         }
         
-        if (data?.apiKey && data.apiKey !== 'no-key-configured') {
+        if (data?.apiKey && data.apiKey !== 'no-key-configured' && data.apiKey !== 'your-tinymce-api-key-here') {
           console.log('[TinyMCE] ✅ Successfully retrieved API key');
           setTinyMCEApiKey(data.apiKey);
         } else {
@@ -177,7 +178,29 @@ export const DisputeLetterDrafts = ({ creditItems, currentRound, onRoundStatusCh
       }
     };
 
+    const checkProfileCompletion = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase
+          .rpc('get_user_profile', { profile_user_id: user.id });
+
+        if (error || !data || data.length === 0) return;
+
+        const profile = data[0];
+        const requiredFields = ['full_name', 'address_line1', 'city', 'state', 'postal_code'];
+        const isComplete = requiredFields.every(field => 
+          profile[field] && profile[field].trim() !== ''
+        );
+        setProfileComplete(isComplete);
+      } catch (error) {
+        console.error('Error checking profile completion:', error);
+      }
+    };
+
     fetchTinyMCEKey();
+    checkProfileCompletion();
   }, []);
 
   // Load saved drafts from current round
@@ -509,12 +532,30 @@ Enclosures: Copy of credit report, Copy of ID`;
     const letter = letters.find(l => l.id === letterId);
     if (!letter) return;
 
+    if (!profileComplete) {
+      toast({
+        title: "Profile Incomplete",
+        description: "Please complete your profile information in Settings before sending letters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Set up pending send data and show validation modal
     setPendingSendData({ type: 'single', letterId });
     setShowPostGridValidation(true);
   };
 
   const handleSendAllLetters = async () => {
+    if (!profileComplete) {
+      toast({
+        title: "Profile Incomplete",
+        description: "Please complete your profile information in Settings before sending letters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Set up pending send data and show validation modal
     setPendingSendData({ type: 'all' });
     setShowPostGridValidation(true);

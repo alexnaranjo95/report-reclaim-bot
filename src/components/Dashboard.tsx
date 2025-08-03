@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { UploadZone } from './UploadZone';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
+import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { CreditAnalysis } from './CreditAnalysis';
 import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut } from 'lucide-react';
@@ -392,6 +393,9 @@ export const Dashboard = () => {
       </header>
 
       <div className="container mx-auto px-6 py-8">
+        {/* Profile Incomplete Warning */}
+        <ProfileIncompleteWarning />
+        
         {/* Document Notification Banner */}
         <DocumentNotificationBanner />
         

@@ -527,6 +527,11 @@ export type Database = {
           verification_documents: Json
           created_at: string
           updated_at: string
+          full_name: string
+          address_line1: string
+          city: string
+          state: string
+          postal_code: string
         }[]
       }
       get_user_roles: {

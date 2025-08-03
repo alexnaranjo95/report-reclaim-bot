@@ -128,7 +128,7 @@ const Settings = () => {
     if (!user) return;
     
     try {
-      // Use raw query to bypass TypeScript type checking temporarily
+      // Use the updated upsert_user_profile function that includes all address fields
       const { error } = await supabase.rpc('upsert_user_profile', {
         profile_user_id: user.id,
         profile_email: email,
@@ -136,20 +136,13 @@ const Settings = () => {
         profile_email_notifications: emailNotifications,
         profile_text_notifications: textNotifications,
         profile_display_name: fullName || user.user_metadata?.display_name || user.email || '',
-        profile_verification_documents: JSON.parse(JSON.stringify(verificationDocuments))
+        profile_verification_documents: JSON.parse(JSON.stringify(verificationDocuments)),
+        profile_full_name: fullName,
+        profile_address_line1: addressLine1,
+        profile_city: city,
+        profile_state: state,
+        profile_postal_code: postalCode
       });
-
-      // Update profile with address fields separately since the function may not support them yet
-      const { error: addressError } = await supabase
-        .from('profiles')
-        .update({
-          full_name: fullName,
-          address_line1: addressLine1,
-          city: city,
-          state: state,
-          postal_code: postalCode
-        })
-        .eq('user_id', user.id);
 
       if (error) throw error;
 

@@ -51,16 +51,30 @@ serve(async (req) => {
       );
     }
 
-    // Get TinyMCE API key from environment
-    const tinyMCEApiKey = Deno.env.get('TINYMCE_API_KEY');
-    
+    // Get TinyMCE API key from admin_settings table
     console.log('TinyMCE API key request from user:', user.id);
-    console.log('TinyMCE API key configured:', !!tinyMCEApiKey);
     
-    if (!tinyMCEApiKey) {
-      console.error('TinyMCE API key not found in environment variables');
+    const { data: settingData, error: settingError } = await supabase
+      .from('admin_settings')
+      .select('setting_value, is_encrypted')
+      .eq('setting_key', 'tinymce_key')
+      .maybeSingle();
+    
+    if (settingError) {
+      console.error('Database error fetching TinyMCE key:', settingError);
       return new Response(JSON.stringify({ 
-        error: 'TinyMCE API key not configured',
+        error: 'Failed to fetch TinyMCE configuration',
+        apiKey: null
+      }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+    
+    if (!settingData?.setting_value) {
+      console.error('TinyMCE API key not found in database');
+      return new Response(JSON.stringify({ 
+        error: 'TinyMCE API key not configured in admin settings',
         apiKey: null
       }), {
         status: 500,
@@ -68,7 +82,24 @@ serve(async (req) => {
       });
     }
 
-    console.log('Successfully returning TinyMCE API key:', tinyMCEApiKey.substring(0, 10) + '...');
+    // Extract the API key from the JSON structure
+    let tinyMCEApiKey;
+    try {
+      const settingValue = typeof settingData.setting_value === 'string' 
+        ? JSON.parse(settingData.setting_value) 
+        : settingData.setting_value;
+      tinyMCEApiKey = settingValue;
+      
+      if (typeof tinyMCEApiKey === 'object' && tinyMCEApiKey.value) {
+        tinyMCEApiKey = tinyMCEApiKey.value;
+      }
+    } catch (parseError) {
+      // If it's not JSON, treat as plain string
+      tinyMCEApiKey = settingData.setting_value;
+    }
+
+    console.log('TinyMCE API key configured:', !!tinyMCEApiKey);
+    console.log('Successfully returning TinyMCE API key:', typeof tinyMCEApiKey === 'string' ? tinyMCEApiKey.substring(0, 10) + '...' : 'invalid format');
     
     return new Response(JSON.stringify({ 
       apiKey: tinyMCEApiKey,

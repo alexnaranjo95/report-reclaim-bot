@@ -174,14 +174,14 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         .from('admin-examples')
         .getPublicUrl(filePath);
 
-      // Update database record with new URL and filename
+      // Update database record with new URL and filename for this specific document
       const { error: dbError } = await supabase
         .from('admin_example_documents')
         .update({
           file_url: urlData.publicUrl,
           file_name: newFileName
         })
-        .eq('category', document.category);
+        .eq('id', document.id);
 
       if (dbError) throw dbError;
 

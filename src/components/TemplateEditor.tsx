@@ -220,11 +220,35 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
       }
 
       if (data?.success && data.html) {
-        // Create a blob URL for the HTML content
-        const blob = new Blob([data.html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        // Open preview in new tab
-        window.open(url, '_blank');
+        // Import html2pdf dynamically
+        const html2pdf = (await import('html2pdf.js')).default;
+        
+        // Create a temporary element for PDF generation
+        const element = document.createElement('div');
+        element.innerHTML = data.html;
+        element.style.width = '8.5in';
+        element.style.minHeight = '11in';
+        element.style.padding = '1in';
+        element.style.fontFamily = '"Times New Roman", Times, serif';
+        element.style.fontSize = '12pt';
+        element.style.lineHeight = '1.6';
+        element.style.color = '#000';
+        element.style.background = '#fff';
+        
+        // Configure PDF options
+        const opt = {
+          margin: 0,
+          filename: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-preview.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+
+        // Generate and open PDF in new window
+        const pdfBlob = await html2pdf().from(element).set(opt).outputPdf('blob');
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+        window.open(pdfUrl, '_blank');
+        
         toast.success('PDF preview generated successfully');
       } else if (data?.error) {
         throw new Error(data.error);
@@ -264,7 +288,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
       const previewData = {
         html: previewHtml,
         templateId: template?.id,
-        fileName: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.html`,
+        fileName: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`,
         documentSettings: documentSettings,
         templateName: templateName,
         adminDocs: adminDocs || []
@@ -280,20 +304,34 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
       }
 
       if (data?.success && data.html) {
-        // Create a downloadable blob
-        const blob = new Blob([data.html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
+        // Import html2pdf dynamically
+        const html2pdf = (await import('html2pdf.js')).default;
         
-        // Create download link
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.html`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        // Create a temporary element for PDF generation
+        const element = document.createElement('div');
+        element.innerHTML = data.html;
+        element.style.width = '8.5in';
+        element.style.minHeight = '11in';
+        element.style.padding = '1in';
+        element.style.fontFamily = '"Times New Roman", Times, serif';
+        element.style.fontSize = '12pt';
+        element.style.lineHeight = '1.6';
+        element.style.color = '#000';
+        element.style.background = '#fff';
         
-        toast.success('PDF template downloaded successfully');
+        // Configure PDF options
+        const opt = {
+          margin: 0,
+          filename: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+
+        // Generate and download PDF
+        await html2pdf().from(element).set(opt).save();
+        
+        toast.success('PDF downloaded successfully');
       } else if (data?.error) {
         throw new Error(data.error);
       } else {

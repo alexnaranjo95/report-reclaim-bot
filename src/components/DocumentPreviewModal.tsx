@@ -12,6 +12,14 @@ interface AdminExampleDoc {
   category: 'gov_id' | 'proof_of_address' | 'ssn';
   file_url: string;
   file_name: string;
+  original_file_url?: string;
+  original_file_name?: string;
+  original_width?: number;
+  original_height?: number;
+  edited_width?: number;
+  edited_height?: number;
+  last_edited_at?: string;
+  has_edits?: boolean;
 }
 
 interface DocumentPreviewModalProps {
@@ -58,14 +66,24 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
     if (imgRef.current) {
       const { naturalWidth, naturalHeight } = imgRef.current;
       const aspectRatio = naturalWidth / naturalHeight;
+      
+      // Use stored dimensions if available, otherwise use natural dimensions
       const initialDimensions = {
-        width: naturalWidth,
-        height: naturalHeight,
+        width: document?.edited_width || naturalWidth,
+        height: document?.edited_height || naturalHeight,
+        scale: document?.edited_width ? Math.round((document.edited_width / naturalWidth) * 100) : 100,
+        aspectRatio
+      };
+      
+      const originalDims = {
+        width: document?.original_width || naturalWidth,
+        height: document?.original_height || naturalHeight,
         scale: 100,
         aspectRatio
       };
+      
       setDimensions(initialDimensions);
-      setOriginalDimensions(initialDimensions);
+      setOriginalDimensions(originalDims);
     }
   };
 
@@ -125,7 +143,8 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
       await new Promise((resolve, reject) => {
         img.onload = () => resolve(void 0);
         img.onerror = () => reject(new Error('Failed to load image'));
-        img.src = document.file_url;
+        // Use original file if available, otherwise current file
+        img.src = document.original_file_url || document.file_url;
       });
 
       // Draw the resized image
@@ -139,26 +158,23 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         }, 'image/jpeg', 0.9);
       });
 
-      // First, create a backup of the original if this is the first resize
-      const hasBackup = document.file_name.includes('_original');
-      if (!hasBackup) {
-        const fileExt = document.file_name.split('.').pop();
-        const baseName = document.file_name.replace(/\.[^/.]+$/, '');
-        const backupFileName = `${baseName}_original.${fileExt}`;
-        const backupPath = `examples/backups/${backupFileName}`;
-        
-        // Fetch the current image and create backup
-        const response = await fetch(document.file_url);
-        const originalBlob = await response.blob();
-        
-        await supabase.storage
-          .from('admin-examples')
-          .upload(backupPath, originalBlob, { upsert: true });
+      // Store original if this is the first edit
+      let originalUrl = document.original_file_url;
+      let originalName = document.original_file_name;
+      let originalWidth = document.original_width;
+      let originalHeight = document.original_height;
+
+      if (!document.has_edits) {
+        // First time editing - preserve original data
+        originalUrl = document.file_url;
+        originalName = document.file_name;
+        originalWidth = originalDimensions.width;
+        originalHeight = originalDimensions.height;
       }
 
       // Generate new filename with dimensions
       const fileExt = document.file_name.split('.').pop();
-      const baseName = document.file_name.replace(/\.[^/.]+$/, '').replace(/_\d+x\d+$/, '').replace(/_original$/, '');
+      const baseName = (originalName || document.file_name).replace(/\.[^/.]+$/, '').replace(/_\d+x\d+$/, '');
       const newFileName = `${baseName}_${dimensions.width}x${dimensions.height}.${fileExt}`;
       const filePath = `examples/${newFileName}`;
 
@@ -174,12 +190,20 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         .from('admin-examples')
         .getPublicUrl(filePath);
 
-      // Update database record with new URL and filename for this specific document
+      // Update database record with version control data
       const { error: dbError } = await supabase
         .from('admin_example_documents')
         .update({
           file_url: urlData.publicUrl,
-          file_name: newFileName
+          file_name: newFileName,
+          original_file_url: originalUrl,
+          original_file_name: originalName,
+          original_width: originalWidth,
+          original_height: originalHeight,
+          edited_width: dimensions.width,
+          edited_height: dimensions.height,
+          last_edited_at: new Date().toISOString(),
+          has_edits: true
         })
         .eq('id', document.id);
 
@@ -191,12 +215,48 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
       // Trigger a refresh by calling onDocumentUpdated
       onDocumentUpdated?.();
       
-      // Close and reopen the modal to force refresh
+      // Close modal to force refresh
       onClose();
       
     } catch (error) {
       console.error('Error saving resized image:', error);
       toast.error('Failed to save resized image');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const revertToOriginal = async () => {
+    if (!document?.has_edits || !document.original_file_url) {
+      toast.error('No original version available');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Update database to restore original
+      const { error: dbError } = await supabase
+        .from('admin_example_documents')
+        .update({
+          file_url: document.original_file_url,
+          file_name: document.original_file_name,
+          edited_width: null,
+          edited_height: null,
+          last_edited_at: new Date().toISOString(),
+          has_edits: false
+        })
+        .eq('id', document.id);
+
+      if (dbError) throw dbError;
+
+      toast.success('Image reverted to original successfully');
+      setIsEditing(false);
+      onDocumentUpdated?.();
+      onClose();
+      
+    } catch (error) {
+      console.error('Error reverting image:', error);
+      toast.error('Failed to revert image');
     } finally {
       setIsSaving(false);
     }
@@ -350,8 +410,19 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
                     className="w-full"
                   >
                     <RotateCcw className="h-4 w-4 mr-2" />
-                    Reset to Original
+                    Reset to Current
                   </Button>
+                  {document?.has_edits && (
+                    <Button
+                      variant="secondary"
+                      onClick={revertToOriginal}
+                      disabled={isSaving}
+                      className="w-full"
+                    >
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Revert to Original
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     onClick={cancelEditing}

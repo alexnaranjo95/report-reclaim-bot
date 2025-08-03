@@ -17,25 +17,49 @@ export type Database = {
       admin_example_documents: {
         Row: {
           category: string
+          edited_height: number | null
+          edited_width: number | null
           file_name: string
           file_url: string
+          has_edits: boolean | null
           id: string
+          last_edited_at: string | null
+          original_file_name: string | null
+          original_file_url: string | null
+          original_height: number | null
+          original_width: number | null
           uploaded_at: string | null
           uploaded_by: string | null
         }
         Insert: {
           category: string
+          edited_height?: number | null
+          edited_width?: number | null
           file_name: string
           file_url: string
+          has_edits?: boolean | null
           id?: string
+          last_edited_at?: string | null
+          original_file_name?: string | null
+          original_file_url?: string | null
+          original_height?: number | null
+          original_width?: number | null
           uploaded_at?: string | null
           uploaded_by?: string | null
         }
         Update: {
           category?: string
+          edited_height?: number | null
+          edited_width?: number | null
           file_name?: string
           file_url?: string
+          has_edits?: boolean | null
           id?: string
+          last_edited_at?: string | null
+          original_file_name?: string | null
+          original_file_url?: string | null
+          original_height?: number | null
+          original_width?: number | null
           uploaded_at?: string | null
           uploaded_by?: string | null
         }

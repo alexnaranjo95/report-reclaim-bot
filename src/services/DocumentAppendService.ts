@@ -11,6 +11,14 @@ interface AdminExampleDoc {
   category: 'gov_id' | 'proof_of_address' | 'ssn';
   file_url: string;
   file_name: string;
+  original_file_url?: string;
+  original_file_name?: string;
+  original_width?: number;
+  original_height?: number;
+  edited_width?: number;
+  edited_height?: number;
+  last_edited_at?: string;
+  has_edits?: boolean;
 }
 
 export class DocumentAppendService {
@@ -117,7 +125,21 @@ export class DocumentAppendService {
   static async getAdminExampleDocs(): Promise<AdminExampleDoc[]> {
     const { data, error } = await supabase
       .from('admin_example_documents')
-      .select('*')
+      .select(`
+        id,
+        category,
+        file_url,
+        file_name,
+        original_file_url,
+        original_file_name,
+        original_width,
+        original_height,
+        edited_width,
+        edited_height,
+        last_edited_at,
+        has_edits,
+        uploaded_at
+      `)
       .order('uploaded_at', { ascending: false });
 
     if (error) {
@@ -183,28 +205,52 @@ export class DocumentAppendService {
   /**
    * Get signed URLs for admin example documents (for preview)
    */
-  static async getAdminExampleUrls(settings: DocumentAppendSettings): Promise<{ category: string; url: string }[]> {
-    const documents: { category: string; url: string }[] = [];
+  static async getAdminExampleUrls(settings: DocumentAppendSettings): Promise<{ category: string; url: string; width?: number; height?: number; originalWidth?: number; originalHeight?: number; hasEdits?: boolean }[]> {
+    const documents: { category: string; url: string; width?: number; height?: number; originalWidth?: number; originalHeight?: number; hasEdits?: boolean }[] = [];
     const exampleDocs = await this.getAdminExampleDocs();
 
     if (settings.includeGovId) {
       const govIdDoc = exampleDocs.find(doc => doc.category === 'gov_id');
       if (govIdDoc) {
-        documents.push({ category: 'government_id', url: govIdDoc.file_url });
+        documents.push({ 
+          category: 'government_id', 
+          url: govIdDoc.file_url,
+          width: govIdDoc.edited_width || govIdDoc.original_width,
+          height: govIdDoc.edited_height || govIdDoc.original_height,
+          originalWidth: govIdDoc.original_width,
+          originalHeight: govIdDoc.original_height,
+          hasEdits: govIdDoc.has_edits
+        });
       }
     }
 
     if (settings.includeProofOfAddress) {
       const proofDoc = exampleDocs.find(doc => doc.category === 'proof_of_address');
       if (proofDoc) {
-        documents.push({ category: 'proof_of_address', url: proofDoc.file_url });
+        documents.push({ 
+          category: 'proof_of_address', 
+          url: proofDoc.file_url,
+          width: proofDoc.edited_width || proofDoc.original_width,
+          height: proofDoc.edited_height || proofDoc.original_height,
+          originalWidth: proofDoc.original_width,
+          originalHeight: proofDoc.original_height,
+          hasEdits: proofDoc.has_edits
+        });
       }
     }
 
     if (settings.includeSSN) {
       const ssnDoc = exampleDocs.find(doc => doc.category === 'ssn');
       if (ssnDoc) {
-        documents.push({ category: 'ssn', url: ssnDoc.file_url });
+        documents.push({ 
+          category: 'ssn', 
+          url: ssnDoc.file_url,
+          width: ssnDoc.edited_width || ssnDoc.original_width,
+          height: ssnDoc.edited_height || ssnDoc.original_height,
+          originalWidth: ssnDoc.original_width,
+          originalHeight: ssnDoc.original_height,
+          hasEdits: ssnDoc.has_edits
+        });
       }
     }
 

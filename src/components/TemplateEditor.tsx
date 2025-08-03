@@ -226,22 +226,12 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     setIsGeneratingPreview(true);
 
     try {
-      // Get admin example documents for preview
-      const { data: adminDocs, error: adminError } = await supabase
-        .from('admin_example_documents')
-        .select('*');
-
-      if (adminError) {
-        console.error('Error fetching admin docs:', adminError);
-      }
-
       const previewData = {
         html: previewHtml,
         templateId: template?.id,
         fileName: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-preview.html`,
         documentSettings: documentSettings,
-        templateName: templateName,
-        adminDocs: adminDocs || []
+        templateName: templateName
       };
 
       const { data, error } = await supabase.functions.invoke('generate-pdf-preview', {
@@ -310,22 +300,12 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     }
 
     try {
-      // Get admin example documents for PDF
-      const { data: adminDocs, error: adminError } = await supabase
-        .from('admin_example_documents')
-        .select('*');
-
-      if (adminError) {
-        console.error('Error fetching admin docs:', adminError);
-      }
-
       const previewData = {
         html: previewHtml,
         templateId: template?.id,
         fileName: `${templateName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`,
         documentSettings: documentSettings,
-        templateName: templateName,
-        adminDocs: adminDocs || []
+        templateName: templateName
       };
 
       const { data, error } = await supabase.functions.invoke('generate-pdf-preview', {

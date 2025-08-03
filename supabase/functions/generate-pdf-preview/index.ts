@@ -21,7 +21,7 @@ serve(async (req) => {
   try {
     console.log('Generating PDF preview');
     
-    const { html, templateId, fileName, documentSettings, adminFiles, adminDocs } = await req.json();
+    const { html, templateId, fileName, documentSettings, adminFiles } = await req.json();
     
     if (!html) {
       return new Response(
@@ -32,6 +32,26 @@ serve(async (req) => {
         }
       );
     }
+
+    // Always fetch the latest admin documents to ensure we have updated dimensions
+    console.log('Fetching latest admin documents for preview');
+    const { data: adminDocs, error: adminError } = await supabase
+      .from('admin_example_documents')
+      .select('*');
+
+    if (adminError) {
+      console.error('Error fetching admin docs:', adminError);
+    }
+
+    console.log('Fetched admin docs:', adminDocs?.map(doc => ({
+      category: doc.category,
+      file_name: doc.file_name,
+      original_width: doc.original_width,
+      original_height: doc.original_height,
+      edited_width: doc.edited_width,
+      edited_height: doc.edited_height,
+      has_edits: doc.has_edits
+    })));
 
     // Build document appendages if settings are provided
     let documentAppendages = '';

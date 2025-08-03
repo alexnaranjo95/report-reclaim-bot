@@ -59,10 +59,14 @@ interface CreditReportUploadProps {
 }
 
 const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess }) => {
+  console.log('🚀 ENHANCED CREDIT REPORT UPLOAD COMPONENT LOADED');
+  
   const { user } = useAuth();
   const { toast } = useToast();
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  
+  console.log('📊 Upload component state:', { uploadFiles: uploadFiles.length, isUploading });
 
   // Enhanced notification functions
   const showSuccessNotification = (title: string, message: string) => {
@@ -104,9 +108,12 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
   }, []);
 
   const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
+    console.log('📁 FILES DROPPED:', { acceptedFiles: acceptedFiles.length, rejectedFiles: rejectedFiles.length });
+    
     // Handle rejected files with specific error messages
     rejectedFiles.forEach((rejected) => {
       const { file, errors } = rejected;
+      console.log('❌ REJECTED FILE:', file.name, errors);
       errors.forEach((error: any) => {
         if (error.code === 'file-too-large') {
           showErrorNotification(
@@ -124,6 +131,7 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
 
     // Check file limit
     if (uploadFiles.length + acceptedFiles.length > MAX_FILES) {
+      console.log('🚫 TOO MANY FILES:', { current: uploadFiles.length, adding: acceptedFiles.length, max: MAX_FILES });
       showErrorNotification(
         "Too Many Files",
         `You can upload a maximum of ${MAX_FILES} files at once. Please remove some files first.`
@@ -142,15 +150,21 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
       currentStatus: 'pending',
     }));
 
-    setUploadFiles(prev => [...prev, ...newFiles]);
+    console.log('✅ ADDING NEW FILES:', newFiles.map(f => ({ name: f.file.name, id: f.id })));
+    setUploadFiles(prev => {
+      const updated = [...prev, ...newFiles];
+      console.log('📊 UPDATED UPLOAD FILES:', updated.length);
+      return updated;
+    });
     
     if (acceptedFiles.length > 0) {
+      console.log('🎉 SHOWING SUCCESS NOTIFICATION FOR', acceptedFiles.length, 'files');
       showSuccessNotification(
         "Files Added",
         `${acceptedFiles.length} file(s) added successfully. Select bureau for each file.`
       );
     }
-  }, [uploadFiles.length, toast]);
+  }, [uploadFiles.length, showSuccessNotification, showErrorNotification]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -327,14 +341,22 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
   };
 
   const handleUpload = async () => {
+    console.log('🚀 HANDLE UPLOAD STARTED');
+    console.log('👤 User:', user ? 'authenticated' : 'not authenticated');
+    console.log('📁 Upload files:', uploadFiles.length);
+    
     if (!user) {
+      console.log('❌ USER NOT AUTHENTICATED');
       showErrorNotification("Authentication Required", "Please log in to upload files.");
       return;
     }
 
     // Validate all files have bureau selected
     const filesWithoutBureau = uploadFiles.filter(f => !f.bureau && f.status === 'pending');
+    console.log('🏢 Files without bureau:', filesWithoutBureau.length);
+    
     if (filesWithoutBureau.length > 0) {
+      console.log('❌ MISSING BUREAU SELECTION');
       showErrorNotification(
         "Bureau Selection Required",
         "Please select a credit bureau for all files before uploading."
@@ -342,6 +364,7 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
       return;
     }
 
+    console.log('✅ STARTING UPLOAD PROCESS');
     setIsUploading(true);
 
     try {
@@ -502,7 +525,7 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
           {uploadFiles.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium">Upload Progress</h3>
+                <h3 className="text-lg font-medium">📊 Upload Progress (ENHANCED VERSION ACTIVE)</h3>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
                   {processingFiles > 0 && (
                     <span className="text-primary">

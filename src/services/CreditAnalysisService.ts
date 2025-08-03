@@ -16,11 +16,17 @@ export class CreditAnalysisService {
       
       console.log('Calling Supabase edge function...');
       
+      // Get current session to ensure authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated. Please log in.');
+      }
+      
+      console.log('Session valid, making API call...');
+      
       const { data, error } = await supabase.functions.invoke('openai-analysis', {
-        body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+        body: formData
+        // Don't set Content-Type header for FormData - let the browser set it with boundary
       });
 
       console.log('Edge function response received:', { data, error });

@@ -25,7 +25,11 @@ serve(async (req) => {
 
   // Verify authentication since JWT verification is now enabled
   const authHeader = req.headers.get('Authorization');
+  console.log('Auth header present:', !!authHeader);
+  console.log('Auth header preview:', authHeader ? authHeader.substring(0, 20) + '...' : 'none');
+  
   if (!authHeader) {
+    console.error('Missing Authorization header');
     return new Response(
       JSON.stringify({ error: 'Authorization header required' }),
       {
@@ -49,16 +53,32 @@ serve(async (req) => {
   );
 
   // Verify user authentication
+  console.log('Verifying user authentication...');
   const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
+  
+  if (authError) {
+    console.error('Auth error:', authError);
     return new Response(
-      JSON.stringify({ error: 'Authentication required' }),
+      JSON.stringify({ error: 'Authentication failed', details: authError.message }),
       {
         status: 401,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       }
     );
   }
+  
+  if (!user) {
+    console.error('No user found after auth verification');
+    return new Response(
+      JSON.stringify({ error: 'User not authenticated' }),
+      {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      }
+    );
+  }
+  
+  console.log('User authenticated:', user.id);
 
   try {
     const contentType = req.headers.get('content-type');

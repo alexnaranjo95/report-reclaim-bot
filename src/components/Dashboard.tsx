@@ -164,7 +164,7 @@ export const Dashboard = () => {
             user_id: user.id,
             bureau_name: file.name.toLowerCase().includes('equifax') ? 'Equifax' : 
                         file.name.toLowerCase().includes('experian') ? 'Experian' : 
-                        file.name.toLowerCase().includes('transunion') ? 'TransUnion' : 'Unknown',
+                        file.name.toLowerCase().includes('transunion') ? 'TransUnion' : 'Equifax', // Default to Equifax instead of Unknown
             file_name: file.name,
             file_path: filePath, // Use the filePath we generated, not uploadData.path
             report_date: new Date().toISOString().split('T')[0],

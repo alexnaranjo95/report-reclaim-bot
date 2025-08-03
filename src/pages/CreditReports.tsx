@@ -3,40 +3,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import CreditReportUpload from '@/components/CreditReportUpload';
-import { CreditReportParsing } from '@/components/CreditReportParsing';
+import { CreditReportCard } from '@/components/CreditReportCard';
+import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
 import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
-import { PDFExtractionService } from '@/services/PDFExtractionService';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { 
   FileText, 
   Upload, 
-  Download, 
-  Trash2, 
-  BarChart3,
-  Calendar,
-  Building2,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  XCircle,
-  PlayCircle,
-  RefreshCw
+  Filter,
+  Plus,
+  TrendingUp
 } from 'lucide-react';
 
 const CreditReportsPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [reports, setReports] = useState<CreditReport[]>([]);
-  const [summary, setSummary] = useState<{
-    total: number;
-    byBureau: Record<string, number>;
-    recentCount: number;
-  }>({ total: 0, byBureau: {}, recentCount: 0 });
+  const [filteredReports, setFilteredReports] = useState<CreditReport[]>([]);
+  const [selectedBureau, setSelectedBureau] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<string>('date-desc');
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('upload');
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [reportCounts, setReportCounts] = useState<Record<string, { accounts: number; negatives: number }>>({});
 
   useEffect(() => {
     if (!user) {
@@ -49,13 +43,32 @@ const CreditReportsPage: React.FC = () => {
   const loadReports = async () => {
     try {
       setLoading(true);
-      const [reportsData, summaryData] = await Promise.all([
-        CreditReportService.getUserCreditReports(),
-        CreditReportService.getReportSummary()
-      ]);
-      
+      const reportsData = await CreditReportService.getUserCreditReports();
       setReports(reportsData);
-      setSummary(summaryData);
+      
+      // Load counts for each report
+      const counts: Record<string, { accounts: number; negatives: number }> = {};
+      
+      await Promise.all(
+        reportsData.map(async (report) => {
+          try {
+            const [accountsResult, negativesResult] = await Promise.all([
+              supabase.from('credit_accounts').select('id').eq('report_id', report.id),
+              supabase.from('credit_accounts').select('id').eq('report_id', report.id).eq('is_negative', true)
+            ]);
+            
+            counts[report.id] = {
+              accounts: accountsResult.data?.length || 0,
+              negatives: negativesResult.data?.length || 0
+            };
+          } catch (error) {
+            console.error(`Error loading counts for report ${report.id}:`, error);
+            counts[report.id] = { accounts: 0, negatives: 0 };
+          }
+        })
+      );
+      
+      setReportCounts(counts);
     } catch (error) {
       console.error('Error loading reports:', error);
       toast.error('Failed to load credit reports');
@@ -64,111 +77,99 @@ const CreditReportsPage: React.FC = () => {
     }
   };
 
-  const handleDownload = async (report: CreditReport) => {
-    if (!report.file_path) {
-      toast.error('File not available for download');
-      return;
+  // Filter and sort reports
+  useEffect(() => {
+    let filtered = [...reports];
+    
+    // Filter by bureau
+    if (selectedBureau !== 'all') {
+      filtered = filtered.filter(report => report.bureau_name === selectedBureau);
     }
-
-    try {
-      const downloadUrl = await CreditReportService.getFileDownloadUrl(report.file_path);
-      
-      // Create a temporary link to trigger download
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = report.file_name || `${report.bureau_name}_report.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      toast.success('Download started');
-    } catch (error) {
-      console.error('Download error:', error);
-      toast.error('Failed to download file');
-    }
-  };
-
-  const handleDelete = async (report: CreditReport) => {
-    if (!confirm('Are you sure you want to delete this credit report? This action cannot be undone.')) {
-      return;
-    }
-
-    try {
-      await CreditReportService.deleteCreditReport(report.id);
-      toast.success('Credit report deleted successfully');
-      loadReports(); // Refresh the list
-    } catch (error) {
-      console.error('Delete error:', error);
-      toast.error('Failed to delete credit report');
-    }
-  };
-
-  const handleExtractText = async (report: CreditReport) => {
-    try {
-      toast.loading('Starting text extraction...', { id: 'extract-text' });
-      await PDFExtractionService.extractText(report.id);
-      toast.success('Text extraction started! This may take a few minutes.', { id: 'extract-text' });
-      loadReports(); // Refresh to show updated status
-    } catch (error) {
-      console.error('Extract error:', error);
-      toast.error(`Failed to start extraction: ${error.message}`, { id: 'extract-text' });
-    }
-  };
-
-  const handleRetryExtraction = async (report: CreditReport) => {
-    try {
-      toast.loading('Retrying text extraction...', { id: 'retry-extract' });
-      await PDFExtractionService.retryExtraction(report.id);
-      toast.success('Text extraction restarted!', { id: 'retry-extract' });
-      loadReports(); // Refresh to show updated status
-    } catch (error) {
-      console.error('Retry error:', error);
-      toast.error(`Failed to retry extraction: ${error.message}`, { id: 'retry-extract' });
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'processing':
-        return <Clock className="w-4 h-4 text-blue-500" />;
-      case 'failed':
-        return <XCircle className="w-4 h-4 text-red-500" />;
-      case 'pending':
-      default:
-        return <AlertCircle className="w-4 h-4 text-yellow-500" />;
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const variants = {
-      completed: 'default',
-      processing: 'secondary',
-      failed: 'destructive',
-      pending: 'outline',
-    } as const;
-
-    return (
-      <Badge variant={variants[status as keyof typeof variants] || 'outline'}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
-      </Badge>
-    );
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    
+    // Sort reports
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'date-desc':
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        case 'date-asc':
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        case 'bureau':
+          return a.bureau_name.localeCompare(b.bureau_name);
+        case 'report-date':
+          if (!a.report_date && !b.report_date) return 0;
+          if (!a.report_date) return 1;
+          if (!b.report_date) return -1;
+          return new Date(b.report_date).getTime() - new Date(a.report_date).getTime();
+        default:
+          return 0;
+      }
     });
+    
+    setFilteredReports(filtered);
+  }, [reports, selectedBureau, sortBy]);
+
+  const handleViewReport = (reportId: string) => {
+    setSelectedReportId(reportId);
+  };
+
+  const handleBackToReports = () => {
+    setSelectedReportId(null);
+  };
+
+  const handleUploadComplete = () => {
+    setShowUploadModal(false);
+    loadReports();
+  };
+
+  const getBureauCounts = () => {
+    const counts = { Equifax: 0, Experian: 0, TransUnion: 0 };
+    reports.forEach(report => {
+      if (counts.hasOwnProperty(report.bureau_name)) {
+        counts[report.bureau_name as keyof typeof counts]++;
+      }
+    });
+    return counts;
+  };
+
+  const getTotalNegativeItems = () => {
+    return Object.values(reportCounts).reduce((sum, count) => sum + count.negatives, 0);
+  };
+
+  const getTotalAccounts = () => {
+    return Object.values(reportCounts).reduce((sum, count) => sum + count.accounts, 0);
   };
 
   if (!user) {
     return null;
   }
+
+  // Show full report viewer if a report is selected
+  if (selectedReportId) {
+    return (
+      <FullCreditReportViewer
+        reportId={selectedReportId}
+        onBack={handleBackToReports}
+      />
+    );
+  }
+
+  // Show upload modal if requested
+  if (showUploadModal) {
+    return (
+      <div className="container mx-auto p-6 space-y-6">
+        <div className="flex items-center justify-between mb-6">
+          <Button variant="outline" onClick={() => setShowUploadModal(false)}>
+            ← Back to Reports
+          </Button>
+          <h1 className="text-3xl font-bold">Upload New Credit Report</h1>
+          <div></div>
+        </div>
+        <CreditReportUpload />
+      </div>
+    );
+  }
+
+  const bureauCounts = getBureauCounts();
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -177,263 +178,138 @@ const CreditReportsPage: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold">Credit Reports</h1>
           <p className="text-muted-foreground">
-            Upload and manage your credit reports for analysis
+            View and analyze your complete credit report data
           </p>
+        </div>
+        <Button onClick={() => setShowUploadModal(true)} className="flex items-center gap-2">
+          <Plus className="w-4 h-4" />
+          Upload New Report
+        </Button>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4 text-center">
+            <div className="text-2xl font-bold">{reports.length}</div>
+            <div className="text-sm text-muted-foreground">Total Reports</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <div className="text-2xl font-bold text-destructive">{getTotalNegativeItems()}</div>
+            <div className="text-sm text-muted-foreground">Negative Items</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <div className="text-2xl font-bold text-green-600">{getTotalAccounts()}</div>
+            <div className="text-sm text-muted-foreground">Total Accounts</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <div className="text-2xl font-bold">{reports.filter(r => r.extraction_status === 'completed').length}</div>
+            <div className="text-sm text-muted-foreground">Reports Ready</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters and Sort */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4" />
+          <span className="text-sm font-medium">Filter:</span>
+        </div>
+        
+        <Button
+          variant={selectedBureau === 'all' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setSelectedBureau('all')}
+        >
+          All ({reports.length})
+        </Button>
+        
+        <Button
+          variant={selectedBureau === 'Equifax' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setSelectedBureau('Equifax')}
+        >
+          Equifax ({bureauCounts.Equifax})
+        </Button>
+        
+        <Button
+          variant={selectedBureau === 'Experian' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setSelectedBureau('Experian')}
+        >
+          Experian ({bureauCounts.Experian})
+        </Button>
+        
+        <Button
+          variant={selectedBureau === 'TransUnion' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setSelectedBureau('TransUnion')}
+        >
+          TransUnion ({bureauCounts.TransUnion})
+        </Button>
+
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-sm font-medium">Sort by:</span>
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="date-desc">Date - Newest First ↓</SelectItem>
+              <SelectItem value="date-asc">Date - Oldest First ↑</SelectItem>
+              <SelectItem value="bureau">Bureau Name</SelectItem>
+              <SelectItem value="report-date">Report Date</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Reports Grid */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <span className="ml-2">Loading reports...</span>
+        </div>
+      ) : filteredReports.length === 0 ? (
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <FileText className="w-8 h-8 text-primary" />
-              <div>
-                <p className="text-2xl font-bold">{summary.total}</p>
-                <p className="text-sm text-muted-foreground">Total Reports</p>
-              </div>
-            </div>
+          <CardContent className="p-12 text-center">
+            <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-xl font-medium mb-2">
+              {reports.length === 0 ? 'No Credit Reports' : 'No Reports Match Filter'}
+            </h3>
+            <p className="text-muted-foreground mb-6">
+              {reports.length === 0 
+                ? 'Get started by uploading your credit reports from all three bureaus for the most complete analysis.'
+                : 'Try adjusting your filter settings to see more reports.'
+              }
+            </p>
+            {reports.length === 0 && (
+              <Button onClick={() => setShowUploadModal(true)} size="lg">
+                <Upload className="w-5 h-5 mr-2" />
+                Upload Your First Report
+              </Button>
+            )}
           </CardContent>
         </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <Calendar className="w-8 h-8 text-green-500" />
-              <div>
-                <p className="text-2xl font-bold">{summary.recentCount}</p>
-                <p className="text-sm text-muted-foreground">Recent (30 days)</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <Building2 className="w-8 h-8 text-blue-500" />
-              <div>
-                <p className="text-2xl font-bold">{Object.keys(summary.byBureau).length}</p>
-                <p className="text-sm text-muted-foreground">Bureaus Covered</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <BarChart3 className="w-8 h-8 text-purple-500" />
-              <div>
-                <p className="text-2xl font-bold">
-                  {reports.filter(r => r.extraction_status === 'completed').length}
-                </p>
-                <p className="text-sm text-muted-foreground">Ready for Analysis</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main Content */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="upload">
-            <Upload className="w-4 h-4 mr-2" />
-            Upload Reports
-          </TabsTrigger>
-          <TabsTrigger value="reports">
-            <FileText className="w-4 h-4 mr-2" />
-            My Reports ({reports.length})
-          </TabsTrigger>
-          <TabsTrigger value="parsing">
-            <BarChart3 className="w-4 h-4 mr-2" />
-            Parse Reports
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="upload" className="space-y-6">
-          <CreditReportUpload />
-        </TabsContent>
-
-        <TabsContent value="reports" className="space-y-6">
-          {loading ? (
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                  <span className="ml-2">Loading reports...</span>
-                </div>
-              </CardContent>
-            </Card>
-          ) : reports.length === 0 ? (
-            <Card>
-              <CardContent className="p-6 text-center">
-                <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No Credit Reports</h3>
-                <p className="text-muted-foreground mb-4">
-                  You haven't uploaded any credit reports yet.
-                </p>
-                <Button onClick={() => setActiveTab('upload')}>
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload Your First Report
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-4">
-              {reports.map((report) => (
-                <Card key={report.id}>
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-4 flex-1">
-                        <FileText className="w-8 h-8 text-primary mt-1" />
-                        
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h3 className="font-medium truncate">
-                              {report.file_name || `${report.bureau_name} Report`}
-                            </h3>
-                            {getStatusIcon(report.extraction_status)}
-                          </div>
-                          
-                          <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mb-3">
-                            <div className="flex items-center gap-1">
-                              <Building2 className="w-4 h-4" />
-                              <span>{report.bureau_name}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Calendar className="w-4 h-4" />
-                              <span>{formatDate(report.created_at)}</span>
-                            </div>
-                            {report.report_date && (
-                              <div>
-                                Report Date: {new Date(report.report_date).toLocaleDateString()}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {getStatusBadge(report.extraction_status)}
-                            {report.processing_errors && (
-                              <Badge variant="destructive">Has Errors</Badge>
-                            )}
-                          </div>
-
-                          {report.processing_errors && (
-                            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-                              {report.processing_errors}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 ml-4">
-                        {/* Extract Text Button */}
-                        {report.file_path && 
-                         report.extraction_status !== 'processing' && 
-                         report.extraction_status !== 'completed' && 
-                         !report.raw_text && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleExtractText(report)}
-                            title="Extract text from PDF"
-                          >
-                            <PlayCircle className="w-4 h-4" />
-                          </Button>
-                        )}
-                        
-                        {/* Retry Extraction Button */}
-                        {report.extraction_status === 'failed' && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleRetryExtraction(report)}
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </Button>
-                        )}
-                        
-                        {/* Download Button */}
-                        {report.file_path && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDownload(report)}
-                          >
-                            <Download className="w-4 h-4" />
-                          </Button>
-                        )}
-                        
-                        {/* Delete Button */}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDelete(report)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="parsing" className="space-y-6">
-          {reports.length === 0 ? (
-            <Card>
-              <CardContent className="p-6 text-center">
-                <BarChart3 className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium mb-2">No Reports to Parse</h3>
-                <p className="text-muted-foreground mb-4">
-                  Upload some credit reports first to start parsing.
-                </p>
-                <Button onClick={() => setActiveTab('upload')}>
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload Reports
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-6">
-              {reports.filter(r => r.raw_text && r.extraction_status === 'completed').length === 0 ? (
-                <Card>
-                  <CardContent className="p-6 text-center">
-                    <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium mb-2">No Extracted Text Available</h3>
-                    <p className="text-muted-foreground mb-4">
-                      You need to extract text from your reports before parsing. 
-                      Go to "My Reports" tab to extract text first.
-                    </p>
-                    <Button onClick={() => setActiveTab('reports')}>
-                      <FileText className="w-4 h-4 mr-2" />
-                      View My Reports
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-4">
-                  {reports
-                    .filter(r => r.raw_text && r.extraction_status === 'completed')
-                    .map((report) => (
-                      <CreditReportParsing
-                        key={report.id}
-                        reportId={report.id}
-                        reportName={report.file_name || `${report.bureau_name} Report`}
-                        hasRawText={!!report.raw_text}
-                        onParsingComplete={loadReports}
-                      />
-                    ))}
-                </div>
-              )}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredReports.map((report) => (
+            <CreditReportCard
+              key={report.id}
+              report={report}
+              accountCount={reportCounts[report.id]?.accounts || 0}
+              negativeItemCount={reportCounts[report.id]?.negatives || 0}
+              onViewReport={() => handleViewReport(report.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

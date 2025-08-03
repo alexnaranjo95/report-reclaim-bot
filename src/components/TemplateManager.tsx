@@ -280,8 +280,8 @@ const LayoutCard: React.FC<LayoutCardProps> = ({
             </CardDescription>
           </div>
           <div className="flex gap-1">
-            <Button onClick={onPreview} variant="outline" size="sm">
-              <Eye className="w-4 h-4" />
+            <Button onClick={onPreview} variant="outline" size="sm" title="PDF Preview">
+              <FileText className="w-4 h-4" />
             </Button>
             <Button onClick={() => navigate(`/admin/templates/editor/${layout.id}`)} variant="outline" size="sm">
               <Wand2 className="w-4 h-4" />

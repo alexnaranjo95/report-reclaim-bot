@@ -32,6 +32,12 @@ const CreditReportsPage: React.FC = () => {
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [reportCounts, setReportCounts] = useState<Record<string, { accounts: number; negatives: number }>>({});
 
+  // Debug: Log when component mounts to verify correct page is loading
+  useEffect(() => {
+    console.log('✅ CreditReports page loaded - URL:', window.location.pathname);
+    console.log('✅ This is the CREDIT REPORTS page, not rounds page');
+  }, []);
+
   useEffect(() => {
     if (!user) {
       navigate('/auth');

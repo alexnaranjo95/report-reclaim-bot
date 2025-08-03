@@ -9,6 +9,7 @@ import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
 import { RoundProgressCard } from '@/components/RoundProgressCard';
 import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
 import CreditReportUpload from '@/components/CreditReportUpload';
+import { ProcessingTest } from '@/components/ProcessingTest';
 import { CreditReportPreviewModal } from '@/components/CreditReportPreviewModal';
 import { CreditReportAnalysis } from '@/components/CreditReportAnalysis';
 import { CreditReportTimeline } from '@/components/CreditReportTimeline';
@@ -291,6 +292,9 @@ const CreditReportsPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Processing Test - for debugging */}
+      <ProcessingTest />
 
       {/* Filters and Sort */}
       <div className="flex items-center gap-4">

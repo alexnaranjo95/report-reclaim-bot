@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -336,16 +337,22 @@ export const Dashboard = () => {
                 <Shield className="h-3 w-3 mr-1" />
                 Secure
               </Badge>
-              <Button variant="outline" size="sm" onClick={() => window.location.href = '/credit-reports'}>
-                <BarChart3 className="h-4 w-4 mr-2" />
-                Credit Reports
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/credit-reports">
+                  <BarChart3 className="h-4 w-4 mr-2" />
+                  Credit Reports
+                </Link>
               </Button>
-              <Button variant="outline" size="sm" onClick={() => window.location.href = '/settings'}>
-                Settings
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/settings">
+                  Settings
+                </Link>
               </Button>
-              {isSuperAdmin && <Button variant="outline" size="sm" onClick={() => window.location.href = '/admin'}>
+              {isSuperAdmin && <Button variant="outline" size="sm" asChild>
+                <Link to="/admin">
                   Admin
-                </Button>}
+                </Link>
+              </Button>}
               <Button variant="outline" size="sm" onClick={handleLogout} className="flex items-center gap-2">
                 <LogOut className="h-4 w-4" />
                 Logout

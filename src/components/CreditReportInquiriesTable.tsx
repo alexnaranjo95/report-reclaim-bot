@@ -38,27 +38,8 @@ export const CreditReportInquiriesTable: React.FC<CreditReportInquiriesTableProp
     return bureaus[hash % 3];
   };
 
-  // Sample inquiries if none exist
-  const displayInquiries = inquiries.length > 0 ? inquiries : [
-    {
-      id: '1',
-      inquirer_name: 'Verizon Wireless',
-      inquiry_date: '2023-11-02',
-      inquiry_type: 'hard'
-    },
-    {
-      id: '2',
-      inquirer_name: 'Ford Motor Credit',
-      inquiry_date: '2023-09-25',
-      inquiry_type: 'hard'
-    },
-    {
-      id: '3',
-      inquirer_name: 'Discover Financial',
-      inquiry_date: '2023-06-12',
-      inquiry_type: 'hard'
-    }
-  ];
+  // ONLY show real extracted data - NO fake data
+  const displayInquiries = inquiries;
 
   return (
     <Card>

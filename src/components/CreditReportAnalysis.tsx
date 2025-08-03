@@ -171,21 +171,22 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
 
   const handleForceReparse = async () => {
     try {
-      toast.info('Starting comprehensive data extraction...');
+      toast.info('Emergency data extraction starting...');
       setLoading(true);
       
-      const { AutoCreditProcessor } = await import('@/services/AutoCreditProcessor');
-      const success = await AutoCreditProcessor.forceReparse(reportId);
+      // First try emergency fix for stuck processing
+      const { CreditReportEmergencyFix } = await import('@/services/CreditReportEmergencyFix');
+      await CreditReportEmergencyFix.forceReprocess(reportId);
       
-      if (success) {
-        toast.success('Data extraction completed! Refreshing...');
+      toast.success('Emergency extraction completed! Refreshing...');
+      // Wait a moment for data to be processed
+      setTimeout(async () => {
         await loadAnalysisData();
-      } else {
-        toast.error('Data extraction failed. Please try again.');
-      }
+      }, 3000);
+      
     } catch (error) {
-      console.error('Error in force reparse:', error);
-      toast.error('Error during data extraction');
+      console.error('Error in emergency extraction:', error);
+      toast.error('Emergency extraction failed. Please contact support.');
     } finally {
       setLoading(false);
     }
@@ -257,7 +258,7 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
         {/* Timeline Section */}
         <CreditReportTimeline
           rounds={mockRounds}
-          currentRound={2}
+          currentRound={1}
           onUploadReport={(round) => toast.info(`Upload for round ${round}`)}
           onPreviewReport={(report) => toast.info(`Preview ${report.file_name}`)}
           onViewReport={(id) => toast.info(`View report ${id}`)}

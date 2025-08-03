@@ -32,13 +32,20 @@ export const CreditReportPreviewModal: React.FC<CreditReportPreviewModalProps> =
     setLoading(true);
     setError(null);
     try {
-      // Get signed URL for the file
-      const {
-        data,
-        error
-      } = await supabase.storage.from('credit-reports').createSignedUrl(report.file_path, 3600); // 1 hour expiry
+      // Get signed URL for the file from credit-reports bucket
+      const { data, error } = await supabase.storage
+        .from('credit-reports')
+        .createSignedUrl(report.file_path, 3600); // 1 hour expiry
 
-      if (error) throw error;
+      if (error) {
+        console.error('Storage error:', error);
+        throw new Error(`Failed to access file: ${error.message}`);
+      }
+      
+      if (!data?.signedUrl) {
+        throw new Error('No signed URL returned from storage');
+      }
+      
       setPreviewUrl(data.signedUrl);
     } catch (error) {
       console.error('Error loading preview:', error);

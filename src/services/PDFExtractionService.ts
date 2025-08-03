@@ -35,26 +35,28 @@ export class PDFExtractionService {
       throw new Error(`Failed to update report status: ${updateError.message}`);
     }
 
-    // Call the Adobe PDF extraction function
-    const { error: extractError } = await supabase.functions.invoke('adobe-pdf-extract', {
-      body: {
-        reportId,
-        filePath: report.file_path,
-      },
-    });
+    // Try Adobe PDF extraction first, then fallback to local processing
+    try {
+      const { error: extractError } = await supabase.functions.invoke('adobe-pdf-extract', {
+        body: {
+          reportId,
+          filePath: report.file_path,
+        },
+      });
 
-    if (extractError) {
-      // Update status to failed
-      await supabase
-        .from('credit_reports')
-        .update({ 
-          extraction_status: 'failed',
-          processing_errors: extractError.message,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', reportId);
-      
-      throw new Error(`Text extraction failed: ${extractError.message}`);
+      if (extractError) {
+        console.warn('Adobe extraction failed, using fallback processing:', extractError);
+        // Use fallback PDF processing instead of failing
+        const { FallbackPDFParser } = await import('./FallbackPDFParser');
+        await FallbackPDFParser.processPDFReport(reportId);
+        return;
+      }
+    } catch (adobeError) {
+      console.warn('Adobe service unavailable, using fallback processing:', adobeError);
+      // Use fallback PDF processing instead of failing
+      const { FallbackPDFParser } = await import('./FallbackPDFParser');
+      await FallbackPDFParser.processPDFReport(reportId);
+      return;
     }
 
     // Auto-trigger parsing after successful extraction

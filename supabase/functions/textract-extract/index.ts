@@ -271,17 +271,20 @@ function validatePDFContent(text: string): {
     };
   }
   
-  // Check for PDF metadata indicators (signs of failed extraction)
+  // Enhanced detection for different PDF types
   const hasMetadata = text.includes('endstream') && text.includes('endobj') && text.includes('stream');
   const hasMozilla = text.includes('Mozilla') || text.includes('mozilla');
+  const isIdentityIQ = text.toLowerCase().includes('identityiq') || 
+                      text.toLowerCase().includes('identity iq') ||
+                      text.toLowerCase().includes('experian consumer report');
   
   // Calculate content quality metrics
   const alphaNumericRatio = (text.match(/[a-zA-Z0-9]/g) || []).length / text.length;
   const alphabeticRatio = (text.match(/[a-zA-Z ]/g) || []).length / text.length;
   
-  // Count credit report keywords - enhanced for IdentityIQ and other services
+  // Enhanced credit report keywords with more comprehensive detection
   const creditKeywords = [
-    /credit report|identityiq|identity iq/gi,
+    /credit report|identityiq|identity iq|consumer report/gi,
     /experian|equifax|transunion|tri-merge|3-bureau/gi,
     /account number|acct|account #/gi,
     /balance.*payment|current balance|payment history/gi,
@@ -292,8 +295,13 @@ function validatePDFContent(text: string): {
     /fico|credit score|score/gi,
     /tradeline|trade line|credit line/gi,
     /address|phone|employment|personal info/gi,
-    /dispute|collections|charge.*off|late payment/gi
+    /dispute|collections|charge.*off|late payment/gi,
+    /credit monitoring|monitoring service/gi,
+    /account history|payment status/gi
   ].reduce((count, regex) => count + (text.match(regex) || []).length, 0);
+  
+  // Sample text for debugging (first 300 chars, cleaned)
+  const sampleText = text.substring(0, 300).replace(/[^\x20-\x7E]/g, ' ').trim();
   
   console.log("Content metrics:");
   console.log("- Alphanumeric ratio:", alphaNumericRatio.toFixed(3));
@@ -301,30 +309,61 @@ function validatePDFContent(text: string): {
   console.log("- Credit keywords found:", creditKeywords);
   console.log("- Has PDF metadata:", hasMetadata);
   console.log("- Has Mozilla markers:", hasMozilla);
+  console.log("- Is IdentityIQ report:", isIdentityIQ);
+  console.log("- Sample text:", sampleText.substring(0, 100) + '...');
   
-  // Determine PDF type and validation result
-  if (hasMetadata && alphaNumericRatio < 0.4) {
+  // IMPROVED VALIDATION LOGIC - More permissive for legitimate reports
+  
+  // Special handling for IdentityIQ reports (very permissive)
+  if (isIdentityIQ && text.length > 30000) {
+    if (creditKeywords >= 1 && alphabeticRatio > 0.2) {
+      console.log("✅ IdentityIQ report validated with relaxed criteria");
+      return {
+        isValid: true,
+        detectedType: 'credit_report',
+        creditKeywords,
+        contentRatio: alphaNumericRatio
+      };
+    }
+  }
+  
+  // Special handling for browser-generated PDFs with substantial content
+  if (hasMozilla && text.length > 50000) {
+    if (creditKeywords >= 2 && alphabeticRatio > 0.25) {
+      console.log("✅ Browser-generated PDF validated with substantial content");
+      return {
+        isValid: true,
+        detectedType: 'credit_report',
+        creditKeywords,
+        contentRatio: alphaNumericRatio
+      };
+    }
+  }
+  
+  // Standard validation for other PDFs (more permissive than before)
+  if (creditKeywords >= 1 && alphaNumericRatio > 0.25) {
+    console.log("✅ Standard PDF validation passed");
+    return {
+      isValid: true,
+      detectedType: 'credit_report',
+      creditKeywords,
+      contentRatio: alphaNumericRatio
+    };
+  }
+  
+  // REJECTION LOGIC - Only reject clearly problematic files
+  
+  if (hasMetadata && alphaNumericRatio < 0.3 && creditKeywords === 0) {
     return {
       isValid: false,
-      reason: "PDF contains mostly metadata. Please upload a text-based credit report PDF, not a browser-generated or image-based file.",
+      reason: "PDF contains mostly metadata with no credit data. Please upload a text-based credit report PDF.",
       detectedType: 'metadata_only',
       creditKeywords,
       contentRatio: alphaNumericRatio
     };
   }
   
-  if (hasMozilla && alphabeticRatio < 0.5) {
-    return {
-      isValid: false,
-      reason: "PDF appears to be browser-generated or corrupted. Please download a direct PDF from your credit bureau.",
-      detectedType: 'image_based',
-      creditKeywords,
-      contentRatio: alphabeticRatio
-    };
-  }
-  
-  // More permissive validation for real-world credit reports
-  if (creditKeywords === 0 && alphaNumericRatio < 0.3) {
+  if (creditKeywords === 0 && alphaNumericRatio < 0.2) {
     return {
       isValid: false,
       reason: "PDF contains no recognizable credit report data. Please ensure you're uploading a credit report from Experian, Equifax, TransUnion, or a credit monitoring service like IdentityIQ.",
@@ -334,18 +373,8 @@ function validatePDFContent(text: string): {
     };
   }
   
-  // Allow documents with at least 1 credit keyword OR good content quality
-  if (creditKeywords < 1 && alphaNumericRatio < 0.4) {
-    return {
-      isValid: false,
-      reason: "PDF quality is too low for processing. Please upload a text-based credit report PDF (not a screenshot or image).",
-      detectedType: 'image_based',
-      creditKeywords,
-      contentRatio: alphaNumericRatio
-    };
-  }
-  
-  console.log("✅ PDF content validation passed");
+  // If we get here, the file has some credit keywords or decent content quality
+  console.log("✅ PDF content validation passed with permissive criteria");
   return {
     isValid: true,
     detectedType: 'credit_report',

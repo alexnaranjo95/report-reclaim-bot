@@ -35,7 +35,6 @@ serve(async (req) => {
       })
       .eq('id', reportId);
 
-    // Download PDF file
     console.log('📁 Downloading PDF file...');
     const { data: fileData, error: fileError } = await supabase.storage
       .from('credit-reports')
@@ -47,52 +46,73 @@ serve(async (req) => {
 
     console.log(`📄 PDF downloaded successfully, size: ${fileData.size} bytes`);
 
-    // Convert to array buffer for processing
     const arrayBuffer = await fileData.arrayBuffer();
     let extractedText = '';
     let extractionMethod = '';
 
-    // Method 1: Try advanced PDF.js text extraction
+    // Enhanced PDF text extraction with multiple fallback methods
     try {
-      console.log('🔍 Attempting advanced PDF.js text extraction...');
-      extractedText = await extractTextWithPDFJS(arrayBuffer);
-      if (extractedText && extractedText.length > 200 && isValidCreditReportContent(extractedText)) {
-        extractionMethod = 'Advanced PDF.js';
-        console.log('✅ PDF.js extraction successful');
-      } else {
-        throw new Error('PDF.js failed: No text content found in PDF');
-      }
-    } catch (pdfjsError) {
-      console.log(`❌ PDF.js failed: ${pdfjsError.message}`);
+      console.log('🔍 Starting comprehensive PDF text extraction...');
       
-      // Method 2: Try OCR with Google Vision API
-      if (googleApiKey) {
-        try {
-          console.log('🔍 Attempting OCR with Google Vision API...');
-          extractedText = await extractTextWithOCR(arrayBuffer, googleApiKey);
-          if (extractedText && extractedText.length > 200) {
-            extractionMethod = 'Google Vision OCR';
-            console.log('✅ OCR extraction successful');
-          } else {
-            throw new Error('OCR extraction returned insufficient text');
-          }
-        } catch (ocrError) {
-          console.log(`❌ OCR failed: ${ocrError.message}`);
-          throw new Error('Both PDF.js and OCR extraction methods failed');
+      // Method 1: Advanced PDF.js text extraction
+      try {
+        console.log('📖 Attempting advanced PDF.js extraction...');
+        extractedText = await extractTextWithAdvancedPDFJS(arrayBuffer);
+        if (extractedText && extractedText.length > 200 && isValidCreditReportContent(extractedText)) {
+          extractionMethod = 'Advanced PDF.js';
+          console.log('✅ Advanced PDF.js extraction successful');
+        } else {
+          throw new Error('Advanced PDF.js failed: Insufficient content');
         }
-      } else {
-        console.log('⚠️  Google Vision API key not configured, skipping OCR');
-        throw new Error('PDF.js failed and OCR not available');
+      } catch (pdfjsError) {
+        console.log(`❌ Advanced PDF.js failed: ${pdfjsError.message}`);
+        
+        // Method 2: Binary text extraction
+        try {
+          console.log('🔧 Attempting binary text extraction...');
+          extractedText = await extractTextWithBinaryMethod(arrayBuffer);
+          if (extractedText && extractedText.length > 200) {
+            extractionMethod = 'Binary Extraction';
+            console.log('✅ Binary extraction successful');
+          } else {
+            throw new Error('Binary extraction insufficient');
+          }
+        } catch (binaryError) {
+          console.log(`❌ Binary extraction failed: ${binaryError.message}`);
+          
+          // Method 3: OCR with Google Vision API (if available)
+          if (googleApiKey) {
+            try {
+              console.log('🔍 Attempting OCR with Google Vision API...');
+              extractedText = await extractTextWithOCR(arrayBuffer, googleApiKey);
+              if (extractedText && extractedText.length > 200) {
+                extractionMethod = 'Google Vision OCR';
+                console.log('✅ OCR extraction successful');
+              } else {
+                throw new Error('OCR extraction returned insufficient text');
+              }
+            } catch (ocrError) {
+              console.log(`❌ OCR failed: ${ocrError.message}`);
+              throw new Error('All extraction methods failed - PDF may be corrupted or image-based without OCR capability');
+            }
+          } else {
+            console.log('⚠️ Google Vision API key not configured');
+            throw new Error('PDF text extraction failed and OCR not available');
+          }
+        }
       }
+    } catch (extractionError) {
+      console.error('💥 Complete extraction failure:', extractionError.message);
+      throw new Error(`PDF extraction failed: ${extractionError.message}`);
     }
 
     console.log(`📊 Extraction completed using: ${extractionMethod}`);
     console.log(`📝 Extracted text length: ${extractedText.length}`);
-    console.log(`📋 Text preview: ${extractedText.substring(0, 500)}...`);
+    console.log(`📋 Text preview (first 500 chars): ${extractedText.substring(0, 500)}...`);
 
     // Validate extraction quality
     if (!isValidCreditReportContent(extractedText)) {
-      throw new Error(`Extraction failed - no valid credit report content found using ${extractionMethod}`);
+      throw new Error(`Extraction validation failed - no valid credit report content found using ${extractionMethod}`);
     }
 
     // Clean and normalize text
@@ -113,15 +133,23 @@ serve(async (req) => {
       throw new Error(`Failed to save extracted text: ${updateError.message}`);
     }
 
-    // Parse and store structured data
-    await parseAndStoreCreditData(supabase, reportId, cleanedText);
+    // Parse and store structured data with detailed logging
+    const parsedData = await parseAndStoreCreditDataWithLogging(supabase, reportId, cleanedText);
 
     console.log('=== ADVANCED EXTRACTION COMPLETED SUCCESSFULLY ===');
+    console.log(`Extraction Summary:
+    - Method: ${extractionMethod}
+    - Text Length: ${cleanedText.length}
+    - Personal Info Records: ${parsedData.personalInfoCount}
+    - Credit Accounts: ${parsedData.accountsCount}
+    - Credit Inquiries: ${parsedData.inquiriesCount}
+    - Negative Items: ${parsedData.negativeItemsCount}`);
 
     return new Response(JSON.stringify({ 
       success: true, 
       textLength: cleanedText.length,
       extractionMethod,
+      parsedData,
       message: 'Credit report extracted and parsed successfully'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -130,6 +158,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('=== ADVANCED EXTRACTION ERROR ===');
     console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     
     // Update report with error status
     try {
@@ -151,7 +180,8 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ 
-      error: error.message 
+      error: error.message,
+      details: error.stack
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -159,34 +189,48 @@ serve(async (req) => {
   }
 });
 
-async function extractTextWithPDFJS(arrayBuffer: ArrayBuffer): Promise<string> {
-  console.log('🚀 Starting PDF.js extraction...');
+async function extractTextWithAdvancedPDFJS(arrayBuffer: ArrayBuffer): Promise<string> {
+  console.log('🚀 Starting advanced PDF.js extraction...');
   
-  // Convert PDF to text using improved PDF.js-like parsing
   const uint8Array = new Uint8Array(arrayBuffer);
   const pdfString = new TextDecoder('latin1').decode(uint8Array);
   
   let extractedText = '';
   
-  // Method 1: Extract from text objects (BT...ET blocks)
+  // Method 1: Extract from text objects (BT...ET blocks) with enhanced parsing
   console.log('📖 Extracting from text objects...');
   const textObjects = pdfString.match(/BT\s+[\s\S]*?ET/g) || [];
   console.log(`Found ${textObjects.length} text objects`);
   
   for (const textObj of textObjects) {
-    // Extract text from Tj and TJ operators
-    const tjMatches = textObj.match(/\(([^)]+)\)\s*Tj/g) || [];
-    const tjArrayMatches = textObj.match(/\[([^\]]+)\]\s*TJ/g) || [];
+    // Enhanced patterns for different PDF text encodings
+    const patterns = [
+      // Standard Tj commands
+      /\(([^)]+)\)\s*Tj/g,
+      // Array-based TJ commands
+      /\[((?:\([^)]*\)|[^\[\]])*?)\]\s*TJ/g,
+      // Quoted strings
+      /"([^"]*?)"\s*(?:Tj|TJ)/g,
+      // Hex strings
+      /<([0-9A-Fa-f]+)>\s*(?:Tj|TJ)/g
+    ];
     
-    for (const match of [...tjMatches, ...tjArrayMatches]) {
-      const text = match.replace(/[\(\)\[\]]/g, '').replace(/Tj|TJ/g, '').trim();
-      if (text.length > 2 && isReadableText(text)) {
-        extractedText += decodePDFText(text) + ' ';
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(textObj)) !== null) {
+        let text = match[1];
+        
+        // Decode various PDF text encodings
+        text = decodePDFText(text);
+        
+        if (text.trim() && isReadableText(text) && containsCreditKeywords(text)) {
+          extractedText += text + ' ';
+        }
       }
     }
   }
   
-  // Method 2: Extract from PDF streams
+  // Method 2: Extract from PDF streams with content filtering
   console.log('🌊 Extracting from PDF streams...');
   const streamPattern = /stream\s*([\s\S]*?)\s*endstream/g;
   let streamMatch;
@@ -199,14 +243,14 @@ async function extractTextWithPDFJS(arrayBuffer: ArrayBuffer): Promise<string> {
     }
   }
   
-  // Method 3: Extract from PDF objects
+  // Method 3: Extract from PDF objects with enhanced filtering
   console.log('🔍 Extracting from PDF objects...');
   const objectPattern = /(\d+)\s+\d+\s+obj\s*([\s\S]*?)\s*endobj/g;
   let objMatch;
   
   while ((objMatch = objectPattern.exec(pdfString)) !== null) {
     const objectContent = objMatch[2];
-    if (objectContent.includes('/Contents') || objectContent.includes('/Text')) {
+    if (objectContent.includes('/Type') && !objectContent.includes('/Image')) {
       const readableContent = extractReadableFromObject(objectContent);
       if (readableContent && containsCreditKeywords(readableContent)) {
         extractedText += readableContent + ' ';
@@ -214,10 +258,60 @@ async function extractTextWithPDFJS(arrayBuffer: ArrayBuffer): Promise<string> {
     }
   }
   
-  console.log(`📝 PDF.js extracted ${extractedText.length} characters`);
+  console.log(`📝 Advanced PDF.js extracted ${extractedText.length} characters`);
   
-  if (extractedText.length < 100) {
-    throw new Error('PDF.js extraction yielded insufficient text - PDF may be image-based');
+  if (extractedText.length < 200) {
+    throw new Error('Advanced PDF.js extraction yielded insufficient text - PDF may be image-based');
+  }
+  
+  return extractedText.trim();
+}
+
+async function extractTextWithBinaryMethod(arrayBuffer: ArrayBuffer): Promise<string> {
+  console.log('🔧 Starting binary text extraction...');
+  
+  const uint8Array = new Uint8Array(arrayBuffer);
+  let extractedText = '';
+  const creditRelatedChunks = [];
+  
+  // Scan for readable ASCII sequences
+  let currentChunk = '';
+  
+  for (let i = 0; i < uint8Array.length; i++) {
+    const byte = uint8Array[i];
+    
+    // Check if byte is printable ASCII or whitespace
+    if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
+      currentChunk += String.fromCharCode(byte);
+    } else {
+      // End of readable sequence
+      if (currentChunk.length >= 15 && containsCreditKeywords(currentChunk)) {
+        const cleanChunk = currentChunk.replace(/[^\w\s.,()-]/g, ' ').trim();
+        if (cleanChunk.length >= 10) {
+          creditRelatedChunks.push(cleanChunk);
+        }
+      }
+      currentChunk = '';
+    }
+  }
+  
+  // Add final chunk if it exists
+  if (currentChunk.length >= 15 && containsCreditKeywords(currentChunk)) {
+    const cleanChunk = currentChunk.replace(/[^\w\s.,()-]/g, ' ').trim();
+    if (cleanChunk.length >= 10) {
+      creditRelatedChunks.push(cleanChunk);
+    }
+  }
+  
+  // Combine and deduplicate chunks
+  const uniqueChunks = [...new Set(creditRelatedChunks)];
+  extractedText = uniqueChunks.join(' ');
+  
+  console.log(`📝 Binary extraction found ${uniqueChunks.length} unique credit-related chunks`);
+  console.log(`📝 Total extracted text length: ${extractedText.length}`);
+  
+  if (extractedText.length < 200) {
+    throw new Error('Binary extraction yielded insufficient text');
   }
   
   return extractedText.trim();
@@ -227,55 +321,44 @@ async function extractTextWithOCR(arrayBuffer: ArrayBuffer, apiKey: string): Pro
   console.log('🔍 Starting OCR extraction...');
   
   try {
-    // Convert PDF to images first, then OCR each page
-    const images = await convertPDFToImages(arrayBuffer);
-    console.log(`📸 Converted PDF to ${images.length} images`);
+    // Convert PDF to base64 for Google Vision API
+    const base64Data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
     
-    let fullText = '';
+    console.log('📸 Sending PDF to Google Vision API for OCR...');
     
-    for (let i = 0; i < images.length; i++) {
-      console.log(`🔤 OCR processing page ${i + 1}/${images.length}...`);
-      
-      const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          requests: [{
-            image: {
-              content: images[i] // Base64 encoded image
-            },
-            features: [{
-              type: 'TEXT_DETECTION',
-              maxResults: 1
-            }]
+    const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        requests: [{
+          image: {
+            content: base64Data
+          },
+          features: [{
+            type: 'DOCUMENT_TEXT_DETECTION',
+            maxResults: 1
           }]
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Google Vision API error: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (result.responses?.[0]?.textAnnotations?.[0]?.description) {
-        const pageText = result.responses[0].textAnnotations[0].description;
-        fullText += pageText + '\n\n';
-        console.log(`✅ Page ${i + 1} OCR completed, extracted ${pageText.length} characters`);
-      } else {
-        console.log(`⚠️  No text found on page ${i + 1}`);
-      }
-      
-      // Add delay to respect API rate limits
-      if (i < images.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
+        }]
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Google Vision API error: ${response.status} - ${response.statusText}`);
     }
     
-    console.log(`📝 OCR completed, total text length: ${fullText.length}`);
-    return fullText.trim();
+    const result = await response.json();
+    
+    if (result.responses?.[0]?.textAnnotations?.[0]?.description) {
+      const extractedText = result.responses[0].textAnnotations[0].description;
+      console.log(`✅ OCR completed, extracted ${extractedText.length} characters`);
+      return extractedText.trim();
+    } else if (result.responses?.[0]?.error) {
+      throw new Error(`Google Vision API error: ${result.responses[0].error.message}`);
+    } else {
+      throw new Error('No text found in document via OCR');
+    }
     
   } catch (error) {
     console.error('OCR extraction error:', error);
@@ -283,33 +366,20 @@ async function extractTextWithOCR(arrayBuffer: ArrayBuffer, apiKey: string): Pro
   }
 }
 
-async function convertPDFToImages(arrayBuffer: ArrayBuffer): Promise<string[]> {
-  // This is a simplified version - in practice you'd use a library like pdf-poppler
-  // For now, we'll implement a basic conversion that works with simple PDFs
-  
-  console.log('🖼️  Converting PDF to images...');
-  
-  // For demonstration, we'll return the PDF data as base64 and let Google Vision handle it
-  // In a real implementation, you'd convert each page to a PNG/JPEG image
-  
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-  return [base64]; // Return as single "image" for now
-}
+// Enhanced helper functions
 
 function extractReadableFromStream(stream: string): string {
-  // Extract readable text from PDF stream
-  const readableChars = stream.match(/[\x20-\x7E]{3,}/g) || [];
+  const readableChars = stream.match(/[\x20-\x7E]{5,}/g) || [];
   return readableChars
-    .filter(text => containsCreditKeywords(text) || /[A-Za-z]{3,}/.test(text))
+    .filter(text => containsCreditKeywords(text) && /[A-Za-z]{3,}/.test(text))
     .join(' ');
 }
 
 function extractReadableFromObject(obj: string): string {
-  // Extract readable text from PDF object
   const textMatches = obj.match(/\(([^)]+)\)/g) || [];
   return textMatches
     .map(match => match.replace(/[()]/g, ''))
-    .filter(text => isReadableText(text))
+    .filter(text => isReadableText(text) && containsCreditKeywords(text))
     .join(' ');
 }
 
@@ -321,17 +391,24 @@ function decodePDFText(text: string): string {
     .replace(/\\[(]/g, '(')
     .replace(/\\[)]/g, ')')
     .replace(/\\\\/g, '\\')
-    .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+    .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)))
+    .replace(/<([0-9A-Fa-f]+)>/g, (_, hex) => {
+      // Decode hex strings
+      let result = '';
+      for (let i = 0; i < hex.length; i += 2) {
+        result += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+      }
+      return result;
+    });
 }
 
 function isReadableText(text: string): boolean {
   if (!text || text.length < 3) return false;
   
-  // Check for readable characters ratio
   const readableChars = text.match(/[A-Za-z0-9\s\$\.,\-\(\)\/]/g) || [];
   const readableRatio = readableChars.length / text.length;
   
-  return readableRatio > 0.6;
+  return readableRatio > 0.7;
 }
 
 function containsCreditKeywords(text: string): boolean {
@@ -339,7 +416,8 @@ function containsCreditKeywords(text: string): boolean {
     'credit', 'account', 'balance', 'payment', 'name', 'address',
     'phone', 'date', 'birth', 'social', 'security', 'experian',
     'equifax', 'transunion', 'visa', 'mastercard', 'discover',
-    'chase', 'capital', 'wells', 'bank', 'score', 'report'
+    'chase', 'capital', 'wells', 'bank', 'score', 'report',
+    'inquiry', 'collection', 'creditor', 'debt', 'limit'
   ];
   
   const lowerText = text.toLowerCase();
@@ -350,9 +428,9 @@ function cleanExtractedText(text: string): string {
   if (!text) return '';
   
   return text
-    .replace(/\s+/g, ' ')                    // Normalize whitespace
-    .replace(/[^\w\s\$\.,\-\/\(\):@#]/g, ' ') // Keep essential punctuation
-    .replace(/\s+/g, ' ')                    // Final cleanup
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s\$\.,\-\/\(\):@#]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -367,38 +445,54 @@ function isValidCreditReportContent(text: string): boolean {
   ];
   
   const matchCount = requiredElements.filter(pattern => pattern.test(text)).length;
-  return matchCount >= 2; // Lowered threshold for better detection
+  return matchCount >= 2;
 }
 
-async function parseAndStoreCreditData(supabase: any, reportId: string, text: string) {
+async function parseAndStoreCreditDataWithLogging(supabase: any, reportId: string, text: string) {
   try {
     console.log('=== PARSING AND STORING CREDIT DATA ===');
+    console.log(`Input text length: ${text.length}`);
+    console.log(`Text sample: ${text.substring(0, 200)}...`);
     
+    let personalInfoCount = 0;
+    let accountsCount = 0;
+    let inquiriesCount = 0;
+    let negativeItemsCount = 0;
+
+    // Clear existing data for this report
+    console.log('🧹 Clearing existing data for report...');
+    await supabase.from('personal_information').delete().eq('report_id', reportId);
+    await supabase.from('credit_accounts').delete().eq('report_id', reportId);
+    await supabase.from('credit_inquiries').delete().eq('report_id', reportId);
+    await supabase.from('negative_items').delete().eq('report_id', reportId);
+
     // Extract and store personal information
     console.log('🔍 Extracting personal information...');
-    const personalInfo = extractPersonalInfo(text);
+    const personalInfo = extractPersonalInfoEnhanced(text);
+    console.log('Personal info extracted:', personalInfo);
+    
     if (personalInfo.full_name || personalInfo.date_of_birth || personalInfo.current_address) {
-      const { error: personalError } = await supabase.from('personal_information').upsert({
+      const { error: personalError } = await supabase.from('personal_information').insert({
         report_id: reportId,
         full_name: personalInfo.full_name,
         date_of_birth: personalInfo.date_of_birth,
         current_address: personalInfo.current_address,
-        ssn_partial: personalInfo.ssn_partial
-      }, { onConflict: 'report_id' });
+        ssn_partial: personalInfo.ssn_partial,
+        previous_addresses: personalInfo.previous_addresses || []
+      });
       
       if (personalError) {
         console.error('Personal info insert error:', personalError);
       } else {
+        personalInfoCount = 1;
         console.log('✅ Personal information stored successfully');
       }
     }
 
     // Extract and store credit accounts
     console.log('💳 Extracting credit accounts...');
-    const accounts = extractCreditAccounts(text);
-    
-    // Delete existing accounts for this report first
-    await supabase.from('credit_accounts').delete().eq('report_id', reportId);
+    const accounts = extractCreditAccountsEnhanced(text);
+    console.log(`Found ${accounts.length} credit accounts:`, accounts);
     
     for (const account of accounts) {
       const { error: accountError } = await supabase.from('credit_accounts').insert({
@@ -409,21 +503,23 @@ async function parseAndStoreCreditData(supabase: any, reportId: string, text: st
         current_balance: account.current_balance,
         credit_limit: account.credit_limit,
         account_status: account.account_status,
+        date_opened: account.date_opened,
+        payment_status: account.payment_status,
         is_negative: account.is_negative || false
       });
       
       if (accountError) {
         console.error('Account insert error:', accountError);
+      } else {
+        accountsCount++;
       }
     }
-    console.log(`✅ Stored ${accounts.length} credit accounts`);
+    console.log(`✅ Stored ${accountsCount} credit accounts`);
 
     // Extract and store credit inquiries
     console.log('🔍 Extracting credit inquiries...');
-    const inquiries = extractCreditInquiries(text);
-    
-    // Delete existing inquiries for this report first
-    await supabase.from('credit_inquiries').delete().eq('report_id', reportId);
+    const inquiries = extractCreditInquiriesEnhanced(text);
+    console.log(`Found ${inquiries.length} credit inquiries:`, inquiries);
     
     for (const inquiry of inquiries) {
       const { error: inquiryError } = await supabase.from('credit_inquiries').insert({
@@ -435,16 +531,16 @@ async function parseAndStoreCreditData(supabase: any, reportId: string, text: st
       
       if (inquiryError) {
         console.error('Inquiry insert error:', inquiryError);
+      } else {
+        inquiriesCount++;
       }
     }
-    console.log(`✅ Stored ${inquiries.length} credit inquiries`);
+    console.log(`✅ Stored ${inquiriesCount} credit inquiries`);
 
     // Extract and store collections/negative items
-    console.log('⚠️  Extracting negative items...');
-    const negativeItems = extractNegativeItems(text);
-    
-    // Delete existing negative items for this report first
-    await supabase.from('negative_items').delete().eq('report_id', reportId);
+    console.log('⚠️ Extracting negative items...');
+    const negativeItems = extractNegativeItemsEnhanced(text);
+    console.log(`Found ${negativeItems.length} negative items:`, negativeItems);
     
     for (const item of negativeItems) {
       const { error: negativeError } = await supabase.from('negative_items').insert({
@@ -452,16 +548,27 @@ async function parseAndStoreCreditData(supabase: any, reportId: string, text: st
         negative_type: item.negative_type,
         description: item.description,
         amount: item.amount,
-        status: item.status || 'active'
+        date_occurred: item.date_occurred,
+        severity_score: item.severity_score || 5
       });
       
       if (negativeError) {
         console.error('Negative item insert error:', negativeError);
+      } else {
+        negativeItemsCount++;
       }
     }
-    console.log(`✅ Stored ${negativeItems.length} negative items`);
+    console.log(`✅ Stored ${negativeItemsCount} negative items`);
     
     console.log('=== DATA PARSING COMPLETED ===');
+    console.log(`Summary: ${personalInfoCount} personal info, ${accountsCount} accounts, ${inquiriesCount} inquiries, ${negativeItemsCount} negative items`);
+
+    return {
+      personalInfoCount,
+      accountsCount,
+      inquiriesCount,
+      negativeItemsCount
+    };
 
   } catch (error) {
     console.error('Error parsing and storing credit data:', error);
@@ -469,135 +576,236 @@ async function parseAndStoreCreditData(supabase: any, reportId: string, text: st
   }
 }
 
-function extractPersonalInfo(text: string): any {
+// Enhanced parsing functions with better regex patterns
+
+function extractPersonalInfoEnhanced(text: string): any {
+  console.log('🔍 Enhanced personal info extraction...');
   const info: any = {};
   
-  // Extract name patterns
+  // Enhanced name patterns
   const namePatterns = [
-    /(?:name|full name|consumer name)[:\s]+([A-Z][a-zA-Z\s]+)(?:\n|$)/i,
-    /^([A-Z][a-zA-Z]+\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s*$/m
+    /(?:Consumer\s+Name|Full\s+Name|Name)[:\s]+([A-Z][a-zA-Z\s]+?)(?:\n|$|,|\s{3,})/i,
+    /(?:^|\n)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+(?:DOB|Date\s+of\s+Birth)/i,
+    /(?:^|\n)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s+\d{1,2}\/\d{1,2}\/\d{2,4}/i
   ];
   
   for (const pattern of namePatterns) {
     const match = text.match(pattern);
-    if (match && match[1] && !match[1].includes('John Doe')) {
-      info.full_name = match[1].trim();
+    if (match && match[1]) {
+      const name = match[1].trim();
+      if (!name.toLowerCase().includes('john doe') && name.length > 3) {
+        info.full_name = name;
+        console.log('Found name:', name);
+        break;
+      }
+    }
+  }
+  
+  // Enhanced date of birth patterns
+  const dobPatterns = [
+    /(?:Date\s+of\s+Birth|DOB|Birth\s+Date)[:\s]*(\d{1,2}\/\d{1,2}\/\d{2,4})/i,
+    /(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:DOB|Birth)/i
+  ];
+  
+  for (const pattern of dobPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      try {
+        const dateParts = match[1].split('/');
+        if (dateParts.length === 3) {
+          const month = parseInt(dateParts[0]);
+          const day = parseInt(dateParts[1]);
+          const year = parseInt(dateParts[2]);
+          
+          if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900) {
+            const date = new Date(year, month - 1, day);
+            info.date_of_birth = date.toISOString().split('T')[0];
+            console.log('Found DOB:', info.date_of_birth);
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn('Invalid date format:', match[1]);
+      }
+    }
+  }
+  
+  // Enhanced address patterns
+  const addressPatterns = [
+    /(?:Current\s+Address|Address|Residence)[:\s]+(\d+[^,\n]*(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Court|Ct|Way|Place|Pl)[^,\n]*(?:,\s*[A-Z][^,\n]*){0,3})/i,
+    /(\d+\s+[A-Z][a-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr)\s+[A-Z][a-z\s]*\s+[A-Z]{2}\s+\d{5})/i
+  ];
+  
+  for (const pattern of addressPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      info.current_address = { street: match[1].trim() };
+      console.log('Found address:', match[1].trim());
       break;
     }
   }
   
-  // Extract date of birth
-  const dobPattern = /(?:date of birth|dob|birth date)[:\s]+(\d{1,2}\/\d{1,2}\/\d{2,4})/i;
-  const dobMatch = text.match(dobPattern);
-  if (dobMatch) {
-    info.date_of_birth = dobMatch[1];
-  }
-  
-  // Extract address
-  const addressPattern = /(?:address|current address)[:\s]+([^\n]+(?:\n[^\n]+)*?)(?:\n\n|\nPhone|\nSSN|$)/i;
-  const addressMatch = text.match(addressPattern);
-  if (addressMatch) {
-    info.current_address = addressMatch[1].trim();
-  }
-  
-  // Extract partial SSN
-  const ssnPattern = /(?:ssn|social security)[:\s]+(XXX-XX-\d{4}|\*\*\*-\*\*-\d{4})/i;
+  // SSN pattern
+  const ssnPattern = /(?:SSN|Social\s+Security)[:\s]*(XXX-XX-\d{4}|\*\*\*-\*\*-\d{4}|XX\d-XX-\d{4})/i;
   const ssnMatch = text.match(ssnPattern);
   if (ssnMatch) {
     info.ssn_partial = ssnMatch[1];
+    console.log('Found SSN partial:', ssnMatch[1]);
   }
   
   return info;
 }
 
-function extractCreditAccounts(text: string): any[] {
+function extractCreditAccountsEnhanced(text: string): any[] {
+  console.log('💳 Enhanced credit accounts extraction...');
   const accounts = [];
   
-  // Enhanced account patterns
+  // Split text into lines for better parsing
+  const lines = text.split('\n');
+  
+  // Look for account patterns
   const accountPatterns = [
-    /([A-Z][a-zA-Z\s&]+(?:Bank|Card|Credit|Financial|Capital|Chase|Wells|Citi|Discover|American Express))\s*\n.*?Account[:\s]*(\*+\d{4}|\d{4})\s*\n.*?Balance[:\s]*\$?([\d,]+\.?\d*)/gi,
-    /(Chase|Capital One|Wells Fargo|Bank of America|Citi|Discover|American Express)[^\n]*\n.*?(\*+\d{4})\s*\n.*?\$?([\d,]+\.?\d*)/gi
+    /\b(Chase|Wells\s+Fargo|Bank\s+of\s+America|Capital\s+One|Citibank|American\s+Express|Discover|Synchrony|Credit\s+One)\b/gi,
+    /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:Credit\s+Card|Visa|Mastercard|Card)\b/gi,
+    /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:Auto\s+Loan|Mortgage|Personal\s+Loan)\b/gi
   ];
   
-  for (const pattern of accountPatterns) {
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const account = {
-        creditor_name: match[1].trim(),
-        account_number: match[2],
-        current_balance: parseFloat(match[3].replace(/,/g, '')) || 0,
-        account_type: determineAccountType(match[1]),
-        account_status: 'current',
-        is_negative: false
-      };
-      
-      if (account.creditor_name && account.account_number) {
-        accounts.push(account);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    for (const pattern of accountPatterns) {
+      const matches = line.match(pattern);
+      if (matches) {
+        for (const match of matches) {
+          const account: any = {
+            creditor_name: match.trim()
+          };
+          
+          // Look for account details in surrounding lines
+          for (let j = Math.max(0, i - 2); j < Math.min(lines.length, i + 8); j++) {
+            const contextLine = lines[j];
+            
+            // Account number
+            const accountNumMatch = contextLine.match(/(?:Account|Acct)[:\s#]*(\*{4,}\d{4}|\d{4}[X*]{4,}\d{4}|\d{4}\s*\d{4})/i);
+            if (accountNumMatch) {
+              account.account_number = accountNumMatch[1];
+            }
+            
+            // Balance
+            const balanceMatch = contextLine.match(/(?:Balance|Current\s+Balance)[:\s]*\$?([\d,]+\.?\d*)/i);
+            if (balanceMatch) {
+              account.current_balance = parseFloat(balanceMatch[1].replace(/,/g, ''));
+            }
+            
+            // Credit limit
+            const limitMatch = contextLine.match(/(?:Credit\s+Limit|Limit)[:\s]*\$?([\d,]+\.?\d*)/i);
+            if (limitMatch) {
+              account.credit_limit = parseFloat(limitMatch[1].replace(/,/g, ''));
+            }
+            
+            // Account type
+            if (contextLine.match(/Credit\s+Card|Visa|Mastercard/i)) {
+              account.account_type = 'Credit Card';
+            } else if (contextLine.match(/Auto\s+Loan/i)) {
+              account.account_type = 'Auto Loan';
+            } else if (contextLine.match(/Mortgage/i)) {
+              account.account_type = 'Mortgage';
+            }
+            
+            // Status
+            const statusMatch = contextLine.match(/(?:Status|Payment\s+Status)[:\s]*(Current|Past\s+Due|Closed|Open)/i);
+            if (statusMatch) {
+              account.account_status = statusMatch[1];
+            }
+          }
+          
+          // Only add if we have meaningful data
+          if (account.creditor_name && (account.account_number || account.current_balance)) {
+            accounts.push(account);
+          }
+        }
       }
     }
   }
   
-  return accounts;
+  // Remove duplicates
+  const uniqueAccounts = accounts.filter((account, index, self) => 
+    index === self.findIndex(a => a.creditor_name === account.creditor_name && a.account_number === account.account_number)
+  );
+  
+  console.log(`Found ${uniqueAccounts.length} unique accounts`);
+  return uniqueAccounts;
 }
 
-function extractCreditInquiries(text: string): any[] {
+function extractCreditInquiriesEnhanced(text: string): any[] {
+  console.log('🔍 Enhanced credit inquiries extraction...');
   const inquiries = [];
+  const lines = text.split('\n');
   
-  const inquiryPatterns = [
-    /([A-Z][a-zA-Z\s&]+)\s*\n.*?Date[:\s]*(\d{1,2}\/\d{1,2}\/\d{2,4})/gi,
-    /(Verizon|T-Mobile|Sprint|AT&T|Capital One|Chase|Wells Fargo)[^\n]*\n.*?(\d{1,2}\/\d{1,2}\/\d{2,4})/gi
-  ];
-  
-  for (const pattern of inquiryPatterns) {
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const inquiry = {
-        inquirer_name: match[1].trim(),
-        inquiry_date: match[2],
-        inquiry_type: 'hard'
-      };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Look for company names followed by dates
+    const companyMatch = line.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/);
+    if (companyMatch && i + 1 < lines.length) {
+      const nextLine = lines[i + 1];
+      const dateMatch = nextLine.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
       
-      if (inquiry.inquirer_name && inquiry.inquiry_date) {
-        inquiries.push(inquiry);
+      if (dateMatch) {
+        try {
+          const dateParts = dateMatch[1].split('/');
+          const month = parseInt(dateParts[0]);
+          const day = parseInt(dateParts[1]);
+          const year = parseInt(dateParts[2]);
+          
+          if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            const date = new Date(year < 100 ? 2000 + year : year, month - 1, day);
+            inquiries.push({
+              inquirer_name: companyMatch[1],
+              inquiry_date: date.toISOString().split('T')[0],
+              inquiry_type: 'hard'
+            });
+          }
+        } catch (e) {
+          console.warn('Invalid inquiry date:', dateMatch[1]);
+        }
       }
     }
   }
   
+  console.log(`Found ${inquiries.length} inquiries`);
   return inquiries;
 }
 
-function extractNegativeItems(text: string): any[] {
+function extractNegativeItemsEnhanced(text: string): any[] {
+  console.log('⚠️ Enhanced negative items extraction...');
   const negativeItems = [];
+  const lines = text.split('\n');
   
-  const collectionPattern = /([A-Z][a-zA-Z\s]+(?:Collection|Medical|Recovery))[^\n]*\n.*?\$?([\d,]+\.?\d*)/gi;
-  
-  let match;
-  while ((match = collectionPattern.exec(text)) !== null) {
-    const item = {
-      negative_type: 'collection',
-      description: match[1].trim(),
-      amount: parseFloat(match[2].replace(/,/g, '')) || 0,
-      status: 'active'
-    };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     
-    if (item.description && item.amount > 0) {
+    // Look for collection agencies
+    if (line.match(/Collection|Services|Recovery|Debt/i)) {
+      const item: any = {
+        negative_type: 'collection',
+        description: line.trim()
+      };
+      
+      // Look for amount in surrounding lines
+      for (let j = Math.max(0, i - 2); j < Math.min(lines.length, i + 3); j++) {
+        const contextLine = lines[j];
+        const amountMatch = contextLine.match(/\$?([\d,]+\.?\d*)/);
+        if (amountMatch && parseFloat(amountMatch[1].replace(/,/g, '')) > 0) {
+          item.amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+          break;
+        }
+      }
+      
       negativeItems.push(item);
     }
   }
   
+  console.log(`Found ${negativeItems.length} negative items`);
   return negativeItems;
-}
-
-function determineAccountType(creditorName: string): string {
-  const credit_cards = ['credit', 'card', 'visa', 'mastercard', 'discover', 'american express'];
-  const auto_loans = ['auto', 'car', 'vehicle', 'motor'];
-  const mortgages = ['mortgage', 'home', 'house', 'real estate'];
-  
-  const name = creditorName.toLowerCase();
-  
-  if (credit_cards.some(keyword => name.includes(keyword))) return 'credit_card';
-  if (auto_loans.some(keyword => name.includes(keyword))) return 'auto_loan';
-  if (mortgages.some(keyword => name.includes(keyword))) return 'mortgage';
-  
-  return 'other';
 }

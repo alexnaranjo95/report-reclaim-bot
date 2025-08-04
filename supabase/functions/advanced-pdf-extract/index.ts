@@ -249,92 +249,133 @@ serve(async (req) => {
 async function extractTextWithAdvancedPDFJS(arrayBuffer: ArrayBuffer): Promise<string> {
   console.log('🚀 Starting advanced PDF.js extraction...');
   
-  const uint8Array = new Uint8Array(arrayBuffer);
-  
-  // Try multiple encoding methods for better text extraction
-  let pdfString: string;
   try {
-    pdfString = new TextDecoder('utf-8').decode(uint8Array);
-  } catch {
-    try {
-      pdfString = new TextDecoder('latin1').decode(uint8Array);
-    } catch {
-      pdfString = new TextDecoder('ascii').decode(uint8Array);
-    }
-  }
-  
-  let extractedText = '';
-  
-  // Method 1: Extract from text objects (BT...ET blocks) with enhanced parsing
-  console.log('📖 Extracting from text objects...');
-  const textObjects = pdfString.match(/BT\s+[\s\S]*?ET/g) || [];
-  console.log(`Found ${textObjects.length} text objects`);
-  
-  for (const textObj of textObjects) {
-    // Enhanced patterns for different PDF text encodings
-    const patterns = [
-      // Standard Tj commands
-      /\(([^)]+)\)\s*Tj/g,
-      // Array-based TJ commands
-      /\[((?:\([^)]*\)|[^\[\]])*?)\]\s*TJ/g,
-      // Quoted strings
-      /"([^"]*?)"\s*(?:Tj|TJ)/g,
-      // Hex strings
-      /<([0-9A-Fa-f]+)>\s*(?:Tj|TJ)/g
-    ];
+    const uint8Array = new Uint8Array(arrayBuffer);
     
-    for (const pattern of patterns) {
-      let match;
-      while ((match = pattern.exec(textObj)) !== null) {
-        let text = match[1];
-        
-        // Decode various PDF text encodings
-        text = decodePDFText(text);
-        
-        if (text.trim() && isReadableText(text)) {
-          extractedText += text + ' ';
+    // First try: Standard PDF.js page-by-page extraction
+    console.log('📄 Attempting page-by-page extraction...');
+    try {
+      // Import PDF.js for proper text extraction
+      const pdfjsLib = await import('https://cdn.skypack.dev/pdfjs-dist@3.11.174');
+      const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+      let pageText = '';
+      
+      for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, 20); pageNum++) {
+        try {
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const pageStrings = textContent.items
+            .filter((item: any) => item.str && typeof item.str === 'string')
+            .map((item: any) => item.str)
+            .join(' ');
+          
+          if (pageStrings.trim().length > 0) {
+            pageText += pageStrings + ' ';
+          }
+        } catch (pageError) {
+          console.log(`⚠️ Error extracting page ${pageNum}:`, pageError.message);
+        }
+      }
+      
+      if (pageText.trim().length > 100 && isReadableText(pageText)) {
+        console.log(`✅ Page-by-page extraction successful: ${pageText.length} characters`);
+        return cleanExtractedText(pageText);
+      }
+    } catch (pdfError) {
+      console.log('⚠️ Page-by-page extraction failed:', pdfError.message);
+    }
+    
+    // Fallback: Binary extraction methods
+    console.log('🔧 Falling back to binary extraction methods...');
+    
+    // Try multiple encoding methods for better text extraction
+    let pdfString: string;
+    try {
+      pdfString = new TextDecoder('utf-8').decode(uint8Array);
+    } catch {
+      try {
+        pdfString = new TextDecoder('latin1').decode(uint8Array);
+      } catch {
+        pdfString = new TextDecoder('ascii').decode(uint8Array);
+      }
+    }
+    
+    let extractedText = '';
+    
+    // Method 1: Extract from text objects (BT...ET blocks) with enhanced parsing
+    console.log('📖 Extracting from text objects...');
+    const textObjects = pdfString.match(/BT\s+[\s\S]*?ET/g) || [];
+    console.log(`Found ${textObjects.length} text objects`);
+    
+    for (const textObj of textObjects) {
+      // Enhanced patterns for different PDF text encodings
+      const patterns = [
+        // Standard Tj commands
+        /\(([^)]+)\)\s*Tj/g,
+        // Array-based TJ commands
+        /\[((?:\([^)]*\)|[^\[\]])*?)\]\s*TJ/g,
+        // Quoted strings
+        /"([^"]*?)"\s*(?:Tj|TJ)/g,
+        // Hex strings
+        /<([0-9A-Fa-f]+)>\s*(?:Tj|TJ)/g
+      ];
+      
+      for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(textObj)) !== null) {
+          let text = match[1];
+          
+          // Decode various PDF text encodings
+          text = decodePDFText(text);
+          
+          if (text.trim() && isReadableText(text)) {
+            extractedText += text + ' ';
+          }
         }
       }
     }
-  }
-  
-  // Method 2: Extract from PDF streams with content filtering
-  console.log('🌊 Extracting from PDF streams...');
-  const streamPattern = /stream\s*([\s\S]*?)\s*endstream/g;
-  let streamMatch;
-  
-  while ((streamMatch = streamPattern.exec(pdfString)) !== null) {
-    const streamContent = streamMatch[1];
-    const readableContent = extractReadableFromStream(streamContent);
-    if (readableContent) {
-      extractedText += readableContent + ' ';
-    }
-  }
-  
-  // Method 3: Extract from PDF objects with enhanced filtering
-  console.log('🔍 Extracting from PDF objects...');
-  const objectPattern = /(\d+)\s+\d+\s+obj\s*([\s\S]*?)\s*endobj/g;
-  let objMatch;
-  
-  while ((objMatch = objectPattern.exec(pdfString)) !== null) {
-    const objectContent = objMatch[2];
-    if (objectContent.includes('/Type') && !objectContent.includes('/Image')) {
-      const readableContent = extractReadableFromObject(objectContent);
+    
+    // Method 2: Extract from PDF streams with content filtering
+    console.log('🌊 Extracting from PDF streams...');
+    const streamPattern = /stream\s*([\s\S]*?)\s*endstream/g;
+    let streamMatch;
+    
+    while ((streamMatch = streamPattern.exec(pdfString)) !== null) {
+      const streamContent = streamMatch[1];
+      const readableContent = extractReadableFromStream(streamContent);
       if (readableContent) {
         extractedText += readableContent + ' ';
       }
     }
+    
+    // Method 3: Extract from PDF objects with enhanced filtering
+    console.log('🔍 Extracting from PDF objects...');
+    const objectPattern = /(\d+)\s+\d+\s+obj\s*([\s\S]*?)\s*endobj/g;
+    let objMatch;
+    
+    while ((objMatch = objectPattern.exec(pdfString)) !== null) {
+      const objectContent = objMatch[2];
+      if (objectContent.includes('/Type') && !objectContent.includes('/Image')) {
+        const readableContent = extractReadableFromObject(objectContent);
+        if (readableContent) {
+          extractedText += readableContent + ' ';
+        }
+      }
+    }
+    
+    console.log(`📝 Advanced PDF.js extracted ${extractedText.length} characters`);
+    console.log(`📋 Extracted text preview: ${extractedText.substring(0, 300)}...`);
+    
+    if (extractedText.length < 50) {
+      console.log('⚠️ Very low text extraction - PDF may be image-based or encrypted');
+      throw new Error('Advanced PDF.js extraction yielded insufficient text - PDF may be image-based');
+    }
+    
+    return extractedText.trim();
+  } catch (error) {
+    console.error('❌ Advanced PDF.js extraction failed:', error);
+    return '';
   }
-  
-  console.log(`📝 Advanced PDF.js extracted ${extractedText.length} characters`);
-  console.log(`📋 Extracted text preview: ${extractedText.substring(0, 300)}...`);
-  
-  if (extractedText.length < 50) {
-    console.log('⚠️ Very low text extraction - PDF may be image-based or encrypted');
-    throw new Error('Advanced PDF.js extraction yielded insufficient text - PDF may be image-based');
-  }
-  
-  return extractedText.trim();
 }
 
 async function extractTextWithBinaryMethod(arrayBuffer: ArrayBuffer): Promise<string> {

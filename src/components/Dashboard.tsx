@@ -154,7 +154,7 @@ export const Dashboard = () => {
       );
       
       // Validate that we got meaningful results
-      if (!results || !results.items || results.items.length === 0) {
+      if (!results || (!results.items && !results.summary)) {
         setAnalysisError('No data was extracted from the PDF. This could be because the PDF is image-based, encrypted, or not a valid credit report.');
         setProcessingStep('error');
         return;
@@ -171,18 +171,26 @@ export const Dashboard = () => {
       });
       
     } catch (error: any) {
-      console.error('Analysis failed:', error);
+      console.error('💥 Analysis failed:', error);
       setAnalysisError(error.message || 'Analysis failed');
       setProcessingStep('error');
+      
+      // Don't automatically hide the processing screen - keep it visible with error
+      // setIsAnalyzing(false); // Keep this commented so processing screen stays visible
       
       toast({
         title: "Analysis Failed",
         description: error.message || "Failed to analyze credit report. Please try again.",
         variant: "destructive"
       });
-    } finally {
-      setIsAnalyzing(false);
     }
+  };
+
+  const handleFileAnalysis = async (file: File) => {
+    // Reset previous error state when starting new analysis
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    return handleFileUpload(file);
   };
   const handleDeleteFile = () => {
     setUploadedFile(null);

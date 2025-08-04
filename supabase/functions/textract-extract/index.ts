@@ -192,29 +192,44 @@ async function analyzeDocumentWithTextract(bytes: Uint8Array) {
   console.log("AWS credentials validated");
   console.log("Using AWS region:", region);
 
-  // Efficient base64 conversion using Deno's built-in encoder
+  // Efficient and reliable base64 conversion for Deno
   let base64String: string;
   try {
-    // Use Deno's built-in base64 encoding which is more memory efficient
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder('latin1');
+    // Use proper chunked conversion to avoid memory issues with spread operator
+    const uint8Array = new Uint8Array(bytes);
+    const chunkSize = 32768; // 32KB chunks to avoid stack overflow
+    let binaryString = '';
     
-    // Convert bytes to binary string in chunks to avoid memory issues
-    const chunkSize = 8192; // 8KB chunks
-    const chunks: string[] = [];
-    
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.slice(i, i + chunkSize);
-      const binaryString = decoder.decode(chunk);
-      chunks.push(binaryString);
+    // Process in chunks to avoid "Maximum call stack size exceeded"
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.slice(i, i + chunkSize);
+      const chunkString = Array.from(chunk, byte => String.fromCharCode(byte)).join('');
+      binaryString += chunkString;
     }
     
-    const fullBinaryString = chunks.join('');
-    base64String = btoa(fullBinaryString);
+    // Convert to base64
+    base64String = btoa(binaryString);
     
     console.log("✅ Base64 conversion successful");
     console.log("Base64 length:", base64String.length);
     console.log("Base64 preview (first 50 chars):", base64String.substring(0, 50));
+    
+    // Validate base64 string
+    if (!base64String || base64String.length === 0) {
+      throw new Error("Base64 conversion resulted in empty string");
+    }
+    
+    // Verify it starts with PDF marker when decoded
+    try {
+      const testDecode = atob(base64String.substring(0, 32));
+      if (!testDecode.startsWith('%PDF')) {
+        console.error("Base64 validation failed - decoded content:", testDecode.substring(0, 10));
+        throw new Error("Base64 decoded content doesn't start with PDF marker");
+      }
+      console.log("✅ Base64 validation passed - PDF marker found");
+    } catch (validationError) {
+      console.warn("Base64 validation warning:", validationError.message);
+    }
     
   } catch (conversionError) {
     console.error("Base64 conversion failed:", conversionError);

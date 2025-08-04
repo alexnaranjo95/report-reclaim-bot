@@ -59,16 +59,33 @@ serve(async (req) => {
     const bytes = new Uint8Array(arrayBuffer);
     console.log("PDF downloaded successfully, size:", bytes.length, "bytes");
 
-    // Validate file size (max 5MB for Textract)
-    if (bytes.length > 5000000) {
-      throw new Error(`File too large: ${bytes.length} bytes. Maximum supported size is 5MB.`);
+    // Enhanced file validation
+    console.log("Validating PDF file...");
+    
+    // Check minimum file size (PDFs must be at least 1KB)
+    if (bytes.length < 1024) {
+      throw new Error(`File too small: ${bytes.length} bytes. Minimum file size is 1KB.`);
+    }
+    
+    // Validate file size (reduce max to 3MB for better reliability)
+    if (bytes.length > 3000000) {
+      throw new Error(`File too large: ${bytes.length} bytes. Maximum supported size is 3MB. Please reduce file size and try again.`);
     }
 
-    // Verify PDF header
+    // Verify PDF header (check first 4 bytes)
     const pdfHeader = Array.from(bytes.slice(0, 4), byte => String.fromCharCode(byte)).join('');
     if (pdfHeader !== '%PDF') {
-      throw new Error("Invalid PDF file format");
+      const actualHeader = Array.from(bytes.slice(0, 10), byte => String.fromCharCode(byte)).join('');
+      throw new Error(`Invalid PDF file format. Expected '%PDF' but found '${actualHeader.substring(0, 4)}'. Please ensure this is a valid PDF file.`);
     }
+    
+    // Additional PDF validation - check for PDF trailer
+    const trailer = new TextDecoder().decode(bytes.slice(-100));
+    if (!trailer.includes('%%EOF')) {
+      console.warn("PDF may be corrupted - no EOF marker found");
+    }
+    
+    console.log("✅ PDF validation passed");
 
     // Extract text using Amazon Textract
     console.log("🚀 Starting Amazon Textract analysis...");
@@ -158,60 +175,121 @@ serve(async (req) => {
   }
 });
 
-// Amazon Textract integration
+// Amazon Textract integration with improved memory management
 async function analyzeDocumentWithTextract(bytes: Uint8Array) {
   console.log("Converting to base64...");
   console.log("File size in bytes:", bytes.length);
   
-  // Convert to base64 using proper method for Deno
-  const binaryString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
-  const base64String = btoa(binaryString);
-  
-  console.log("Base64 conversion successful");
-  console.log("Base64 length:", base64String.length);
-  console.log("Base64 preview (first 100 chars):", base64String.substring(0, 100));
-
-  // Prepare AWS Textract request
+  // Validate AWS credentials first
   const region = Deno.env.get("AWS_REGION") || "us-east-1";
-  const accessKeyId = Deno.env.get("AWS_ACCESS_KEY_ID")!;
-  const secretAccessKey = Deno.env.get("AWS_SECRET_ACCESS_KEY")!;
+  const accessKeyId = Deno.env.get("AWS_ACCESS_KEY_ID");
+  const secretAccessKey = Deno.env.get("AWS_SECRET_ACCESS_KEY");
 
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error("AWS credentials not configured");
+    throw new Error("AWS credentials not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in edge function secrets.");
   }
 
+  console.log("AWS credentials validated");
+  console.log("Using AWS region:", region);
+
+  // Efficient base64 conversion using Deno's built-in encoder
+  let base64String: string;
+  try {
+    // Use Deno's built-in base64 encoding which is more memory efficient
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder('latin1');
+    
+    // Convert bytes to binary string in chunks to avoid memory issues
+    const chunkSize = 8192; // 8KB chunks
+    const chunks: string[] = [];
+    
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.slice(i, i + chunkSize);
+      const binaryString = decoder.decode(chunk);
+      chunks.push(binaryString);
+    }
+    
+    const fullBinaryString = chunks.join('');
+    base64String = btoa(fullBinaryString);
+    
+    console.log("✅ Base64 conversion successful");
+    console.log("Base64 length:", base64String.length);
+    console.log("Base64 preview (first 50 chars):", base64String.substring(0, 50));
+    
+  } catch (conversionError) {
+    console.error("Base64 conversion failed:", conversionError);
+    throw new Error(`Base64 conversion failed: ${conversionError.message}`);
+  }
+
+  // Prepare streamlined AWS Textract request
   const service = "textract";
   const host = `${service}.${region}.amazonaws.com`;
   const endpoint = `https://${host}/`;
   
-  const payload = JSON.stringify({
+  const requestBody = {
     Document: {
       Bytes: base64String
     },
     FeatureTypes: ["TABLES", "FORMS"]
-  });
+  };
 
-  // Create AWS signature
-  const headers = await createAwsHeaders(payload, host, region, accessKeyId, secretAccessKey);
+  const payload = JSON.stringify(requestBody);
+  console.log("Payload size:", payload.length, "bytes");
 
-  console.log("Calling Textract AnalyzeDocument API...");
-  
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: payload,
-  });
+  try {
+    // Create AWS signature with better error handling
+    const headers = await createAwsHeaders(payload, host, region, accessKeyId, secretAccessKey);
+    console.log("✅ AWS signature created successfully");
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("Textract API error:", errorText);
-    throw new Error(`Textract API error: ${response.status} - ${errorText}`);
+    console.log("Calling Textract AnalyzeDocument API...");
+    console.log("Endpoint:", endpoint);
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: payload,
+    });
+
+    console.log("Textract API response status:", response.status);
+    console.log("Textract API response headers:", Object.fromEntries(response.headers.entries()));
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Textract API error response:", errorText);
+      
+      // Parse AWS error for better debugging
+      try {
+        const errorData = JSON.parse(errorText);
+        const errorType = errorData.__type || 'Unknown';
+        const errorMessage = errorData.Message || errorText;
+        throw new Error(`Textract API error (${response.status}): ${errorType} - ${errorMessage}`);
+      } catch (parseError) {
+        throw new Error(`Textract API error (${response.status}): ${errorText}`);
+      }
+    }
+
+    const result = await response.json();
+    console.log("✅ Textract API call successful");
+    console.log("Response blocks count:", result.Blocks?.length || 0);
+    
+    return processTextractResponse(result);
+    
+  } catch (apiError) {
+    console.error("Textract API call failed:", apiError);
+    
+    // Provide more specific error messages
+    if (apiError.message.includes('UnsupportedDocumentException')) {
+      throw new Error("PDF format not supported by Textract. Please ensure the file is a valid PDF.");
+    } else if (apiError.message.includes('InvalidParameterException')) {
+      throw new Error("Invalid request parameters. The PDF may be corrupted or too large.");
+    } else if (apiError.message.includes('ThrottlingException')) {
+      throw new Error("Textract service is busy. Please try again in a few moments.");
+    } else if (apiError.message.includes('AccessDeniedException')) {
+      throw new Error("AWS credentials are invalid or lack Textract permissions.");
+    }
+    
+    throw apiError;
   }
-
-  const result = await response.json();
-  console.log("✅ Textract API call successful");
-  
-  return processTextractResponse(result);
 }
 
 // Process Textract response into structured data

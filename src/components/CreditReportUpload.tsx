@@ -294,11 +294,11 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
         // Start progress simulation (but don't complete)
         const progressPromise = simulateProcessingSteps(uploadFile.id, reportRecord.id);
         
-        // Trigger actual processing using advanced extraction with OCR
-        console.log('🚀 Starting advanced PDF extraction for report:', reportRecord.id);
+        // Trigger actual processing using the correct PDF extraction function
+        console.log('🚀 Starting PDF extraction for report:', reportRecord.id);
         
         try {
-          const { data: extractionResult, error: extractError } = await supabase.functions.invoke('advanced-pdf-extract', {
+          const { data: extractionResult, error: extractError } = await supabase.functions.invoke('process-credit-report', {
             body: {
               reportId: reportRecord.id,
               filePath: storagePath,
@@ -313,7 +313,7 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
           console.log('  📄 File:', uploadFile.file.name);
           console.log('  🆔 Report ID:', reportRecord.id);
           console.log('  📁 Storage Path:', storagePath);
-          console.log('  🔧 Function Called: advanced-pdf-extract');
+          console.log('  🔧 Function Called: process-credit-report');
           console.log('  ✅ Success:', extractionResult?.success);
           console.log('  📊 Text Length:', extractionResult?.textLength);
           console.log('  🔍 Extraction Method:', extractionResult?.extractionMethod);

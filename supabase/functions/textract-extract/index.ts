@@ -557,7 +557,11 @@ function isValidCreditReportContent(text: string): boolean {
   const creditReportIndicators = [
     'credit report', 'credit score', 'experian', 'equifax', 'transunion',
     'account history', 'payment history', 'personal information',
-    'credit inquiry', 'credit account', 'balance', 'credit limit'
+    'credit inquiry', 'credit account', 'balance', 'credit limit',
+    'identityiq', 'credit monitoring', 'account number',
+    'name:', 'address:', 'ssn:', 'date of birth', 'phone:',
+    'account status', 'payment terms', 'monthly payment',
+    'revolving', 'installment', 'creditor', 'collections'
   ];
   
   const lowerText = text.toLowerCase();
@@ -565,7 +569,12 @@ function isValidCreditReportContent(text: string): boolean {
     lowerText.includes(indicator)
   );
   
-  return foundIndicators.length >= 3;
+  console.log("Credit report validation - found indicators:", foundIndicators.length);
+  console.log("Found indicators:", foundIndicators);
+  console.log("Text preview (first 500 chars):", text.substring(0, 500));
+  
+  // More lenient validation - require at least 2 indicators
+  return foundIndicators.length >= 2;
 }
 
 // Parse and store credit data

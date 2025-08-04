@@ -63,13 +63,13 @@ serve(async (req) => {
       try {
         console.log('📖 Attempting advanced PDF.js extraction...');
         extractedText = await extractTextWithAdvancedPDFJS(arrayBuffer);
-        if (extractedText && extractedText.length > 50 && isValidCreditReportContent(extractedText)) {
+        if (extractedText && extractedText.length > 50) {
           extractionMethod = 'Advanced PDF.js';
           console.log('✅ Advanced PDF.js extraction successful');
         } else {
-          console.log(`❌ PDF.js failed validation: length=${extractedText?.length}, valid=${isValidCreditReportContent(extractedText || '')}`);
-          console.log('🔧 PDF.js extracted garbled text, trying binary extraction...');
-          throw new Error('Advanced PDF.js failed: Garbled or insufficient content');
+          console.log(`❌ PDF.js insufficient text: length=${extractedText?.length}`);
+          console.log('🔧 PDF.js yielded insufficient text, trying binary extraction...');
+          throw new Error('Advanced PDF.js failed: Insufficient text extracted');
         }
       } catch (pdfjsError) {
         console.log(`❌ Advanced PDF.js failed: ${pdfjsError.message}`);

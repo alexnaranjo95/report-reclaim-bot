@@ -542,17 +542,41 @@ function cleanExtractedText(text: string): string {
 }
 
 function isValidCreditReportContent(text: string): boolean {
-  if (!text || text.length < 200) return false;
+  if (!text || text.length < 100) return false;
   
-  const requiredElements = [
-    /\b(?:name|full.?name|first.?name|last.?name)\b/i,
-    /\b(?:address|street|city|state|zip)\b/i,
-    /\b(?:account|credit|balance|payment)\b/i,
-    /\b(?:date|birth|dob|\d{1,2}\/\d{1,2}\/\d{2,4})\b/i
+  // Credit report specific patterns - more flexible matching
+  const creditReportIndicators = [
+    /credit.?report/i,
+    /credit.?bureau/i,
+    /equifax|experian|transunion/i,
+    /consumer.?reporting/i,
+    /fico.?score/i,
+    /credit.?score/i,
+    /payment.?history/i,
+    /credit.?inquiry/i,
+    /credit.?account/i,
+    /personal.?information/i,
+    /\b(?:ssn|social.?security)\b/i,
+    /date.?of.?birth/i,
+    /current.?address/i,
+    /account.?number/i,
+    /balance.*\$\d+/i,
+    /credit.?limit/i,
+    /\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?/,  // Money amounts
+    /\d{1,2}\/\d{1,2}\/\d{2,4}/,         // Dates
+    /\b\d{4,16}\b/                       // Account numbers
   ];
   
-  const matchCount = requiredElements.filter(pattern => pattern.test(text)).length;
-  return matchCount >= 2;
+  // Count how many indicators we find
+  const matches = creditReportIndicators.filter(pattern => pattern.test(text)).length;
+  
+  // If we have at least 3 credit report indicators, consider it valid
+  // OR if we have basic financial data (amounts + dates)
+  const hasFinancialData = /\$\d+/.test(text) && /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(text);
+  
+  console.log(`Credit report validation: ${matches} indicators found, hasFinancialData: ${hasFinancialData}`);
+  
+  return matches >= 3 || (matches >= 1 && hasFinancialData);
 }
 
 async function parseAndStoreCreditDataWithLogging(supabase: any, reportId: string, text: string) {

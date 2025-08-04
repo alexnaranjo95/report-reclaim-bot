@@ -1,5 +1,6 @@
 
 import { supabase } from '@/integrations/supabase/client';
+import { ComprehensiveCreditParser } from './ComprehensiveCreditParser';
 
 export class PDFExtractionService {
   /**
@@ -56,6 +57,18 @@ export class PDFExtractionService {
 
       console.log('✅ PDF extraction completed successfully');
       console.log(`📊 Extracted text length: ${result.textLength || 0} characters`);
+      
+      // Step 2: Parse the extracted text into structured credit data
+      console.log('🔍 Starting comprehensive credit data parsing...');
+      
+      try {
+        await ComprehensiveCreditParser.parseReport(reportId);
+        console.log('✅ Credit data parsing completed successfully');
+      } catch (parseError) {
+        console.error('❌ Credit data parsing failed:', parseError);
+        // Don't throw here - we have the raw text, just log the parsing issue
+        console.log('Raw text extracted but parsing failed - this will be handled by validation');
+      }
       
     } catch (extractionError) {
       console.error('PDF extraction error:', extractionError);

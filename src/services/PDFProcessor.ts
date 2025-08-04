@@ -6,44 +6,78 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dis
 export class PDFProcessor {
   static async extractTextFromPDF(file: File): Promise<string> {
     try {
-      console.log('Starting enhanced PDF text extraction...');
+      console.log('🚀 Starting enhanced PDF text extraction...');
       const arrayBuffer = await file.arrayBuffer();
       
-      // Try PDF.js first for modern PDFs
+      // Primary method: Try PDF.js with improved configuration
       try {
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        console.log('📄 Attempting PDF.js extraction...');
+        
+        // Configure PDF.js with better options
+        const loadingTask = pdfjsLib.getDocument({
+          data: arrayBuffer,
+          verbosity: 0, // Reduce console output
+          isEvalSupported: false,
+          disableFontFace: true,
+          useSystemFonts: true
+        });
+        
+        const pdf = await loadingTask.promise;
         let fullText = '';
         
+        console.log(`📖 Processing ${pdf.numPages} pages...`);
+        
         for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items
-            .map((item: any) => item.str)
-            .join(' ');
-          fullText += pageText + ' ';
+          try {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            
+            const pageText = textContent.items
+              .map((item: any) => {
+                if (item.str && item.str.trim()) {
+                  return item.str;
+                }
+                return '';
+              })
+              .filter(text => text.length > 0)
+              .join(' ');
+            
+            if (pageText.trim()) {
+              fullText += pageText + ' ';
+              console.log(`✅ Page ${i}: extracted ${pageText.length} characters`);
+            } else {
+              console.log(`⚠️  Page ${i}: no text content found`);
+            }
+          } catch (pageError) {
+            console.warn(`❌ Error processing page ${i}:`, pageError.message);
+            continue;
+          }
         }
         
         // Validate extraction quality
         if (fullText.length > 100 && this.isValidCreditReportText(fullText)) {
-          console.log('PDF.js extraction successful, length:', fullText.length);
+          console.log('✅ PDF.js extraction successful, length:', fullText.length);
           return this.cleanText(fullText);
+        } else {
+          throw new Error(`PDF.js extraction insufficient: ${fullText.length} characters`);
         }
       } catch (pdfjsError) {
-        console.warn('PDF.js extraction failed:', pdfjsError.message);
+        console.warn('❌ PDF.js extraction failed:', pdfjsError.message);
       }
       
-      // Fallback: Manual extraction for problematic PDFs
-      console.log('Using fallback manual extraction...');
+      // Fallback: Enhanced manual extraction for problematic PDFs
+      console.log('🔧 Using enhanced manual extraction...');
       const manualText = await this.extractManually(arrayBuffer);
       
       if (manualText.length > 50) {
+        console.log('✅ Manual extraction successful, length:', manualText.length);
         return this.cleanText(manualText);
       }
       
-      throw new Error('No readable text found in PDF');
+      throw new Error('❌ No readable text found in PDF - document may be image-based and require OCR');
     } catch (error) {
-      console.error('Error extracting text from PDF:', error);
-      throw new Error('Failed to process PDF file. Please ensure it\'s a valid credit report.');
+      console.error('💥 Error extracting text from PDF:', error);
+      throw new Error('Failed to process PDF file. Document may be image-based or corrupted.');
     }
   }
 

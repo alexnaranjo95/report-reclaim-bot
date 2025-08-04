@@ -35,10 +35,10 @@ export class PDFExtractionService {
       throw new Error(`Failed to update report status: ${updateError.message}`);
     }
 
-    // Use enhanced PDF extraction system
+    // Use advanced PDF extraction system with OCR fallback
     try {
-      console.log('Using enhanced PDF extraction system...');
-      const { error: extractError } = await supabase.functions.invoke('enhanced-pdf-extract', {
+      console.log('Using advanced PDF extraction system with OCR capabilities...');
+      const { error: extractError } = await supabase.functions.invoke('advanced-pdf-extract', {
         body: {
           reportId,
           filePath: report.file_path,
@@ -46,13 +46,13 @@ export class PDFExtractionService {
       });
 
       if (extractError) {
-        console.error('Enhanced extraction failed:', extractError);
+        console.error('Advanced extraction failed:', extractError);
         throw new Error(`PDF extraction failed: ${extractError.message}`);
       }
       
-      console.log('Enhanced PDF extraction completed successfully');
+      console.log('Advanced PDF extraction completed successfully');
     } catch (extractionError) {
-      console.error('Enhanced PDF extraction error:', extractionError);
+      console.error('Advanced PDF extraction error:', extractionError);
       throw new Error(`PDF extraction failed: ${extractionError.message}`);
     }
 

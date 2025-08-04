@@ -529,12 +529,31 @@ async function analyzeCreditReport(reportText: string) {
     console.log(`📝 Truncated text from ${reportText.length} to ${truncatedText.length} characters`);
   }
 
-  const prompt = `Analyze this credit report and provide a comprehensive assessment. Extract all relevant information and provide actionable insights.
+  // Log sample of text for debugging
+  console.log(`🧠 Analyzing with OpenAI...`);
+  console.log(`📄 Text sample: ${truncatedText.substring(0, 500)}...`);
+
+  const prompt = `You are analyzing a REAL credit report document. This contains actual financial data that you must extract carefully.
+
+CRITICAL: Look for ACTUAL data in this text, not generic examples. Find:
+- Real names (not "John Doe" or examples)
+- Real addresses 
+- Real account numbers (even partial like ****1234)
+- Real creditor names (Bank of America, Chase, Capital One, etc.)
+- Real balances and credit limits
+- Real credit scores
 
 Credit Report Text:
 ${truncatedText}
 
-Please provide your analysis in the following JSON format:
+INSTRUCTIONS:
+1. Search through ALL the text for actual financial data
+2. If you find partial account numbers, extract them
+3. If you find any creditor names, include them
+4. If you see balances, limits, or scores, extract the numbers
+5. If information is truly missing, say "Not found" but be thorough first
+
+Respond in JSON format:
 {
   "summary": {
     "totalAccounts": number,

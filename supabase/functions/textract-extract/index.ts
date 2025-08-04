@@ -616,7 +616,7 @@ function sanitizeText(text: string): string {
 function validatePDFContent(text: string): {
   isValid: boolean;
   reason?: string;
-  detectedType: 'credit_report' | 'image_based' | 'metadata_only' | 'encrypted' | 'empty';
+  detectedType: 'credit_report' | 'image_based' | 'metadata_only' | 'corrupted_identityiq' | 'encrypted' | 'empty';
   creditKeywords: number;
   contentRatio: number;
 } {
@@ -774,12 +774,21 @@ function validatePDFContent(text: string): {
     };
   }
   
-  // REJECTION LOGIC - Only reject clearly problematic files
+  // REJECTION LOGIC - Enhanced with specific guidance
   
   if (hasMetadata && alphaNumericRatio < 0.3 && creditKeywords === 0) {
+    let reason = "PDF contains mostly metadata with no readable credit data.";
+    if (isIdentityIQ) {
+      reason += " This IdentityIQ report appears to be browser-generated. Try downloading the report directly from IdentityIQ instead of printing to PDF.";
+    } else if (hasMozilla) {
+      reason += " This appears to be a browser-generated PDF. Try downloading the original report directly from the credit bureau.";
+    } else {
+      reason += " Please upload a text-based credit report PDF from Experian, Equifax, TransUnion, or a credit monitoring service.";
+    }
+    
     return {
       isValid: false,
-      reason: "PDF contains mostly metadata with no credit data. Please upload a text-based credit report PDF.",
+      reason,
       detectedType: 'metadata_only',
       creditKeywords,
       contentRatio: alphaNumericRatio
@@ -787,10 +796,17 @@ function validatePDFContent(text: string): {
   }
   
   if (creditKeywords === 0 && alphaNumericRatio < 0.2) {
+    let reason = "PDF contains no recognizable credit report data.";
+    if (isIdentityIQ || hasMozilla) {
+      reason += " This appears to be a browser-generated credit report with severely corrupted text. For IdentityIQ reports, download the PDF directly from IdentityIQ instead of using 'Print to PDF' in your browser.";
+    } else {
+      reason += " Please ensure you're uploading a credit report from Experian, Equifax, TransUnion, or a credit monitoring service. Avoid image-based or scanned PDFs if possible.";
+    }
+    
     return {
       isValid: false,
-      reason: "PDF contains no recognizable credit report data. Please ensure you're uploading a credit report from Experian, Equifax, TransUnion, or a credit monitoring service like IdentityIQ.",
-      detectedType: 'image_based',
+      reason,
+      detectedType: isIdentityIQ ? 'corrupted_identityiq' : 'image_based',
       creditKeywords,
       contentRatio: alphaNumericRatio
     };
@@ -812,26 +828,147 @@ function validateExtractedText(text: string): boolean {
 }
 
 /**
- * Determine file type based on file path and content
+ * Determine file type and PDF generation method with detailed analysis
  */
-function determineFileType(filePath: string, bytes: Uint8Array): string {
+function determineFileType(filePath: string, bytes: Uint8Array): { type: string; pdfType?: string; confidence: number; analysis?: any } {
   const fileName = filePath.toLowerCase();
   
-  // Check by file extension
-  if (fileName.endsWith('.pdf')) return 'pdf';
-  if (fileName.match(/\.(jpg|jpeg|png|gif|bmp|tiff|webp)$/)) return 'image';
-  if (fileName.match(/\.(doc|docx)$/)) return 'word';
-  if (fileName.match(/\.(html|htm)$/)) return 'html';
+  // Check by file extension first
+  if (fileName.endsWith('.pdf')) {
+    const pdfAnalysis = analyzePDFType(bytes);
+    return { 
+      type: 'pdf', 
+      pdfType: pdfAnalysis.type, 
+      confidence: pdfAnalysis.confidence,
+      analysis: pdfAnalysis.details
+    };
+  }
+  
+  if (fileName.match(/\.(jpg|jpeg|png|gif|bmp|tiff|webp)$/)) return { type: 'image', confidence: 0.9 };
+  if (fileName.match(/\.(doc|docx)$/)) return { type: 'word', confidence: 0.8 };
+  if (fileName.match(/\.(html|htm)$/)) return { type: 'html', confidence: 0.7 };
   
   // Check by content signature
   const header = Array.from(bytes.slice(0, 10)).map(b => String.fromCharCode(b)).join('');
-  if (header.startsWith('%PDF-')) return 'pdf';
-  if (bytes[0] === 0xFF && bytes[1] === 0xD8) return 'image'; // JPEG
-  if (header.startsWith('\x89PNG')) return 'image';
-  if (header.startsWith('GIF8')) return 'image';
-  if (header.includes('<!DOCTYPE') || header.includes('<html')) return 'html';
+  if (header.startsWith('%PDF-')) {
+    const pdfAnalysis = analyzePDFType(bytes);
+    return { 
+      type: 'pdf', 
+      pdfType: pdfAnalysis.type, 
+      confidence: pdfAnalysis.confidence,
+      analysis: pdfAnalysis.details
+    };
+  }
   
-  return 'unknown';
+  if (bytes[0] === 0xFF && bytes[1] === 0xD8) return { type: 'image', confidence: 0.9 }; // JPEG
+  if (header.startsWith('\x89PNG')) return { type: 'image', confidence: 0.9 };
+  if (header.startsWith('GIF8')) return { type: 'image', confidence: 0.9 };
+  if (header.includes('<!DOCTYPE') || header.includes('<html')) return { type: 'html', confidence: 0.7 };
+  
+  return { type: 'unknown', confidence: 0.1 };
+}
+
+/**
+ * Analyzes PDF type and generation method for better processing decisions
+ */
+function analyzePDFType(fileData: Uint8Array): { type: string; confidence: number; details: any } {
+  const textContent = new TextDecoder('utf-8', { fatal: false }).decode(fileData);
+  
+  const analysis = {
+    hasMozillaMarkers: /Mozilla\/\d+\.\d+/.test(textContent),
+    hasChromiumMarkers: /Chromium|Chrome/.test(textContent),
+    hasSafariMarkers: /Safari|WebKit/.test(textContent),
+    hasSkiaMarkers: /Skia\/PDF/.test(textContent),
+    hasIdentityIQMarkers: /IdentityIQ|Identity\s*IQ/i.test(textContent),
+    hasExperian: /Experian/i.test(textContent),
+    hasEquifax: /Equifax/i.test(textContent),
+    hasTransUnion: /TransUnion|Trans\s*Union/i.test(textContent),
+    hasNativeTextObjects: /\/Text\s/.test(textContent),
+    hasImageObjects: /\/Image\s/.test(textContent),
+    hasFormObjects: /\/Form\s/.test(textContent),
+    streamObjectCount: (textContent.match(/stream\n/g) || []).length,
+    endstreamCount: (textContent.match(/endstream/g) || []).length,
+    textObjectCount: (textContent.match(/BT\s/g) || []).length,
+    metadataRatio: calculateMetadataRatio(textContent),
+    fileSize: fileData.length
+  };
+  
+  console.log("📊 PDF Analysis:", JSON.stringify(analysis, null, 2));
+  
+  // Determine PDF type based on analysis
+  if (analysis.hasMozillaMarkers || analysis.hasChromiumMarkers || analysis.hasSkiaMarkers) {
+    if (analysis.hasIdentityIQMarkers) {
+      return {
+        type: 'browser_generated_identityiq',
+        confidence: 0.95,
+        details: analysis
+      };
+    }
+    return {
+      type: 'browser_generated_credit_report',
+      confidence: 0.9,
+      details: analysis
+    };
+  }
+  
+  if (analysis.metadataRatio > 0.8 && analysis.textObjectCount < 5) {
+    return {
+      type: 'corrupted_metadata_only',
+      confidence: 0.85,
+      details: analysis
+    };
+  }
+  
+  if (analysis.hasNativeTextObjects && analysis.textObjectCount > 10) {
+    return {
+      type: 'native_text_pdf',
+      confidence: 0.8,
+      details: analysis
+    };
+  }
+  
+  if (analysis.hasImageObjects && !analysis.hasNativeTextObjects) {
+    return {
+      type: 'image_based_pdf',
+      confidence: 0.75,
+      details: analysis
+    };
+  }
+  
+  return {
+    type: 'unknown_pdf',
+    confidence: 0.3,
+    details: analysis
+  };
+}
+
+/**
+ * Calculates ratio of PDF metadata vs actual content
+ */
+function calculateMetadataRatio(content: string): number {
+  const totalLength = content.length;
+  if (totalLength === 0) return 1.0;
+  
+  // Count PDF metadata patterns
+  const metadataPatterns = [
+    /\/Filter\s*\/\w+/g,
+    /\/Length\s*\d+/g,
+    /\/Type\s*\/\w+/g,
+    /\/Subtype\s*\/\w+/g,
+    /endobj/g,
+    /endstream/g,
+    /\/Pages\s*\d+/g,
+    /\/Creator\s*\([^)]*\)/g,
+    /\/Producer\s*\([^)]*\)/g
+  ];
+  
+  let metadataLength = 0;
+  metadataPatterns.forEach(pattern => {
+    const matches = content.match(pattern) || [];
+    metadataLength += matches.join('').length;
+  });
+  
+  return metadataLength / totalLength;
 }
 
 /**
@@ -1145,22 +1282,52 @@ Deno.serve(async (req) => {
       throw new Error("File too large (max 50MB)");
     }
 
-    // Determine file type and process accordingly
-    const fileType = determineFileType(body.filePath, bytes);
-    console.log("Detected file type:", fileType);
+    // Determine file type and process accordingly with enhanced analysis
+    const fileTypeAnalysis = determineFileType(body.filePath, bytes);
+    console.log("🔍 Enhanced File Analysis:", JSON.stringify(fileTypeAnalysis, null, 2));
 
     let extractedText = '';
     let extractionMethod = '';
 
-    switch (fileType) {
+    // Handle browser-generated IdentityIQ PDFs specifically
+    if (fileTypeAnalysis.type === 'pdf' && fileTypeAnalysis.pdfType === 'browser_generated_identityiq') {
+      console.log("⚠️  DETECTED: Browser-generated IdentityIQ PDF");
+      console.log("🚨 WARNING: This file type is known to have text extraction issues");
+      console.log("📋 Analysis:", fileTypeAnalysis.analysis);
+      
+      // Add specific guidance for IdentityIQ files
+      const guidance = "This IdentityIQ credit report appears to be browser-generated which often causes text extraction issues. " +
+                      "For best results, try downloading the report directly from IdentityIQ as a PDF instead of printing to PDF from a browser.";
+      console.log("💡 User Guidance:", guidance);
+    }
+
+    switch (fileTypeAnalysis.type) {
       case 'pdf':
         console.log("=== PROCESSING PDF FILE ===");
+        console.log(`📄 PDF Type: ${fileTypeAnalysis.pdfType}`);
+        console.log(`🎯 Confidence: ${fileTypeAnalysis.confidence}`);
+        
+        // Special handling for problematic PDF types
+        if (fileTypeAnalysis.pdfType === 'corrupted_metadata_only') {
+          throw new Error(
+            "This PDF appears to contain only metadata with no readable text. " +
+            "Please upload a text-based credit report PDF from Experian, Equifax, TransUnion, or a credit monitoring service. " +
+            "If this is an IdentityIQ report, try downloading it directly instead of printing to PDF."
+          );
+        }
+        
         extractedText = await processPDFFile(bytes, body.reportId, supabase);
-        extractionMethod = 'pdf_processing';
+        extractionMethod = fileTypeAnalysis.pdfType || 'pdf_processing';
         break;
         
       case 'image':
         console.log("=== PROCESSING IMAGE FILE ===");
+        if (!Deno.env.get('AWS_ACCESS_KEY_ID')) {
+          throw new Error(
+            "Image files require OCR processing, but AWS credentials are not configured. " +
+            "Please upload a PDF version of your credit report instead."
+          );
+        }
         extractedText = await processImageFile(bytes);
         extractionMethod = 'image_ocr';
         break;
@@ -1178,7 +1345,11 @@ Deno.serve(async (req) => {
         break;
         
       default:
-        throw new Error(`Unsupported file type: ${fileType}. Please upload PDF, image, Word document, or HTML file.`);
+        throw new Error(
+          `Unsupported file type: ${fileTypeAnalysis.type}. ` +
+          "Please upload a PDF, image, Word document, or HTML file containing your credit report. " +
+          "For best results, use a PDF downloaded directly from Experian, Equifax, TransUnion, or a credit monitoring service."
+        );
     }
 
     // Sanitize extracted text
@@ -1200,7 +1371,20 @@ Deno.serve(async (req) => {
       console.error("Credit keywords found:", validation.creditKeywords);
       console.error("Content ratio:", validation.contentRatio);
       
-      throw new Error(validation.reason || "PDF content validation failed");
+      // Enhanced error message based on file type analysis
+      let errorMessage = validation.reason || "PDF content validation failed";
+      
+      if (fileTypeAnalysis.pdfType === 'browser_generated_identityiq') {
+        errorMessage = "IdentityIQ browser-generated PDF processing failed: " + errorMessage + 
+          "\n\n💡 SOLUTION: Download the credit report directly from IdentityIQ instead of printing to PDF from your browser. " +
+          "Browser-generated PDFs often have text extraction issues that prevent proper data parsing.";
+      } else if (fileTypeAnalysis.pdfType?.includes('browser_generated')) {
+        errorMessage = "Browser-generated PDF processing failed: " + errorMessage + 
+          "\n\n💡 SOLUTION: Try downloading the original credit report PDF directly from the credit bureau " +
+          "(Experian, Equifax, TransUnion) instead of using a browser-printed version.";
+      }
+      
+      throw new Error(errorMessage);
     }
     
     console.log("✅ Content validation passed:");

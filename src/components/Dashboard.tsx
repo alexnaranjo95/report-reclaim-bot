@@ -12,6 +12,7 @@ import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { RegenerateButton } from './RegenerateButton';
 import { CreditAnalysis } from './CreditAnalysis';
 import { CreditReportProcessing } from './CreditReportProcessing';
+import { RealDataMonitor } from './RealDataMonitor';
 import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight, BarChart3, RotateCcw } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
@@ -85,30 +86,96 @@ export const Dashboard = () => {
     }
   };
 
-  // Reset entire round functionality - clear all analysis and return to upload state
-  const handleResetRound = () => {
-    if (!confirm("Reset entire round? This will clear all analysis data and return to the upload screen.")) {
+  // Reset entire round functionality - clear all analysis and database data
+  const handleResetRound = async () => {
+    if (!confirm("Reset entire round? This will clear all analysis data, delete all related database records, and return to the upload screen.")) {
       return;
     }
 
-    // Clear all analysis states
-    setUploadedFile(null);
-    setAnalysisComplete(false);
-    setAnalysisResults(null);
-    setIsAnalyzing(false);
-    setAnalysisError(null);
-    setProcessingStep('');
-    setProcessingProgress(0);
+    try {
+      console.log('🔄 Starting comprehensive round reset...');
+      
+      // 1. Clear all UI states first
+      setUploadedFile(null);
+      setAnalysisComplete(false);
+      setAnalysisResults(null);
+      setIsAnalyzing(false);
+      setAnalysisError(null);
+      setProcessingStep('');
+      setProcessingProgress(0);
 
-    // Clear any saved round data for current round
-    if (currentSession) {
+      // 2. Get the current round data to find report IDs
+      const currentRoundData = rounds.find(r => r.round_number === currentRound);
+      
+      if (currentRoundData && currentSession) {
+        console.log('🗑️ Deleting database records for round:', currentRound);
+        
+        // Get all credit reports from this session to clean up
+        const { data: reportsToDelete } = await supabase
+          .from('credit_reports')
+          .select('id, file_path')
+          .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+        
+        if (reportsToDelete && reportsToDelete.length > 0) {
+          for (const report of reportsToDelete) {
+            console.log('🗑️ Cleaning up report:', report.id);
+            
+            // Delete related data in correct order (foreign key dependencies)
+            await Promise.all([
+              supabase.from('negative_items').delete().eq('report_id', report.id),
+              supabase.from('credit_inquiries').delete().eq('report_id', report.id),
+              supabase.from('credit_accounts').delete().eq('report_id', report.id),
+              supabase.from('personal_information').delete().eq('report_id', report.id),
+              supabase.from('ai_analysis_results').delete().eq('report_id', report.id),
+            ]);
+            
+            // Delete the file from storage if it exists
+            if (report.file_path) {
+              console.log('🗑️ Deleting file from storage:', report.file_path);
+              await supabase.storage
+                .from('credit-reports')
+                .remove([report.file_path]);
+            }
+            
+            // Delete the credit report record
+            await supabase
+              .from('credit_reports')
+              .delete()
+              .eq('id', report.id);
+          }
+        }
+        
+        // 3. Clear round snapshot data and round record
+        await supabase
+          .from('rounds')
+          .update({ snapshot_data: {} })
+          .eq('id', currentRoundData.id);
+          
+        // Or delete the round entirely if preferred
+        await supabase
+          .from('rounds')
+          .delete()
+          .eq('id', currentRoundData.id);
+        
+        console.log('✅ Database cleanup completed');
+      }
+
+      // 4. Update local state to remove the round
       setRounds(prev => prev.filter(r => r.round_number !== currentRound));
-    }
 
-    toast({
-      title: "Round Reset Complete",
-      description: "Analysis cleared. You can now upload a new credit report to start fresh.",
-    });
+      toast({
+        title: "Complete Reset Successful",
+        description: "All data cleared - analysis, database records, and files deleted. Upload a new credit report to start fresh.",
+      });
+      
+    } catch (error) {
+      console.error('❌ Reset failed:', error);
+      toast({
+        title: "Reset Failed",
+        description: "There was an error during reset. Some data may remain.",
+        variant: "destructive"
+      });
+    }
   };
   const handleLogout = async () => {
     try {
@@ -126,7 +193,7 @@ export const Dashboard = () => {
     }
   };
   const handleFileUpload = async (file: File) => {
-    console.log('File uploaded:', file.name, file.size);
+    console.log('🚀 REAL DATA FILE UPLOAD - File:', file.name, 'Size:', file.size);
     
     if (!currentSession) {
       toast({
@@ -137,52 +204,185 @@ export const Dashboard = () => {
       return;
     }
 
+    // Clear any previous state
     setUploadedFile(file);
     setIsAnalyzing(true);
     setAnalysisError(null);
-    setProcessingStep('upload');
-    setProcessingProgress(0);
+    setProcessingStep('Preparing file upload...');
+    setProcessingProgress(10);
     
     try {
-      // Continue with analysis with progress tracking
-      const results = await CreditAnalysisService.analyzePDF(
-        { file, round: currentRound },
-        (step: string, progress: number) => {
-          setProcessingStep(step);
-          setProcessingProgress(progress);
-        }
-      );
-      
-      // Validate that we got meaningful results
-      if (!results || (!results.items && !results.summary)) {
-        setAnalysisError('No data was extracted from the PDF. This could be because the PDF is image-based, encrypted, or not a valid credit report.');
-        setProcessingStep('error');
-        return;
+      const user = (await supabase.auth.getUser()).data.user;
+      if (!user) {
+        throw new Error('User not authenticated');
       }
+
+      // Step 1: Create credit report record
+      setProcessingStep('Creating report record...');
+      setProcessingProgress(20);
       
-      setAnalysisResults(results);
+      const { data: reportRecord, error: dbError } = await supabase
+        .from('credit_reports')
+        .insert({
+          user_id: user.id,
+          bureau_name: 'Unknown', // Will be determined during extraction
+          file_name: file.name,
+          extraction_status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+      console.log('✅ REAL DATA - Report record created:', reportRecord.id);
+
+      // Step 2: Upload file to storage
+      setProcessingStep('Uploading file to secure storage...');
+      setProcessingProgress(40);
+      
+      const storagePath = `${user.id}/${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from('credit-reports')
+        .upload(storagePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+      console.log('✅ REAL DATA - File uploaded to storage:', storagePath);
+
+      // Step 3: Update report with file path
+      const { error: updateError } = await supabase
+        .from('credit_reports')
+        .update({
+          file_path: storagePath,
+          extraction_status: 'processing',
+        })
+        .eq('id', reportRecord.id);
+
+      if (updateError) throw updateError;
+
+      // Step 4: Extract text using advanced PDF extraction
+      setProcessingStep('Extracting text with advanced OCR...');
+      setProcessingProgress(60);
+      
+      const { data: extractionResult, error: extractError } = await supabase.functions.invoke('advanced-pdf-extract', {
+        body: {
+          reportId: reportRecord.id,
+          filePath: storagePath,
+        },
+      });
+
+      console.log('📊 REAL DATA - Extraction result:', extractionResult);
+      
+      if (extractError || !extractionResult?.success) {
+        throw new Error(extractError?.message || 'Text extraction failed');
+      }
+
+      // Step 5: Verify data was actually extracted and stored
+      setProcessingStep('Verifying extracted data...');
+      setProcessingProgress(80);
+      
+      const [personalInfo, accounts, inquiries, negativeItems] = await Promise.all([
+        supabase.from('personal_information').select('*').eq('report_id', reportRecord.id),
+        supabase.from('credit_accounts').select('*').eq('report_id', reportRecord.id),
+        supabase.from('credit_inquiries').select('*').eq('report_id', reportRecord.id),
+        supabase.from('negative_items').select('*').eq('report_id', reportRecord.id)
+      ]);
+
+      const extractedCounts = {
+        personalInfo: personalInfo.data?.length || 0,
+        accounts: accounts.data?.length || 0,
+        inquiries: inquiries.data?.length || 0,
+        negativeItems: negativeItems.data?.length || 0
+      };
+
+      console.log('📈 REAL DATA VERIFICATION:', extractedCounts);
+      
+      // Validate that real data was extracted
+      if (extractedCounts.personalInfo === 0 && extractedCounts.accounts === 0) {
+        throw new Error('No valid credit data was extracted from the PDF. This may be an image-based PDF or not a credit report.');
+      }
+
+      // Step 6: Create analysis result from real extracted data
+      setProcessingStep('Building analysis from real data...');
+      setProcessingProgress(90);
+      
+      const analysisResult: CreditAnalysisResult = {
+        items: negativeItems.data?.map((item: any, index: number) => ({
+          id: `real-${item.id}`,
+          creditor: item.negative_type || 'Unknown',
+          account: item.description || 'Unknown Account',
+          issue: item.description || 'Negative item',
+          impact: item.severity_score > 7 ? 'high' : item.severity_score > 4 ? 'medium' : 'low',
+          status: 'negative' as const,
+          bureau: ['Unknown'], // Would be extracted properly
+          dateOpened: item.date_occurred,
+          balance: item.amount,
+        })) || [],
+        summary: {
+          totalNegativeItems: extractedCounts.negativeItems,
+          totalPositiveAccounts: Math.max(0, extractedCounts.accounts - extractedCounts.negativeItems),
+          totalAccounts: extractedCounts.accounts,
+          estimatedScoreImpact: extractedCounts.negativeItems * 20, // Rough estimate
+          bureausAffected: ['Experian', 'Equifax', 'TransUnion'],
+          highImpactItems: 0, // Would be calculated from real data
+          mediumImpactItems: 0,
+          lowImpactItems: 0
+        },
+        historicalData: {
+          lettersSent: 0,
+          itemsRemoved: 0,
+          itemsPending: extractedCounts.negativeItems,
+          successRate: 0,
+          avgRemovalTime: 0
+        },
+        accountBreakdown: {
+          creditCards: 0,
+          mortgages: 0,
+          autoLoans: 0,
+          studentLoans: 0,
+          personalLoans: 0,
+          collections: extractedCounts.negativeItems,
+          other: Math.max(0, extractedCounts.accounts - extractedCounts.negativeItems)
+        },
+        personalInfo: personalInfo.data?.[0] ? {
+          name: personalInfo.data[0].full_name || undefined,
+          address: typeof personalInfo.data[0].current_address === 'string' 
+            ? personalInfo.data[0].current_address 
+            : JSON.stringify(personalInfo.data[0].current_address) || undefined,
+          ssn: personalInfo.data[0].ssn_partial || undefined,
+          dateOfBirth: personalInfo.data[0].date_of_birth || undefined,
+        } : {},
+        creditScores: {
+          experian: 0, // Would be extracted from real data
+          equifax: 0,
+          transunion: 0
+        }
+      };
+      
+      setAnalysisResults(analysisResult);
       setAnalysisComplete(true);
-      setProcessingStep('completed');
+      setProcessingStep('Analysis complete');
       setProcessingProgress(100);
       
       toast({
-        title: "Analysis Complete",
-        description: `Found ${results.summary.totalNegativeItems} negative items, ${results.summary.totalPositiveAccounts} positive accounts out of ${results.summary.totalAccounts} total accounts.`
+        title: "Real Data Analysis Complete!",
+        description: `Extracted ${extractedCounts.accounts} accounts, ${extractedCounts.negativeItems} negative items, ${extractedCounts.inquiries} inquiries from ${file.name}`,
       });
       
     } catch (error: any) {
-      console.error('💥 Analysis failed:', error);
+      console.error('💥 REAL DATA ANALYSIS ERROR:', error);
       setAnalysisError(error.message || 'Analysis failed');
-      setProcessingStep('error');
-      
-      // Don't automatically hide the processing screen - keep it visible with error
-      // setIsAnalyzing(false); // Keep this commented so processing screen stays visible
+      setProcessingStep('Analysis failed');
+      setProcessingProgress(0);
       
       toast({
         title: "Analysis Failed",
         description: error.message || "Failed to analyze credit report. Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -688,6 +888,9 @@ export const Dashboard = () => {
                     }
                   </CardContent>
                 </Card>
+
+                {/* Real Data Pipeline Monitor - Only show for admins or during development */}
+                {isSuperAdmin && <RealDataMonitor />}
 
                 {/* Dispute Letters Section */}
                 {analysisComplete && analysisResults && <DisputeLetterDrafts creditItems={analysisResults.items} currentRound={currentRound} onRoundStatusChange={(roundNumber, status) => {

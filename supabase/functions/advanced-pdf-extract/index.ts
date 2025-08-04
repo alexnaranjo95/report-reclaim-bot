@@ -15,9 +15,10 @@ serve(async (req) => {
   try {
     const { reportId, filePath } = await req.json();
     
-    console.log('=== ADVANCED PDF EXTRACTION STARTED ===');
+console.log('=== REAL DATA ADVANCED PDF EXTRACTION STARTED ===');
     console.log('Report ID:', reportId);
     console.log('File Path:', filePath);
+    console.log('Timestamp:', new Date().toISOString());
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

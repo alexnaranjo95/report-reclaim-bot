@@ -358,6 +358,100 @@ export type Database = {
           },
         ]
       }
+      credit_report_table_cells: {
+        Row: {
+          bounding_box: Json | null
+          cell_text: string | null
+          column_index: number
+          confidence_score: number | null
+          created_at: string
+          id: string
+          is_header: boolean | null
+          row_index: number
+          table_id: string
+        }
+        Insert: {
+          bounding_box?: Json | null
+          cell_text?: string | null
+          column_index: number
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          is_header?: boolean | null
+          row_index: number
+          table_id: string
+        }
+        Update: {
+          bounding_box?: Json | null
+          cell_text?: string | null
+          column_index?: number
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          is_header?: boolean | null
+          row_index?: number
+          table_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_report_table_cells_table_id_fkey"
+            columns: ["table_id"]
+            isOneToOne: false
+            referencedRelation: "credit_report_tables"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      credit_report_tables: {
+        Row: {
+          bounding_box: Json | null
+          column_count: number
+          confidence_score: number | null
+          created_at: string
+          id: string
+          raw_table_data: Json
+          report_id: string
+          row_count: number
+          table_index: number
+          table_type: string | null
+          updated_at: string
+        }
+        Insert: {
+          bounding_box?: Json | null
+          column_count?: number
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          raw_table_data?: Json
+          report_id: string
+          row_count?: number
+          table_index: number
+          table_type?: string | null
+          updated_at?: string
+        }
+        Update: {
+          bounding_box?: Json | null
+          column_count?: number
+          confidence_score?: number | null
+          created_at?: string
+          id?: string
+          raw_table_data?: Json
+          report_id?: string
+          row_count?: number
+          table_index?: number
+          table_type?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_report_tables_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_reports: {
         Row: {
           bureau_name: string
@@ -369,6 +463,8 @@ export type Database = {
           processing_errors: string | null
           raw_text: string | null
           report_date: string | null
+          table_extraction_status: string | null
+          tables_extracted_count: number | null
           updated_at: string | null
           user_id: string
         }
@@ -382,6 +478,8 @@ export type Database = {
           processing_errors?: string | null
           raw_text?: string | null
           report_date?: string | null
+          table_extraction_status?: string | null
+          tables_extracted_count?: number | null
           updated_at?: string | null
           user_id: string
         }
@@ -395,6 +493,8 @@ export type Database = {
           processing_errors?: string | null
           raw_text?: string | null
           report_date?: string | null
+          table_extraction_status?: string | null
+          tables_extracted_count?: number | null
           updated_at?: string | null
           user_id?: string
         }

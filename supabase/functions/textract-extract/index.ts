@@ -70,6 +70,70 @@ class TextractClient {
     throw new Error('AWS Textract failed after all retry attempts');
   }
 
+  async analyzeDocument(document: Uint8Array): Promise<{ text: string; tables: any[] }> {
+    // Validate document size (AWS Textract limit is 10MB)
+    if (document.byteLength > 10 * 1024 * 1024) {
+      throw new Error('Document size exceeds AWS Textract limit of 10MB');
+    }
+
+    console.log(`📄 Processing document for table analysis of size: ${(document.byteLength / 1024 / 1024).toFixed(2)}MB`);
+
+    // Retry logic with exponential backoff
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        console.log(`🔄 AWS Textract table analysis attempt ${attempt}/${this.maxRetries}`);
+        
+        const result = await this.makeAnalyzeDocumentRequest(document);
+        
+        // Extract text from the response
+        let extractedText = '';
+        const tables: any[] = [];
+        
+        if (result.Blocks) {
+          console.log(`📊 Found ${result.Blocks.length} blocks in document`);
+          
+          // Extract text from LINE blocks
+          const lineBlocks = result.Blocks.filter(block => block.BlockType === 'LINE');
+          console.log(`📝 Found ${lineBlocks.length} text lines in response`);
+          
+          for (const block of lineBlocks) {
+            if (block.Text) {
+              extractedText += block.Text + '\n';
+            }
+          }
+
+          // Extract tables
+          const extractedTables = this.extractTables(result.Blocks);
+          tables.push(...extractedTables);
+          console.log(`📋 Extracted ${extractedTables.length} tables from document`);
+        }
+
+        if (extractedText.length < 100) {
+          throw new Error('Insufficient text extracted from document - may be an image or corrupted file');
+        }
+
+        console.log(`✅ AWS Textract table analysis extracted ${extractedText.length} characters and ${tables.length} tables`);
+        return {
+          text: extractedText,
+          tables: tables
+        };
+
+      } catch (error) {
+        console.error(`❌ AWS Textract table analysis attempt ${attempt} failed:`, error.message);
+        
+        if (attempt === this.maxRetries) {
+          throw error;
+        }
+        
+        // Wait before retry (exponential backoff)
+        const delay = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    throw new Error('AWS Textract table analysis failed after all retry attempts');
+  }
+
   private async makeTextractRequest(document: Uint8Array): Promise<any> {
     const host = `textract.${this.region}.amazonaws.com`;
     const endpoint = `https://${host}/`;
@@ -224,6 +288,142 @@ class TextractClient {
     );
     const signature = await crypto.subtle.sign('HMAC', keyObject, encoder.encode(message));
     return new Uint8Array(signature);
+  }
+
+  private async makeAnalyzeDocumentRequest(document: Uint8Array): Promise<any> {
+    const host = `textract.${this.region}.amazonaws.com`;
+    const endpoint = `https://${host}/`;
+    
+    const payload = {
+      Document: {
+        Bytes: this.encodeBase64Chunked(document)
+      },
+      FeatureTypes: ["TABLES"]
+    };
+
+    const body = JSON.stringify(payload);
+    const headers = await this.createAWSHeaders('AnalyzeDocument', body);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: body,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        if (response.status === 429) {
+          throw new Error(`Rate limited: ${errorText}`);
+        }
+        throw new Error(`Textract API error: ${response.status} - ${errorText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  }
+
+  private extractTables(blocks: any[]): any[] {
+    const tables: any[] = [];
+    const tableBlocks = blocks.filter(block => block.BlockType === 'TABLE');
+    
+    for (const tableBlock of tableBlocks) {
+      const table = {
+        id: tableBlock.Id,
+        confidence: tableBlock.Confidence,
+        rowCount: 0,
+        columnCount: 0,
+        cells: [] as any[],
+        boundingBox: tableBlock.Geometry?.BoundingBox
+      };
+
+      // Find all cells that belong to this table
+      const cellBlocks = blocks.filter(block => 
+        block.BlockType === 'CELL' && 
+        tableBlock.Relationships?.some((rel: any) => 
+          rel.Type === 'CHILD' && rel.Ids?.includes(block.Id)
+        )
+      );
+
+      // Process cells
+      for (const cellBlock of cellBlocks) {
+        const cell = {
+          rowIndex: cellBlock.RowIndex || 0,
+          columnIndex: cellBlock.ColumnIndex || 0,
+          text: this.getCellText(cellBlock, blocks),
+          confidence: cellBlock.Confidence,
+          isHeader: cellBlock.EntityTypes?.includes('COLUMN_HEADER') || false,
+          boundingBox: cellBlock.Geometry?.BoundingBox
+        };
+
+        table.cells.push(cell);
+        
+        // Update table dimensions
+        table.rowCount = Math.max(table.rowCount, cell.rowIndex);
+        table.columnCount = Math.max(table.columnCount, cell.columnIndex);
+      }
+
+      // Adjust for 0-based indexing
+      table.rowCount += 1;
+      table.columnCount += 1;
+
+      tables.push(table);
+    }
+
+    return tables;
+  }
+
+  private getCellText(cellBlock: any, blocks: any[]): string {
+    if (!cellBlock.Relationships) {
+      return '';
+    }
+
+    const childRelationship = cellBlock.Relationships.find((rel: any) => rel.Type === 'CHILD');
+    if (!childRelationship || !childRelationship.Ids) {
+      return '';
+    }
+
+    const words = childRelationship.Ids
+      .map((id: string) => blocks.find(block => block.Id === id))
+      .filter(block => block && block.BlockType === 'WORD')
+      .map((block: any) => block.Text)
+      .filter(Boolean);
+
+    return words.join(' ');
+  }
+
+  private classifyTableType(cells: any[]): string {
+    if (!cells || cells.length === 0) return 'unknown';
+    
+    const cellTexts = cells.map(cell => cell.text?.toLowerCase() || '').join(' ');
+    
+    // Look for patterns to classify table type
+    if (cellTexts.includes('account') && (cellTexts.includes('balance') || cellTexts.includes('payment'))) {
+      return 'account_summary';
+    }
+    if (cellTexts.includes('payment') && cellTexts.includes('history')) {
+      return 'payment_history';
+    }
+    if (cellTexts.includes('inquiry') || cellTexts.includes('inquiries')) {
+      return 'inquiries';
+    }
+    if (cellTexts.includes('address') || cellTexts.includes('personal')) {
+      return 'personal_info';
+    }
+    if (cellTexts.includes('score') || cellTexts.includes('fico')) {
+      return 'credit_score';
+    }
+    
+    return 'unknown';
   }
 }
 
@@ -635,12 +835,13 @@ function determineFileType(filePath: string, bytes: Uint8Array): string {
 }
 
 /**
- * Process PDF files (existing logic)
+ * Process PDF files with table extraction
  */
-async function processPDFFile(bytes: Uint8Array): Promise<string> {
+async function processPDFFile(bytes: Uint8Array, reportId: string, supabase: any): Promise<string> {
   let extractedText = '';
   let extractionMethod = 'none';
   let extractionError = null;
+  let tables: any[] = [];
 
   // Try AWS Textract first if available
   const awsAccessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
@@ -649,18 +850,36 @@ async function processPDFFile(bytes: Uint8Array): Promise<string> {
 
   if (awsAccessKeyId && awsSecretAccessKey) {
     try {
-      console.log("=== ATTEMPTING AWS TEXTRACT EXTRACTION ===");
+      console.log("=== ATTEMPTING AWS TEXTRACT TABLE EXTRACTION ===");
       const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
-      extractedText = await textractClient.detectDocumentText(bytes);
-      extractionMethod = 'aws_textract';
-      console.log("✅ AWS Textract extraction successful");
+      const result = await textractClient.analyzeDocument(bytes);
+      extractedText = result.text;
+      tables = result.tables;
+      extractionMethod = 'aws_textract_tables';
+      console.log("✅ AWS Textract table extraction successful");
+      
+      // Store table data
+      if (tables.length > 0) {
+        await storeTableData(reportId, tables, supabase);
+      }
     } catch (textractError) {
-      console.error("❌ AWS Textract extraction failed:", textractError);
+      console.error("❌ AWS Textract table extraction failed:", textractError);
       extractionError = textractError.message;
+      
+      // Fallback to basic text extraction
+      try {
+        console.log("=== ATTEMPTING AWS TEXTRACT TEXT EXTRACTION ===");
+        const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
+        extractedText = await textractClient.detectDocumentText(bytes);
+        extractionMethod = 'aws_textract';
+        console.log("✅ AWS Textract text extraction successful");
+      } catch (fallbackError) {
+        console.error("❌ AWS Textract text extraction also failed:", fallbackError);
+      }
     }
   }
 
-// Fallback to enhanced PDF parsing if Textract fails
+  // Fallback to enhanced PDF parsing if Textract fails
   if (!extractedText || extractedText.length < 100) {
     console.log("=== ATTEMPTING ENHANCED PDF EXTRACTION ===");
     try {
@@ -673,7 +892,106 @@ async function processPDFFile(bytes: Uint8Array): Promise<string> {
     }
   }
 
+  // Update database with table extraction status
+  await supabase
+    .from('credit_reports')
+    .update({
+      table_extraction_status: tables.length > 0 ? 'completed' : 'no_tables',
+      tables_extracted_count: tables.length
+    })
+    .eq('id', reportId);
+
   return extractedText;
+}
+
+/**
+ * Store extracted table data in database
+ */
+async function storeTableData(reportId: string, tables: any[], supabase: any): Promise<void> {
+  console.log(`=== STORING ${tables.length} TABLES IN DATABASE ===`);
+  
+  for (let tableIndex = 0; tableIndex < tables.length; tableIndex++) {
+    const table = tables[tableIndex];
+    
+    // Classify table type
+    const tableType = classifyTableType(table.cells);
+    
+    // Insert table record
+    const { data: tableRecord, error: tableError } = await supabase
+      .from('credit_report_tables')
+      .insert({
+        report_id: reportId,
+        table_index: tableIndex,
+        table_type: tableType,
+        row_count: table.rowCount,
+        column_count: table.columnCount,
+        confidence_score: table.confidence,
+        bounding_box: table.boundingBox,
+        raw_table_data: {
+          id: table.id,
+          cells: table.cells,
+          extractedAt: new Date().toISOString()
+        }
+      })
+      .select()
+      .single();
+
+    if (tableError) {
+      console.error(`Failed to insert table ${tableIndex}:`, tableError);
+      continue;
+    }
+
+    console.log(`✅ Stored table ${tableIndex} (${tableType}) with ${table.cells.length} cells`);
+
+    // Insert cell records
+    for (const cell of table.cells) {
+      const { error: cellError } = await supabase
+        .from('credit_report_table_cells')
+        .insert({
+          table_id: tableRecord.id,
+          row_index: cell.rowIndex,
+          column_index: cell.columnIndex,
+          cell_text: cell.text,
+          confidence_score: cell.confidence,
+          is_header: cell.isHeader,
+          bounding_box: cell.boundingBox
+        });
+
+      if (cellError) {
+        console.error(`Failed to insert cell at (${cell.rowIndex}, ${cell.columnIndex}):`, cellError);
+      }
+    }
+  }
+  
+  console.log(`✅ Successfully stored all ${tables.length} tables`);
+}
+
+/**
+ * Classify table type based on cell content
+ */
+function classifyTableType(cells: any[]): string {
+  if (!cells || cells.length === 0) return 'unknown';
+  
+  const cellTexts = cells.map(cell => cell.text?.toLowerCase() || '').join(' ');
+  
+  // Look for patterns to classify table type
+  if (cellTexts.includes('account') && (cellTexts.includes('balance') || cellTexts.includes('payment'))) {
+    return 'account_summary';
+  }
+  if (cellTexts.includes('payment') && cellTexts.includes('history')) {
+    return 'payment_history';
+  }
+  if (cellTexts.includes('inquiry') || cellTexts.includes('inquiries')) {
+    return 'inquiries';
+  }
+  if (cellTexts.includes('address') || cellTexts.includes('personal')) {
+    return 'personal_info';
+  }
+  if (cellTexts.includes('score') || cellTexts.includes('fico')) {
+    return 'credit_score';
+  }
+  
+  return 'unknown';
 }
 
 /**
@@ -837,7 +1155,7 @@ Deno.serve(async (req) => {
     switch (fileType) {
       case 'pdf':
         console.log("=== PROCESSING PDF FILE ===");
-        extractedText = await processPDFFile(bytes);
+        extractedText = await processPDFFile(bytes, body.reportId, supabase);
         extractionMethod = 'pdf_processing';
         break;
         

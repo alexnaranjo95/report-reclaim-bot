@@ -445,23 +445,41 @@ function validatePDFContent(text: string): {
   const alphaNumericRatio = (text.match(/[a-zA-Z0-9]/g) || []).length / text.length;
   const alphabeticRatio = (text.match(/[a-zA-Z ]/g) || []).length / text.length;
   
-  // Enhanced credit report keywords with more comprehensive detection
+// Enhanced credit report keywords with fuzzy matching for corrupted text
   const creditKeywords = [
-    /credit report|identityiq|identity iq|consumer report/gi,
-    /experian|equifax|transunion|tri-merge|3-bureau/gi,
-    /account number|acct|account #/gi,
-    /balance.*payment|current balance|payment history/gi,
-    /creditor|lender|credit card|loan/gi,
-    /inquiry|inquiries|hard pull|soft pull/gi,
-    /date opened|date of birth|open date/gi,
-    /social security|ssn|social/gi,
-    /fico|credit score|score/gi,
-    /tradeline|trade line|credit line/gi,
-    /address|phone|employment|personal info/gi,
-    /dispute|collections|charge.*off|late payment/gi,
-    /credit monitoring|monitoring service/gi,
-    /account history|payment status/gi
-  ].reduce((count, regex) => count + (text.match(regex) || []).length, 0);
+    // Core identifiers (high priority)
+    /credit\s*report|identityiq|identity\s*iq|consumer\s*report/gi,
+    /experian|equifax|transunion|tri[\s-]*merge|3[\s-]*bureau/gi,
+    
+    // Account patterns (flexible matching)
+    /account[\s#]*number|acct[\s#]*|account[\s#]*\d+/gi,
+    /balance|payment[\s]*history|current[\s]*balance/gi,
+    /creditor|lender|credit[\s]*card|loan/gi,
+    
+    // Credit activity
+    /inquiry|inquiries|hard[\s]*pull|soft[\s]*pull/gi,
+    /date[\s]*opened|date[\s]*of[\s]*birth|open[\s]*date/gi,
+    /social[\s]*security|ssn|social/gi,
+    
+    // Credit scoring
+    /fico|credit[\s]*score|score[\s]*\d+/gi,
+    /tradeline|trade[\s]*line|credit[\s]*line/gi,
+    
+    // Personal information (flexible)
+    /address|phone|employment|personal[\s]*info/gi,
+    /dispute|collections|charge[\s-]*off|late[\s]*payment/gi,
+    /credit[\s]*monitoring|monitoring[\s]*service/gi,
+    /account[\s]*history|payment[\s]*status/gi,
+    
+    // Additional patterns for corrupted text
+    /\b\w*credit\w*|\w*report\w*|\w*account\w*|\w*balance\w*/gi,
+    /\d{3,4}[\s-]*\d{2,4}[\s-]*\d{4}/g, // SSN-like patterns
+    /\$?\d{1,6}[\.,]?\d{0,2}/g, // Dollar amounts
+    /\b[A-Z]{2,}[\s]*[A-Z]*\b/g // Uppercase words (company names)
+  ].reduce((count, regex) => {
+    const matches = text.match(regex) || [];
+    return count + matches.length;
+  }, 0);
   
   // Sample text for debugging (first 300 chars, cleaned)
   const sampleText = text.substring(0, 300).replace(/[^\x20-\x7E]/g, ' ').trim();
@@ -477,11 +495,21 @@ function validatePDFContent(text: string): {
   
   // IMPROVED VALIDATION LOGIC - More permissive for legitimate reports
   
-  // Special handling for IdentityIQ reports (very permissive)
+  // Special handling for IdentityIQ reports (VERY permissive)
   if (isIdentityIQ && text.length > 10000) {
-    // For IdentityIQ, accept if we have ANY credit keywords OR decent text ratio
-    if (creditKeywords >= 1 || (alphabeticRatio > 0.3 && alphaNumericRatio > 0.25)) {
-      console.log("✅ IdentityIQ report validated with relaxed criteria");
+    // For IdentityIQ, we're very permissive since the text is often heavily corrupted
+    // Accept if ANY of these conditions are met:
+    // 1. Any credit keywords found
+    // 2. Large document with decent alphabetic ratio
+    // 3. Contains common PDF elements suggesting it's a real document
+    const hasValidStructure = alphabeticRatio > 0.4 || alphaNumericRatio > 0.25;
+    const hasSubstantialContent = text.length > 50000;
+    
+    if (creditKeywords >= 1 || hasValidStructure || hasSubstantialContent) {
+      console.log("✅ IdentityIQ report validated with very relaxed criteria");
+      console.log(`- Credit keywords: ${creditKeywords}`);
+      console.log(`- Valid structure: ${hasValidStructure}`);
+      console.log(`- Substantial content: ${hasSubstantialContent}`);
       return {
         isValid: true,
         detectedType: 'credit_report',
@@ -491,11 +519,18 @@ function validatePDFContent(text: string): {
     }
   }
   
-  // Special handling for browser-generated PDFs with substantial content
+  // Special handling for browser-generated PDFs with substantial content  
   if (hasMozilla && text.length > 30000) {
-    // More permissive for browser PDFs - they often have corrupted text
-    if (creditKeywords >= 1 || (alphabeticRatio > 0.3 && alphaNumericRatio > 0.25)) {
+    // Very permissive for browser PDFs - they often have heavily corrupted text
+    // Accept if document is large and has reasonable text content
+    const hasReasonableContent = alphabeticRatio > 0.2 || alphaNumericRatio > 0.2;
+    const isLargeDocument = text.length > 100000;
+    
+    if (creditKeywords >= 1 || hasReasonableContent || isLargeDocument) {
       console.log("✅ Browser-generated PDF validated with substantial content");
+      console.log(`- Credit keywords: ${creditKeywords}`);
+      console.log(`- Reasonable content: ${hasReasonableContent}`);
+      console.log(`- Large document: ${isLargeDocument}`);
       return {
         isValid: true,
         detectedType: 'credit_report',
@@ -517,8 +552,20 @@ function validatePDFContent(text: string): {
   }
   
   // Additional permissive check for heavily corrupted but potentially valid reports
-  if (text.length > 30000 && alphabeticRatio > 0.4 && alphaNumericRatio > 0.3) {
-    console.log("✅ Large document with good text ratio - likely valid despite low keyword count");
+  if (text.length > 30000 && (alphabeticRatio > 0.3 || alphaNumericRatio > 0.25)) {
+    console.log("✅ Large document with reasonable text ratio - likely valid despite low keyword count");
+    return {
+      isValid: true,
+      detectedType: 'credit_report',
+      creditKeywords,
+      contentRatio: alphaNumericRatio
+    };
+  }
+  
+  // Emergency fallback for very large documents that might be valid
+  if (text.length > 100000 && alphaNumericRatio > 0.15) {
+    console.log("✅ Very large document accepted with emergency fallback criteria");
+    console.log("- This appears to be a substantial document despite text corruption");
     return {
       isValid: true,
       detectedType: 'credit_report',

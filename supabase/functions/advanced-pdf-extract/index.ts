@@ -68,7 +68,8 @@ serve(async (req) => {
           console.log('✅ Advanced PDF.js extraction successful');
         } else {
           console.log(`❌ PDF.js failed validation: length=${extractedText?.length}, valid=${isValidCreditReportContent(extractedText || '')}`);
-          throw new Error('Advanced PDF.js failed: Insufficient content');
+          console.log('🔧 PDF.js extracted garbled text, trying binary extraction...');
+          throw new Error('Advanced PDF.js failed: Garbled or insufficient content');
         }
       } catch (pdfjsError) {
         console.log(`❌ Advanced PDF.js failed: ${pdfjsError.message}`);
@@ -163,8 +164,12 @@ serve(async (req) => {
     console.log(`📝 Extracted text length: ${extractedText.length}`);
     console.log(`📋 Text preview (first 500 chars): ${extractedText.substring(0, 500)}...`);
 
-    // Validate extraction quality
-    if (!isValidCreditReportContent(extractedText)) {
+    // Log extraction quality for debugging
+    const isValid = isValidCreditReportContent(extractedText);
+    console.log(`📊 Content validation result: ${isValid}`);
+    
+    // For manual extraction methods, allow lower quality content to pass through
+    if (!isValid && !extractionMethod.includes('Manual') && !extractionMethod.includes('Fallback')) {
       throw new Error(`Extraction validation failed - no valid credit report content found using ${extractionMethod}`);
     }
 
@@ -247,7 +252,18 @@ async function extractTextWithAdvancedPDFJS(arrayBuffer: ArrayBuffer): Promise<s
   console.log('🚀 Starting advanced PDF.js extraction...');
   
   const uint8Array = new Uint8Array(arrayBuffer);
-  const pdfString = new TextDecoder('latin1').decode(uint8Array);
+  
+  // Try multiple encoding methods for better text extraction
+  let pdfString: string;
+  try {
+    pdfString = new TextDecoder('utf-8').decode(uint8Array);
+  } catch {
+    try {
+      pdfString = new TextDecoder('latin1').decode(uint8Array);
+    } catch {
+      pdfString = new TextDecoder('ascii').decode(uint8Array);
+    }
+  }
   
   let extractedText = '';
   

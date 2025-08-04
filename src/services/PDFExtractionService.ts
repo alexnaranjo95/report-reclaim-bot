@@ -61,7 +61,7 @@ export class PDFExtractionService {
       // CRITICAL: Validate extracted text before parsing
       const isValidText = await this.validateExtractedText(reportId);
       if (!isValidText) {
-        throw new Error('Extracted text contains no valid credit report data - only PDF metadata detected');
+        throw new Error('PDF contains no readable credit report text. Please upload a text-based credit report PDF from Experian, Equifax, or TransUnion.');
       }
       
       console.log('✅ Text validation passed, starting parsing...');

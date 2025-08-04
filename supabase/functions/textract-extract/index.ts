@@ -249,21 +249,110 @@ function sanitizeText(text: string): string {
   return sanitized;
 }
 
-function validateExtractedText(text: string): boolean {
+// Enhanced PDF content validation
+function validatePDFContent(text: string): {
+  isValid: boolean;
+  reason?: string;
+  detectedType: 'credit_report' | 'image_based' | 'metadata_only' | 'encrypted' | 'empty';
+  creditKeywords: number;
+  contentRatio: number;
+} {
+  console.log("=== ENHANCED PDF CONTENT VALIDATION ===");
+  console.log("Text length:", text.length);
+  
   if (!text || text.length < 50) {
-    console.log("❌ Text validation failed: too short");
-    return false;
+    console.log("❌ Text too short - likely empty or corrupted PDF");
+    return { 
+      isValid: false, 
+      reason: "PDF contains no readable text. Please upload a text-based credit report PDF from Experian, Equifax, or TransUnion.",
+      detectedType: 'empty',
+      creditKeywords: 0,
+      contentRatio: 0
+    };
   }
   
-  // Check for reasonable text content
+  // Check for PDF metadata indicators (signs of failed extraction)
+  const hasMetadata = text.includes('endstream') && text.includes('endobj') && text.includes('stream');
+  const hasMozilla = text.includes('Mozilla') || text.includes('mozilla');
+  
+  // Calculate content quality metrics
   const alphaNumericRatio = (text.match(/[a-zA-Z0-9]/g) || []).length / text.length;
-  if (alphaNumericRatio < 0.3) {
-    console.log("❌ Text validation failed: low alphanumeric ratio", alphaNumericRatio);
-    return false;
+  const alphabeticRatio = (text.match(/[a-zA-Z ]/g) || []).length / text.length;
+  
+  // Count credit report keywords
+  const creditKeywords = [
+    /credit report/gi,
+    /experian|equifax|transunion/gi,
+    /account number|acct/gi,
+    /balance.*payment/gi,
+    /creditor|lender/gi,
+    /inquiry|inquiries/gi,
+    /date opened|date of birth/gi,
+    /social security|ssn/gi,
+    /fico|credit score/gi,
+    /tradeline|trade line/gi
+  ].reduce((count, regex) => count + (text.match(regex) || []).length, 0);
+  
+  console.log("Content metrics:");
+  console.log("- Alphanumeric ratio:", alphaNumericRatio.toFixed(3));
+  console.log("- Alphabetic ratio:", alphabeticRatio.toFixed(3));
+  console.log("- Credit keywords found:", creditKeywords);
+  console.log("- Has PDF metadata:", hasMetadata);
+  console.log("- Has Mozilla markers:", hasMozilla);
+  
+  // Determine PDF type and validation result
+  if (hasMetadata && alphaNumericRatio < 0.4) {
+    return {
+      isValid: false,
+      reason: "PDF contains mostly metadata. Please upload a text-based credit report PDF, not a browser-generated or image-based file.",
+      detectedType: 'metadata_only',
+      creditKeywords,
+      contentRatio: alphaNumericRatio
+    };
   }
   
-  console.log("✅ Text validation passed");
-  return true;
+  if (hasMozilla && alphabeticRatio < 0.5) {
+    return {
+      isValid: false,
+      reason: "PDF appears to be browser-generated or corrupted. Please download a direct PDF from your credit bureau.",
+      detectedType: 'image_based',
+      creditKeywords,
+      contentRatio: alphabeticRatio
+    };
+  }
+  
+  if (creditKeywords === 0) {
+    return {
+      isValid: false,
+      reason: "PDF contains no credit report data. Please ensure you're uploading a genuine credit report from Experian, Equifax, or TransUnion.",
+      detectedType: 'image_based',
+      creditKeywords,
+      contentRatio: alphaNumericRatio
+    };
+  }
+  
+  if (creditKeywords < 3 && alphaNumericRatio < 0.5) {
+    return {
+      isValid: false,
+      reason: "PDF quality is too low for processing. Please upload a high-quality, text-based credit report PDF.",
+      detectedType: 'image_based',
+      creditKeywords,
+      contentRatio: alphaNumericRatio
+    };
+  }
+  
+  console.log("✅ PDF content validation passed");
+  return {
+    isValid: true,
+    detectedType: 'credit_report',
+    creditKeywords,
+    contentRatio: alphaNumericRatio
+  };
+}
+
+function validateExtractedText(text: string): boolean {
+  const validation = validatePDFContent(text);
+  return validation.isValid;
 }
 
 Deno.serve(async (req) => {
@@ -430,10 +519,23 @@ Deno.serve(async (req) => {
     console.log("Sanitized length:", extractedText.length);
     console.log("Extraction method:", extractionMethod);
 
-    // Validate final text
-    if (!validateExtractedText(extractedText)) {
-      throw new Error("Extracted text failed validation checks");
+    // Enhanced content validation with detailed feedback
+    console.log("=== FINAL CONTENT VALIDATION ===");
+    const validation = validatePDFContent(extractedText);
+    
+    if (!validation.isValid) {
+      console.error("❌ Content validation failed:", validation.reason);
+      console.error("Detected type:", validation.detectedType);
+      console.error("Credit keywords found:", validation.creditKeywords);
+      console.error("Content ratio:", validation.contentRatio);
+      
+      throw new Error(validation.reason || "PDF content validation failed");
     }
+    
+    console.log("✅ Content validation passed:");
+    console.log("- Credit keywords found:", validation.creditKeywords);
+    console.log("- Content quality ratio:", validation.contentRatio);
+    console.log("- Detected type:", validation.detectedType);
 
     // Store in database with enhanced metadata
     console.log("=== STORING EXTRACTED TEXT IN DATABASE ===");

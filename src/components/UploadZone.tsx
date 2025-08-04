@@ -1,8 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
-import { Upload, FileText, AlertCircle } from 'lucide-react';
+import { Upload, FileText, AlertCircle, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { PDFValidationGuide } from './PDFValidationGuide';
 
 interface UploadZoneProps {
   onFileUpload: (file: File) => void;
@@ -53,14 +55,31 @@ export const UploadZone = ({ onFileUpload }: UploadZoneProps) => {
               Drag and drop your PDF credit report or click to browse
             </p>
             <p className="text-xs text-muted-foreground">
-              Supports PDF files up to 10MB
+              Supports text-based PDF files up to 10MB from official credit bureaus
             </p>
           </div>
 
-          <Button variant="outline" className="mt-4">
-            <Upload className="h-4 w-4 mr-2" />
-            Choose File
-          </Button>
+          <div className="flex gap-2 justify-center">
+            <Button variant="outline">
+              <Upload className="h-4 w-4 mr-2" />
+              Choose File
+            </Button>
+            
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <HelpCircle className="h-4 w-4 mr-2" />
+                  Requirements
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>PDF Upload Requirements</DialogTitle>
+                </DialogHeader>
+                <PDFValidationGuide />
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </div>
 

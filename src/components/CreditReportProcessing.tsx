@@ -115,6 +115,11 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
   const progressPercentage = progress || Math.round((completedSteps / totalSteps) * 100);
 
   const isExtractionError = error && (
+    error.includes('PDF contains no readable credit report text') ||
+    error.includes('PDF contains mostly metadata') ||
+    error.includes('browser-generated or corrupted') ||
+    error.includes('no credit report data') ||
+    error.includes('PDF quality is too low') ||
     error.includes('PDF text extraction failed') ||
     error.includes('image-based') ||
     error.includes('encrypted') ||

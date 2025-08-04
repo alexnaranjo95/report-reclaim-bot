@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { FileText, Printer, Paperclip } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { sanitizeHtml } from '@/utils/SecurityUtils';
 
 interface DocumentAppendSettings {
   includeGovId: boolean;
@@ -162,7 +163,7 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ html, documentSettings, adminFi
                 color: '#000',
                 minHeight: '816px' // 11" - 2" margins at 96 DPI
               }}
-              dangerouslySetInnerHTML={{ __html: html }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
             />
           </div>
 

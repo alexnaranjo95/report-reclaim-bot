@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { sanitizeHtml } from '@/utils/SecurityUtils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -191,7 +192,7 @@ const TemplateManager: React.FC = () => {
             fontSize: '12pt',
             lineHeight: '1.6'
           }} dangerouslySetInnerHTML={{
-            __html: previewTemplate
+            __html: sanitizeHtml(previewTemplate)
           }} />
           </div>
         </DialogContent>

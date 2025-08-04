@@ -6,13 +6,84 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Simple encryption for API keys (in production, use proper encryption)
-const encryptValue = (value: string): string => {
-  return btoa(value); // Base64 encoding - replace with proper encryption
+// Enhanced encryption/decryption functions using Web Crypto API
+const encryptValue = async (value: string): Promise<string> => {
+  try {
+    // Get encryption key from environment
+    const encryptionKey = Deno.env.get('SUPABASE_ENCRYPTION_KEY') || 'default-key-change-this-secure-key';
+    
+    // Create key for AES-GCM encryption
+    const keyData = new TextEncoder().encode(encryptionKey.padEnd(32, '0').slice(0, 32));
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt']
+    );
+    
+    // Generate random IV
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    
+    // Encrypt the value
+    const encodedValue = new TextEncoder().encode(value);
+    const encryptedData = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      cryptoKey,
+      encodedValue
+    );
+    
+    // Combine IV and encrypted data, then base64 encode
+    const combined = new Uint8Array(iv.length + encryptedData.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(encryptedData), iv.length);
+    
+    return btoa(String.fromCharCode(...combined));
+  } catch (error) {
+    console.error('Encryption failed:', error);
+    throw new Error('Failed to encrypt sensitive data');
+  }
 };
 
-const decryptValue = (encryptedValue: string): string => {
-  return atob(encryptedValue); // Base64 decoding - replace with proper decryption
+const decryptValue = async (encryptedValue: string): Promise<string> => {
+  try {
+    // Get encryption key from environment
+    const encryptionKey = Deno.env.get('SUPABASE_ENCRYPTION_KEY') || 'default-key-change-this-secure-key';
+    
+    // Create key for AES-GCM decryption
+    const keyData = new TextEncoder().encode(encryptionKey.padEnd(32, '0').slice(0, 32));
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'AES-GCM' },
+      false,
+      ['decrypt']
+    );
+    
+    // Decode base64 and extract IV and encrypted data
+    const combined = new Uint8Array(
+      atob(encryptedValue).split('').map(char => char.charCodeAt(0))
+    );
+    const iv = combined.slice(0, 12);
+    const encryptedData = combined.slice(12);
+    
+    // Decrypt the data
+    const decryptedData = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      cryptoKey,
+      encryptedData
+    );
+    
+    return new TextDecoder().decode(decryptedData);
+  } catch (error) {
+    console.error('Decryption failed:', error);
+    // For backward compatibility with base64 encoded values
+    try {
+      return atob(encryptedValue);
+    } catch {
+      throw new Error('Failed to decrypt sensitive data');
+    }
+  }
 };
 
 serve(async (req) => {
@@ -79,10 +150,10 @@ serve(async (req) => {
       }
 
       // Decrypt encrypted values for display (mask API keys)
-      const processedData = data?.map(setting => {
+      const processedData = await Promise.all(data?.map(async setting => {
         if (setting.is_encrypted) {
           try {
-            const decrypted = decryptValue(setting.setting_value.value || '');
+            const decrypted = await decryptValue(setting.setting_value.value || '');
             return {
               ...setting,
               setting_value: {
@@ -103,7 +174,7 @@ serve(async (req) => {
           }
         }
         return setting;
-      });
+      }) || []);
 
       return new Response(JSON.stringify({ data: processedData }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -122,7 +193,7 @@ serve(async (req) => {
         if (postgrid_key) {
           keyUpdates.push({
             setting_key: 'postgrid_api_key',
-            setting_value: { value: encryptValue(postgrid_key) },
+            setting_value: { value: await encryptValue(postgrid_key) },
             is_encrypted: true,
             description: 'PostGrid API key for letter delivery',
             updated_by: user.id
@@ -132,7 +203,7 @@ serve(async (req) => {
         if (openai_key) {
           keyUpdates.push({
             setting_key: 'openai_api_key',
-            setting_value: { value: encryptValue(openai_key) },
+            setting_value: { value: await encryptValue(openai_key) },
             is_encrypted: true,
             description: 'OpenAI API key for AI-powered dispute generation',
             updated_by: user.id
@@ -142,7 +213,7 @@ serve(async (req) => {
         if (tinymce_key) {
           keyUpdates.push({
             setting_key: 'tinymce_api_key',
-            setting_value: { value: encryptValue(tinymce_key) },
+            setting_value: { value: await encryptValue(tinymce_key) },
             is_encrypted: true,
             description: 'TinyMCE API key for rich text editing',
             updated_by: user.id
@@ -186,7 +257,7 @@ serve(async (req) => {
 
         const settingData = {
           setting_key,
-          setting_value: is_encrypted ? { value: encryptValue(setting_value) } : setting_value,
+          setting_value: is_encrypted ? { value: await encryptValue(setting_value) } : setting_value,
           is_encrypted,
           description,
           updated_by: user.id

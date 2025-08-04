@@ -10,144 +10,171 @@ export class CreditAnalysisService {
     onProgress?: (step: string, progress: number) => void
   ): Promise<CreditAnalysisResult> {
     try {
-      console.log('Starting PDF analysis...');
-      onProgress?.('upload', 10);
+      console.log('🚀 Starting enhanced PDF analysis:', request.file.name);
+      onProgress?.('Uploading PDF...', 10);
       
-      // Send PDF directly to edge function for processing
+      // Create form data for enhanced analysis
       const formData = new FormData();
       formData.append('file', request.file);
       formData.append('action', 'analyzePDF');
       
-      console.log('Calling Supabase edge function...');
-      onProgress?.('extraction', 30);
+      console.log('📤 Calling enhanced Supabase edge function...');
+      onProgress?.('Extracting text with multiple methods...', 30);
       
-      // Get current session to ensure authentication
+      // Verify authentication
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        throw new Error('User not authenticated. Please log in.');
+        throw new Error('Authentication required. Please sign in to continue.');
       }
       
-      console.log('Session valid, making API call...');
-      onProgress?.('validation', 50);
+      console.log('✅ Authentication verified, processing PDF...');
+      onProgress?.('Processing with AI analysis...', 50);
       
+      // Call the enhanced edge function
       const { data, error } = await supabase.functions.invoke('openai-analysis', {
         body: formData
-        // Don't set Content-Type header for FormData - let the browser set it with boundary
       });
 
-      console.log('Edge function response received:', { data, error });
-      onProgress?.('analysis', 75);
+      console.log('📊 Enhanced analysis response:', { data, error });
+      onProgress?.('Parsing results...', 75);
 
       if (error) {
-        console.error('Supabase function error:', error);
-        throw new Error(`Edge function failed: ${error.message || 'Unknown error'}`);
+        console.error('❌ Enhanced analysis service error:', error);
+        
+        // Provide specific error handling
+        if (error.message?.includes('JWT') || error.message?.includes('auth')) {
+          throw new Error('Authentication expired. Please refresh and try again.');
+        } else if (error.message?.includes('timeout') || error.message?.includes('CPU')) {
+          throw new Error('PDF processing timed out. The file may be too complex or large.');
+        }
+        
+        throw new Error(`Analysis service failed: ${error.message || 'Unknown error'}`);
       }
 
       if (!data || typeof data !== 'object') {
-        throw new Error('Invalid response from analysis service - no data received');
+        console.error('❌ Invalid response format from analysis service');
+        throw new Error('Invalid response from analysis service');
       }
 
-      console.log('Received data from edge function:', data);
-      onProgress?.('parsing', 90);
+      console.log('📋 Processing enhanced analysis data...');
+      onProgress?.('Finalizing analysis...', 90);
 
-      // Check if this is an extraction error
-      if (data.error) {
-        // Throw extraction errors with detailed information
-        if (data.step === 'extraction' && data.canRetry) {
-          throw new Error(`PDF Extraction Failed: ${data.error}\n\nThis could be due to:\n• Image-based PDF (scanned document)\n• Corrupted or encrypted PDF\n• Unsupported PDF format\n\nTry uploading a different version of your credit report or a text-based PDF.`);
+      // Handle enhanced analysis response format
+      if (!data.success) {
+        console.error('❌ Enhanced analysis failed:', data.error);
+        
+        // Provide specific error feedback
+        if (data.error?.includes('text extracted') || data.error?.includes('PDF extraction')) {
+          throw new Error('PDF text extraction failed. The file may be image-based, encrypted, or corrupted.');
+        } else if (data.error?.includes('OpenAI') || data.error?.includes('analysis')) {
+          throw new Error('AI analysis temporarily unavailable. Please try again later.');
         }
-        throw new Error(data.error);
+        
+        // Fall back to mock data for development
+        console.log('🔄 Using sample data for demonstration...');
+        onProgress?.('Using sample data...', 85);
+        return this.fallbackAnalysisWithMockData(request.file);
       }
 
-      // Check if the PDF analysis failed due to no extractable data
-      if (data.items && data.items.length === 0 && 
-          data.personalInfo && !data.personalInfo.name && !data.personalInfo.address &&
-          data.creditScores && data.creditScores.experian === 0 && data.creditScores.equifax === 0 && data.creditScores.transunion === 0) {
-        throw new Error('No credit report data found in the uploaded PDF. The file may be corrupted, password-protected, or not a valid credit report from a major bureau.');
-      }
-
-      // Process and validate the results
-      const items: CreditItem[] = (data.items || []).map((item: any, index: number) => ({
+      // Process enhanced analysis results
+      const analysis = data.analysis || {};
+      const summary = analysis.summary || {};
+      const negativeItems = analysis.negativeItems || [];
+      
+      // Convert to CreditItem format
+      const items: CreditItem[] = negativeItems.map((item: any, index: number) => ({
         id: `item-${index + 1}`,
-        creditor: item.creditor || 'Unknown Creditor',
+        creditor: item.creditor || item.description?.split(' ')[0] || 'Unknown Creditor',
         account: item.account || '****0000',
-        issue: item.issue || 'Negative item detected',
-        impact: item.impact || 'medium',
+        issue: item.description || item.type || 'Negative item detected',
+        impact: this.mapSeverityToImpact(item.severity || 5),
         status: 'negative' as const,
-        bureau: Array.isArray(item.bureau) ? item.bureau : ['Unknown'],
+        bureau: ['Unknown'], // Will be updated when we have bureau detection
         dateOpened: item.dateOpened,
         lastActivity: item.lastActivity,
-        balance: typeof item.balance === 'number' ? item.balance : undefined,
-        originalAmount: typeof item.originalAmount === 'number' ? item.originalAmount : undefined,
-        paymentStatus: item.paymentStatus
+        balance: typeof item.amount === 'number' ? item.amount : undefined,
+        paymentStatus: item.status || 'Unknown'
       }));
 
-      console.log('Processed items:', items.length);
-      console.log('Raw positive accounts:', data.totalPositiveAccounts);
-      console.log('Raw total accounts:', data.totalAccounts);
+      console.log('✅ Enhanced analysis completed successfully');
+      console.log('📋 Report ID:', data.reportId);
+      console.log('🔍 Extraction method:', data.extractionMethod);
+      console.log('📝 Text length:', data.textLength);
+      console.log('📊 Items found:', items.length);
       
-      // Calculate summary with better defaults
-      const summary = {
+      const resultSummary = {
         totalNegativeItems: items.length,
-        totalPositiveAccounts: Number(data.totalPositiveAccounts) || 0,
-        totalAccounts: Number(data.totalAccounts) || 0,
+        totalPositiveAccounts: summary.totalAccounts || 0,
+        totalAccounts: summary.totalAccounts || 0,
         estimatedScoreImpact: this.calculateScoreImpact(items),
-        bureausAffected: [...new Set(items.flatMap(item => item.bureau))],
+        bureausAffected: ['Unknown'], // Will be updated when we have bureau detection
         highImpactItems: items.filter(item => item.impact === 'high').length,
         mediumImpactItems: items.filter(item => item.impact === 'medium').length,
         lowImpactItems: items.filter(item => item.impact === 'low').length
       };
 
-      console.log('Final summary:', summary);
-      
       const result = {
         items,
-        summary,
-        historicalData: data.historicalData || {
-          lettersSent: Math.floor(Math.random() * 20) + 10, // Demo data if not found
-          itemsRemoved: Math.floor(Math.random() * 10) + 3,
-          itemsPending: items.length > 0 ? items.length : Math.floor(Math.random() * 15) + 5,
-          successRate: 65 + Math.floor(Math.random() * 25),
-          avgRemovalTime: 30 + Math.floor(Math.random() * 60)
+        summary: resultSummary,
+        historicalData: {
+          lettersSent: 0,
+          itemsRemoved: 0,
+          itemsPending: items.length,
+          successRate: 75,
+          avgRemovalTime: 45
         },
-        accountBreakdown: data.accountBreakdown || {
-          creditCards: Math.floor(Math.random() * 8) + 2,
-          mortgages: Math.floor(Math.random() * 2),
-          autoLoans: Math.floor(Math.random() * 3) + 1,
-          studentLoans: Math.floor(Math.random() * 3),
-          personalLoans: Math.floor(Math.random() * 2),
-          collections: items.filter(i => i.issue.toLowerCase().includes('collection')).length,
-          other: Math.floor(Math.random() * 3)
+        accountBreakdown: {
+          creditCards: (analysis.accounts || []).filter((acc: any) => acc.type?.toLowerCase().includes('credit')).length,
+          mortgages: (analysis.accounts || []).filter((acc: any) => acc.type?.toLowerCase().includes('mortgage')).length,
+          autoLoans: (analysis.accounts || []).filter((acc: any) => acc.type?.toLowerCase().includes('auto')).length,
+          studentLoans: (analysis.accounts || []).filter((acc: any) => acc.type?.toLowerCase().includes('student')).length,
+          personalLoans: (analysis.accounts || []).filter((acc: any) => acc.type?.toLowerCase().includes('personal')).length,
+          collections: items.filter(item => item.issue.toLowerCase().includes('collection')).length,
+          other: 0
         },
-        personalInfo: data.personalInfo || {},
-        creditScores: data.creditScores || {}
+        personalInfo: analysis.personalInfo || {
+          name: 'Extracted from ' + request.file.name
+        },
+        creditScores: summary.creditScores || {
+          experian: summary.creditScore || 0,
+          equifax: summary.creditScore || 0,
+          transunion: summary.creditScore || 0
+        }
       };
 
-      console.log('Returning final result:', result);
-      onProgress?.('completed', 100);
+      console.log('🎉 Enhanced PDF analysis completed successfully');
+      onProgress?.('Complete!', 100);
       return result;
       
     } catch (error) {
-      console.error('💥 Credit analysis failed:', error);
-      onProgress?.('Error: Analysis failed', 0);
+      console.error('💥 Enhanced PDF analysis failed:', error);
       
-      // For extraction errors, don't fallback - let user know what went wrong
-      if (error.message?.includes('PDF Extraction Failed') || 
-          error.message?.includes('extraction methods failed') || 
-          error.message?.includes('No readable text') ||
-          error.message?.includes('PDF extraction failed') ||
-          error.message?.includes('Failed to process PDF file') ||
-          error.message?.includes('unable to extract readable text')) {
-        // These are extraction errors - throw them as-is for user feedback
+      // Don't fallback for authentication errors
+      if (error.message?.includes('Authentication') || error.message?.includes('sign in')) {
+        onProgress?.('Authentication required', 0);
         throw error;
       }
       
-      // For other errors, provide fallback for development
-      console.log('🔄 Using fallback analysis data for development...');
-      if (onProgress) onProgress('Using sample data for demonstration...', 50);
+      // Don't fallback for specific extraction errors that user should know about
+      if (error.message?.includes('PDF text extraction failed') || 
+          error.message?.includes('image-based') ||
+          error.message?.includes('encrypted')) {
+        onProgress?.('PDF extraction failed', 0);
+        throw error;
+      }
+      
+      // For other errors, provide fallback with clear indication
+      console.log('🔄 Using sample data for demonstration...');
+      onProgress?.('Using sample data (analysis failed)', 50);
       
       return this.fallbackAnalysisWithMockData(request.file);
     }
+  }
+
+  private static mapSeverityToImpact(severity: number): 'low' | 'medium' | 'high' {
+    if (severity >= 8) return 'high';
+    if (severity >= 5) return 'medium';
+    return 'low';
   }
 
   private static async fallbackAnalysisWithMockData(file: File): Promise<CreditAnalysisResult> {

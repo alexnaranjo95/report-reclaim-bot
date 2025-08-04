@@ -18,10 +18,14 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let body: any = null;
+  let reportId: string | null = null;
+
   try {
     // Parse request body
     console.log("=== PARSING REQUEST ===");
-    const body = await req.json();
+    body = await req.json();
+    reportId = body.reportId;
     console.log("Request body keys:", Object.keys(body));
     console.log("Report ID:", body.reportId);
     console.log("File Path:", body.filePath);
@@ -120,22 +124,24 @@ serve(async (req) => {
     console.error("Error message:", error.message);
     console.error("Error stack:", error.stack);
 
-    // Update report status to failed
-    try {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      
-      await supabase
-        .from('credit_reports')
-        .update({
-          extraction_status: 'failed',
-          processing_errors: error.message,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', body?.reportId);
-    } catch (updateError) {
-      console.error("Failed to update error status:", updateError);
+    // Update report status to failed (only if we have a reportId)
+    if (reportId) {
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        
+        await supabase
+          .from('credit_reports')
+          .update({
+            extraction_status: 'failed',
+            processing_errors: error.message,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', reportId);
+      } catch (updateError) {
+        console.error("Failed to update error status:", updateError);
+      }
     }
 
     return new Response(

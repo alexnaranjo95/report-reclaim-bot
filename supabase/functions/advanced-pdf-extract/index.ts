@@ -1,4 +1,3 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
@@ -255,34 +254,11 @@ async function extractTextWithAdvancedPDFJS(arrayBuffer: ArrayBuffer): Promise<s
     // First try: Standard PDF.js page-by-page extraction
     console.log('📄 Attempting page-by-page extraction...');
     try {
-      // Import PDF.js for proper text extraction
-      const pdfjsLib = await import('https://cdn.skypack.dev/pdfjs-dist@3.11.174');
-      const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
-      let pageText = '';
-      
-      for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, 20); pageNum++) {
-        try {
-          const page = await pdf.getPage(pageNum);
-          const textContent = await page.getTextContent();
-          const pageStrings = textContent.items
-            .filter((item: any) => item.str && typeof item.str === 'string')
-            .map((item: any) => item.str)
-            .join(' ');
-          
-          if (pageStrings.trim().length > 0) {
-            pageText += pageStrings + ' ';
-          }
-        } catch (pageError) {
-          console.log(`⚠️ Error extracting page ${pageNum}:`, pageError.message);
-        }
-      }
-      
-      if (pageText.trim().length > 100 && isReadableText(pageText)) {
-        console.log(`✅ Page-by-page extraction successful: ${pageText.length} characters`);
-        return cleanExtractedText(pageText);
-      }
+      // Skip PDF.js for now - use binary extraction instead
+      console.log('⚠️ PDF.js not available in this environment, proceeding with binary extraction');
+      throw new Error('PDF.js not available');
     } catch (pdfError) {
-      console.log('⚠️ Page-by-page extraction failed:', pdfError.message);
+      console.log('⚠️ Page-by-page extraction skipped:', pdfError.message);
     }
     
     // Fallback: Binary extraction methods

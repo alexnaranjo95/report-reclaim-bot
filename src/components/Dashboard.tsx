@@ -86,16 +86,16 @@ export const Dashboard = () => {
     }
   };
 
-  // Reset entire round functionality - clear all analysis and database data
+  // Enhanced reset functionality with comprehensive cleanup
   const handleResetRound = async () => {
-    if (!confirm("Reset entire round? This will clear all analysis data, delete all related database records, and return to the upload screen.")) {
+    if (!confirm("⚠️ COMPLETE RESET WARNING ⚠️\n\nThis will permanently delete:\n• All credit reports and analysis data\n• All stored files from storage\n• All related database records\n• All session data\n\nThis cannot be undone. Continue?")) {
       return;
     }
 
     try {
-      console.log('🔄 Starting comprehensive round reset...');
+      console.log('🔄 Starting comprehensive data cleanup...');
       
-      // 1. Clear all UI states first
+      // 1. Clear all UI states immediately
       setUploadedFile(null);
       setAnalysisComplete(false);
       setAnalysisResults(null);
@@ -104,75 +104,108 @@ export const Dashboard = () => {
       setProcessingStep('');
       setProcessingProgress(0);
 
-      // 2. Get the current round data to find report IDs
-      const currentRoundData = rounds.find(r => r.round_number === currentRound);
-      
-      if (currentRoundData && currentSession) {
-        console.log('🗑️ Deleting database records for round:', currentRound);
-        
-        // Get all credit reports from this session to clean up
-        const { data: reportsToDelete } = await supabase
-          .from('credit_reports')
-          .select('id, file_path')
-          .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-        
-        if (reportsToDelete && reportsToDelete.length > 0) {
-          for (const report of reportsToDelete) {
-            console.log('🗑️ Cleaning up report:', report.id);
-            
-            // Delete related data in correct order (foreign key dependencies)
-            await Promise.all([
-              supabase.from('negative_items').delete().eq('report_id', report.id),
-              supabase.from('credit_inquiries').delete().eq('report_id', report.id),
-              supabase.from('credit_accounts').delete().eq('report_id', report.id),
-              supabase.from('personal_information').delete().eq('report_id', report.id),
-              supabase.from('ai_analysis_results').delete().eq('report_id', report.id),
-            ]);
-            
-            // Delete the file from storage if it exists
-            if (report.file_path) {
-              console.log('🗑️ Deleting file from storage:', report.file_path);
-              await supabase.storage
-                .from('credit-reports')
-                .remove([report.file_path]);
-            }
-            
-            // Delete the credit report record
-            await supabase
-              .from('credit_reports')
-              .delete()
-              .eq('id', report.id);
-          }
-        }
-        
-        // 3. Clear round snapshot data and round record
-        await supabase
-          .from('rounds')
-          .update({ snapshot_data: {} })
-          .eq('id', currentRoundData.id);
-          
-        // Or delete the round entirely if preferred
-        await supabase
-          .from('rounds')
-          .delete()
-          .eq('id', currentRoundData.id);
-        
-        console.log('✅ Database cleanup completed');
+      // 2. Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
       }
 
-      // 4. Update local state to remove the round
-      setRounds(prev => prev.filter(r => r.round_number !== currentRound));
+      console.log('🗑️ Starting comprehensive database cleanup for user:', user.id);
+      
+      // 3. Get ALL credit reports for this user (not just current round)
+      const { data: reportsToDelete, error: reportsError } = await supabase
+        .from('credit_reports')
+        .select('id, file_path')
+        .eq('user_id', user.id);
+      
+      if (reportsError) {
+        console.error('Error fetching reports:', reportsError);
+        throw reportsError;
+      }
+
+      console.log(`📋 Found ${reportsToDelete?.length || 0} reports to delete`);
+      
+      // 4. Delete all related data for each report
+      if (reportsToDelete && reportsToDelete.length > 0) {
+        for (const report of reportsToDelete) {
+          console.log('🗑️ Comprehensive cleanup for report:', report.id);
+          
+          // Delete all related data in parallel (faster)
+          const deletePromises = [
+            supabase.from('negative_items').delete().eq('report_id', report.id),
+            supabase.from('credit_inquiries').delete().eq('report_id', report.id),
+            supabase.from('credit_accounts').delete().eq('report_id', report.id),
+            supabase.from('personal_information').delete().eq('report_id', report.id),
+            supabase.from('ai_analysis_results').delete().eq('report_id', report.id),
+            supabase.from('collections').delete().eq('report_id', report.id),
+            supabase.from('public_records').delete().eq('report_id', report.id)
+          ];
+
+          const deleteResults = await Promise.allSettled(deletePromises);
+          deleteResults.forEach((result, index) => {
+            if (result.status === 'rejected') {
+              console.warn(`Failed to delete related data ${index}:`, result.reason);
+            }
+          });
+          
+          // Delete files from storage
+          if (report.file_path) {
+            console.log('🗑️ Deleting file from storage:', report.file_path);
+            const { error: storageError } = await supabase.storage
+              .from('credit-reports')
+              .remove([report.file_path]);
+            
+            if (storageError) {
+              console.warn('Storage deletion error:', storageError);
+            }
+          }
+          
+          // Delete the credit report record
+          const { error: reportDeleteError } = await supabase
+            .from('credit_reports')
+            .delete()
+            .eq('id', report.id);
+            
+          if (reportDeleteError) {
+            console.warn('Report deletion error:', reportDeleteError);
+          }
+        }
+      }
+      
+      // 5. Clean up all user rounds and sessions
+      console.log('🗑️ Cleaning up rounds and sessions...');
+      
+      // Delete all letters for this user
+      await supabase.from('letters').delete().eq('user_id', user.id);
+      
+      // Delete all response logs for this user
+      await supabase.from('response_logs').delete().eq('user_id', user.id);
+      
+      // Delete all rounds for this user
+      await supabase.from('rounds').delete().eq('user_id', user.id);
+      
+      // Delete all sessions for this user
+      await supabase.from('sessions').delete().eq('user_id', user.id);
+      
+      console.log('✅ Comprehensive database cleanup completed');
+
+      // 6. Reset all local state
+      setCurrentSession(null);
+      setRounds([]);
+      setCurrentRound(1);
+      
+      console.log('✅ Local state reset completed');
 
       toast({
-        title: "Complete Reset Successful",
-        description: "All data cleared - analysis, database records, and files deleted. Upload a new credit report to start fresh.",
+        title: "🧹 Complete System Reset Successful",
+        description: "All data has been permanently deleted. You can now start fresh with a new credit report upload.",
       });
       
     } catch (error) {
-      console.error('❌ Reset failed:', error);
+      console.error('❌ Comprehensive reset failed:', error);
       toast({
         title: "Reset Failed",
-        description: "There was an error during reset. Some data may remain.",
+        description: `Error during reset: ${error.message || 'Unknown error'}. Please try again or contact support.`,
         variant: "destructive"
       });
     }

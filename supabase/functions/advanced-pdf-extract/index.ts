@@ -13,9 +13,10 @@ serve(async (req) => {
   }
 
   try {
-    const { reportId, filePath } = await req.json();
+    const requestBody = await req.text();
+    const { reportId, filePath } = JSON.parse(requestBody);
     
-console.log('=== REAL DATA ADVANCED PDF EXTRACTION STARTED ===');
+    console.log('=== ADVANCED PDF EXTRACTION STARTED ===');
     console.log('Report ID:', reportId);
     console.log('File Path:', filePath);
     console.log('Timestamp:', new Date().toISOString());
@@ -73,15 +74,18 @@ console.log('=== REAL DATA ADVANCED PDF EXTRACTION STARTED ===');
           console.log('🔧 Attempting binary text extraction...');
           extractedText = await extractTextWithBinaryMethod(arrayBuffer);
           
-          // Check if this is raw PDF data
+          // Enhanced check for raw PDF data
           const isRawPdf = extractedText.includes('0 obj') || 
                           extractedText.includes('endobj') || 
                           extractedText.includes('stream') ||
-                          extractedText.includes('endstream');
+                          extractedText.includes('endstream') ||
+                          extractedText.includes('/Type') ||
+                          extractedText.includes('/Filter') ||
+                          (extractedText.length > 50000 && !containsCreditKeywords(extractedText));
           
           if (isRawPdf) {
-            console.log('⚠️ Binary extraction returned raw PDF data, not text content');
-            throw new Error('Binary extraction returned raw PDF data instead of readable text');
+            console.log('⚠️ Binary extraction returned raw PDF data, forcing OCR or manual extraction');
+            throw new Error('Binary extraction returned raw PDF data - will try OCR');
           }
           
           if (extractedText && extractedText.length > 200 && isValidCreditReportContent(extractedText)) {
@@ -205,24 +209,34 @@ console.log('=== REAL DATA ADVANCED PDF EXTRACTION STARTED ===');
     console.error('Error:', error.message);
     console.error('Stack:', error.stack);
     
-    // Update report with error status (using existing supabase client and reportId)
+    // Update report with error status
     try {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseKey);
       
-      // Get reportId from the request (parse it once at the beginning if not already done)
-      const body = await req.clone().json();
-      const { reportId } = body;
+      // Get reportId from the request body (handle JSON parsing errors)
+      let reportId;
+      try {
+        const clonedReq = req.clone();
+        const body = await clonedReq.text();
+        const parsed = JSON.parse(body);
+        reportId = parsed.reportId;
+      } catch (parseError) {
+        console.error('Failed to parse request body for error update:', parseError);
+        reportId = null;
+      }
       
-      await supabase
-        .from('credit_reports')
-        .update({
-          extraction_status: 'failed',
-          processing_errors: error.message,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', reportId);
+      if (reportId) {
+        await supabase
+          .from('credit_reports')
+          .update({
+            extraction_status: 'failed',
+            processing_errors: error.message,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', reportId);
+      }
     } catch (updateError) {
       console.error('Failed to update error status:', updateError);
     }

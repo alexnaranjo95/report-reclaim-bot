@@ -279,18 +279,20 @@ function validatePDFContent(text: string): {
   const alphaNumericRatio = (text.match(/[a-zA-Z0-9]/g) || []).length / text.length;
   const alphabeticRatio = (text.match(/[a-zA-Z ]/g) || []).length / text.length;
   
-  // Count credit report keywords
+  // Count credit report keywords - enhanced for IdentityIQ and other services
   const creditKeywords = [
-    /credit report/gi,
-    /experian|equifax|transunion/gi,
-    /account number|acct/gi,
-    /balance.*payment/gi,
-    /creditor|lender/gi,
-    /inquiry|inquiries/gi,
-    /date opened|date of birth/gi,
-    /social security|ssn/gi,
-    /fico|credit score/gi,
-    /tradeline|trade line/gi
+    /credit report|identityiq|identity iq/gi,
+    /experian|equifax|transunion|tri-merge|3-bureau/gi,
+    /account number|acct|account #/gi,
+    /balance.*payment|current balance|payment history/gi,
+    /creditor|lender|credit card|loan/gi,
+    /inquiry|inquiries|hard pull|soft pull/gi,
+    /date opened|date of birth|open date/gi,
+    /social security|ssn|social/gi,
+    /fico|credit score|score/gi,
+    /tradeline|trade line|credit line/gi,
+    /address|phone|employment|personal info/gi,
+    /dispute|collections|charge.*off|late payment/gi
   ].reduce((count, regex) => count + (text.match(regex) || []).length, 0);
   
   console.log("Content metrics:");
@@ -321,20 +323,22 @@ function validatePDFContent(text: string): {
     };
   }
   
-  if (creditKeywords === 0) {
+  // More permissive validation for real-world credit reports
+  if (creditKeywords === 0 && alphaNumericRatio < 0.3) {
     return {
       isValid: false,
-      reason: "PDF contains no credit report data. Please ensure you're uploading a genuine credit report from Experian, Equifax, or TransUnion.",
+      reason: "PDF contains no recognizable credit report data. Please ensure you're uploading a credit report from Experian, Equifax, TransUnion, or a credit monitoring service like IdentityIQ.",
       detectedType: 'image_based',
       creditKeywords,
       contentRatio: alphaNumericRatio
     };
   }
   
-  if (creditKeywords < 3 && alphaNumericRatio < 0.5) {
+  // Allow documents with at least 1 credit keyword OR good content quality
+  if (creditKeywords < 1 && alphaNumericRatio < 0.4) {
     return {
       isValid: false,
-      reason: "PDF quality is too low for processing. Please upload a high-quality, text-based credit report PDF.",
+      reason: "PDF quality is too low for processing. Please upload a text-based credit report PDF (not a screenshot or image).",
       detectedType: 'image_based',
       creditKeywords,
       contentRatio: alphaNumericRatio

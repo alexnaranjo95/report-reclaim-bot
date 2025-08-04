@@ -82,9 +82,22 @@ export class PDFParsingService {
       .eq('id', reportId);
 
     try {
-      // Call the PDF processing edge function
-      const { data: result, error } = await supabase.functions.invoke('pdf-extract', {
-        body: { reportId }
+      // Use the existing textract-extract function
+      const { data: report } = await supabase
+        .from('credit_reports')
+        .select('file_path')
+        .eq('id', reportId)
+        .single();
+        
+      if (!report?.file_path) {
+        throw new Error('No file path found for this report');
+      }
+
+      const { data: result, error } = await supabase.functions.invoke('textract-extract', {
+        body: { 
+          reportId,
+          filePath: report.file_path 
+        }
       });
 
       if (error) {

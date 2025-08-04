@@ -63,10 +63,11 @@ serve(async (req) => {
       try {
         console.log('📖 Attempting advanced PDF.js extraction...');
         extractedText = await extractTextWithAdvancedPDFJS(arrayBuffer);
-        if (extractedText && extractedText.length > 200 && isValidCreditReportContent(extractedText)) {
+        if (extractedText && extractedText.length > 50 && isValidCreditReportContent(extractedText)) {
           extractionMethod = 'Advanced PDF.js';
           console.log('✅ Advanced PDF.js extraction successful');
         } else {
+          console.log(`❌ PDF.js failed validation: length=${extractedText?.length}, valid=${isValidCreditReportContent(extractedText || '')}`);
           throw new Error('Advanced PDF.js failed: Insufficient content');
         }
       } catch (pdfjsError) {
@@ -312,8 +313,10 @@ async function extractTextWithAdvancedPDFJS(arrayBuffer: ArrayBuffer): Promise<s
   }
   
   console.log(`📝 Advanced PDF.js extracted ${extractedText.length} characters`);
+  console.log(`📋 Extracted text preview: ${extractedText.substring(0, 300)}...`);
   
-  if (extractedText.length < 200) {
+  if (extractedText.length < 50) {
+    console.log('⚠️ Very low text extraction - PDF may be image-based or encrypted');
     throw new Error('Advanced PDF.js extraction yielded insufficient text - PDF may be image-based');
   }
   

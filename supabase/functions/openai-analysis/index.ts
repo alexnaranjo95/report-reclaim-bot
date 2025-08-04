@@ -518,10 +518,21 @@ async function analyzeCreditReport(reportText: string) {
     throw new Error('OpenAI API key not configured');
   }
 
+  // Truncate text to fit within token limits (~3000 tokens = ~12000 characters)
+  const maxLength = 12000;
+  let truncatedText = reportText;
+  
+  if (reportText.length > maxLength) {
+    // Try to find a natural break point (paragraph, section)
+    const truncateAt = reportText.lastIndexOf('\n', maxLength);
+    truncatedText = reportText.substring(0, truncateAt > 0 ? truncateAt : maxLength);
+    console.log(`📝 Truncated text from ${reportText.length} to ${truncatedText.length} characters`);
+  }
+
   const prompt = `Analyze this credit report and provide a comprehensive assessment. Extract all relevant information and provide actionable insights.
 
 Credit Report Text:
-${reportText}
+${truncatedText}
 
 Please provide your analysis in the following JSON format:
 {

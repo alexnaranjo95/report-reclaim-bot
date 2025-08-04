@@ -63,6 +63,7 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
   const [accounts, setAccounts] = useState<CreditAccount[]>([]);
   const [inquiries, setInquiries] = useState<CreditInquiry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [realRounds, setRealRounds] = useState<Record<number, CreditReport | undefined>>({});
 
   useEffect(() => {
     loadAnalysisData();
@@ -165,18 +166,43 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
     }
   };
 
-  // Mock rounds data - this would come from actual round system
-  const mockRounds: Record<number, CreditReport | undefined> = {
-    1: {
-      id: reportId,
-      user_id: '',
-      bureau_name: 'Equifax',
-      file_name: reportName,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      extraction_status: 'completed'
-    }
-  };
+  // Load real rounds data when component mounts
+  useEffect(() => {
+    const loadRealRoundsData = async () => {
+      console.log('🔍 Loading real rounds data for report:', reportId);
+      
+      try {
+        // Fetch the current report data
+        const { data: currentReport, error } = await supabase
+          .from('credit_reports')
+          .select('*')
+          .eq('id', reportId)
+          .single();
+
+        if (error) {
+          console.error('❌ Error loading current report:', error);
+          return;
+        }
+
+        console.log('📊 Current report data:', currentReport);
+
+        // Set this as round 1 data (real data only)
+        const roundsData: Record<number, CreditReport | undefined> = {
+          1: currentReport ? {
+            ...currentReport,
+            extraction_status: currentReport.extraction_status as "pending" | "processing" | "completed" | "failed"
+          } : undefined
+        };
+
+        setRealRounds(roundsData);
+        console.log('✅ Real rounds data loaded:', roundsData);
+      } catch (error) {
+        console.error('💥 Failed to load real rounds data:', error);
+      }
+    };
+
+    loadRealRoundsData();
+  }, [reportId]);
 
   if (loading) {
     return (
@@ -230,7 +256,7 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
       <div className="container mx-auto px-6 py-8 space-y-8">
         {/* Timeline Section */}
         <CreditReportTimeline
-          rounds={mockRounds}
+          rounds={realRounds}
           currentRound={1}
           onUploadReport={(round) => toast.info(`Upload for round ${round}`)}
           onPreviewReport={(report) => toast.info(`Preview ${report.file_name}`)}

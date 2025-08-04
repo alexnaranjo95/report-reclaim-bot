@@ -305,8 +305,18 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
             },
           });
 
-          console.log('📊 Extraction result:', extractionResult);
-          console.log('❌ Extraction error:', extractError);
+          console.log('📊 REAL DATA - Extraction result:', extractionResult);
+          console.log('❌ REAL DATA - Extraction error:', extractError);
+          
+          // Log the exact data flow
+          console.log('🔍 DATA FLOW CHECK:');
+          console.log('  📄 File:', uploadFile.file.name);
+          console.log('  🆔 Report ID:', reportRecord.id);
+          console.log('  📁 Storage Path:', storagePath);
+          console.log('  🔧 Function Called: advanced-pdf-extract');
+          console.log('  ✅ Success:', extractionResult?.success);
+          console.log('  📊 Text Length:', extractionResult?.textLength);
+          console.log('  🔍 Extraction Method:', extractionResult?.extractionMethod);
 
           if (extractError || !extractionResult?.success) {
             updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
@@ -331,7 +341,21 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
             negativeItemsCount: negativeItems.data?.length || 0
           };
 
-          console.log('📈 Extracted data counts:', extractedDataPreview);
+          console.log('📈 REAL EXTRACTED DATA COUNTS:', extractedDataPreview);
+          console.log('🔍 DETAILED DATA VERIFICATION:');
+          console.log('  👤 Personal Info Records:', personalInfo.data);
+          console.log('  💳 Account Records:', accounts.data);
+          console.log('  🔎 Inquiry Records:', inquiries.data);
+          console.log('  ⚠️ Negative Item Records:', negativeItems.data);
+          
+          // Verify data is actually from this upload
+          if (extractedDataPreview.personalInfoCount === 0 && 
+              extractedDataPreview.accountsCount === 0 && 
+              extractedDataPreview.inquiriesCount === 0) {
+            console.warn('⚠️ WARNING: No real data extracted from PDF!');
+          } else {
+            console.log('✅ REAL DATA CONFIRMED: Data successfully extracted and stored');
+          }
           
           // Show success with extraction method used
           showSuccessNotification(

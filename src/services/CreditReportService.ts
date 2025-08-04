@@ -192,3 +192,5 @@ export class CreditReportService {
     };
   }
 }
+
+export default CreditReportService;

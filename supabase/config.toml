@@ -10,6 +10,9 @@ verify_jwt = false
 [functions.textract-extract]
 verify_jwt = false
 
+[functions.test-pdf-extract]
+verify_jwt = false
+
 [functions.openai-analysis]
 verify_jwt = true
 

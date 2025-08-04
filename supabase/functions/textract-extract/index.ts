@@ -188,14 +188,40 @@ async function analyzeDocumentWithTextract(bytes: Uint8Array, accessKey: string,
   const timestamp = new Date().toISOString().replace(/[:\-]|\.\d{3}/g, '');
   const date = timestamp.substr(0, 8);
   
-  // Convert bytes to base64 in chunks to avoid call stack overflow
-  let base64String = ''
-  const chunkSize = 1024 // Process 1KB at a time
+  // Convert bytes to base64 using proper method for Deno
+  console.log("Converting to base64...");
+  console.log("File size in bytes:", bytes.length);
   
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.slice(i, i + chunkSize)
-    const chunkString = String.fromCharCode(...chunk)
-    base64String += btoa(chunkString)
+  let base64String;
+  try {
+    if (bytes.length > 5000000) { // > 5MB files might have issues
+      throw new Error(`File too large: ${bytes.length} bytes. Maximum supported size is 5MB.`);
+    }
+    
+    // Use TextDecoder to convert bytes to binary string safely
+    const binaryString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+    base64String = btoa(binaryString);
+    
+    console.log("Base64 conversion successful");
+    console.log("Base64 length:", base64String.length);
+    console.log("Base64 preview (first 100 chars):", base64String.substring(0, 100));
+    
+    // Validate the base64 string
+    if (!base64String || base64String.length === 0) {
+      throw new Error("Base64 conversion resulted in empty string");
+    }
+    
+    // Check if the base64 is valid by attempting to decode a sample
+    try {
+      const sample = base64String.substring(0, 100);
+      atob(sample.padEnd(Math.ceil(sample.length / 4) * 4, '='));
+    } catch (e) {
+      throw new Error("Generated base64 is invalid");
+    }
+    
+  } catch (e) {
+    console.error("Base64 conversion error:", e);
+    throw new Error(`Base64 conversion failed: ${e.message}`);
   }
   
   const payload = JSON.stringify({

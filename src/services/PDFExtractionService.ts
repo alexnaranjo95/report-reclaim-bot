@@ -1,9 +1,10 @@
+
 import { supabase } from '@/integrations/supabase/client';
 import { CreditReportParser } from './CreditReportParser';
 
 export class PDFExtractionService {
   /**
-   * Manually trigger text extraction for a credit report
+   * Manually trigger text extraction for a credit report using Amazon Textract
    */
   static async extractText(reportId: string): Promise<void> {
     // First, get the report details
@@ -35,10 +36,10 @@ export class PDFExtractionService {
       throw new Error(`Failed to update report status: ${updateError.message}`);
     }
 
-    // Use advanced PDF extraction system with OCR fallback
+    // Use Amazon Textract for professional-grade OCR and table extraction
     try {
-      console.log('Using advanced PDF extraction system with OCR capabilities...');
-      const { error: extractError } = await supabase.functions.invoke('advanced-pdf-extract', {
+      console.log('🚀 Using Amazon Textract for PDF analysis...');
+      const { error: extractError } = await supabase.functions.invoke('textract-extract', {
         body: {
           reportId,
           filePath: report.file_path,
@@ -46,13 +47,28 @@ export class PDFExtractionService {
       });
 
       if (extractError) {
-        console.error('Advanced extraction failed:', extractError);
-        throw new Error(`PDF extraction failed: ${extractError.message}`);
+        console.error('Textract extraction failed:', extractError);
+        
+        // Fallback to enhanced PDF extraction
+        console.log('⚠️ Falling back to enhanced PDF extraction...');
+        const { error: fallbackError } = await supabase.functions.invoke('enhanced-pdf-extract', {
+          body: {
+            reportId,
+            filePath: report.file_path,
+          },
+        });
+
+        if (fallbackError) {
+          throw new Error(`Both Textract and fallback extraction failed: ${fallbackError.message}`);
+        }
+        
+        console.log('✅ Fallback extraction completed successfully');
+      } else {
+        console.log('✅ Textract extraction completed successfully');
       }
       
-      console.log('Advanced PDF extraction completed successfully');
     } catch (extractionError) {
-      console.error('Advanced PDF extraction error:', extractionError);
+      console.error('PDF extraction error:', extractionError);
       throw new Error(`PDF extraction failed: ${extractionError.message}`);
     }
 

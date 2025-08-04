@@ -1,13 +1,14 @@
+
 import { supabase } from '@/integrations/supabase/client';
 
 /**
- * Unified Credit Report Processing Service
+ * Unified Credit Report Processing Service with Amazon Textract Integration
  * Handles the complete workflow from PDF upload to parsed data display
  */
 export class UnifiedCreditProcessor {
   
   /**
-   * Process a credit report - main entry point
+   * Process a credit report using Amazon Textract - main entry point
    */
   static async processReport(reportId: string): Promise<{
     success: boolean;
@@ -17,7 +18,7 @@ export class UnifiedCreditProcessor {
     negativeItems: any[];
     errors: string[];
   }> {
-    console.log('🚀 Starting unified credit report processing for:', reportId);
+    console.log('🚀 Starting unified credit report processing with Textract for:', reportId);
     
     const errors: string[] = [];
     let personalInfo = null;
@@ -39,8 +40,8 @@ export class UnifiedCreditProcessor {
       
       // Step 2: Check if we need to extract text
       if (!report.raw_text || report.extraction_status === 'pending') {
-        console.log('📄 No raw text found, triggering extraction...');
-        await this.triggerExtraction(reportId, report.file_path);
+        console.log('📄 No raw text found, triggering Textract extraction...');
+        await this.triggerTextractExtraction(reportId, report.file_path);
         
         // Wait for extraction to complete
         await this.waitForExtraction(reportId);
@@ -53,7 +54,7 @@ export class UnifiedCreditProcessor {
           .single();
           
         if (!updatedReport?.raw_text) {
-          throw new Error('Text extraction failed');
+          throw new Error('Textract text extraction failed');
         }
         
         report.raw_text = updatedReport.raw_text;
@@ -74,12 +75,12 @@ export class UnifiedCreditProcessor {
         };
       }
       
-      // Step 4: Parse the raw text
+      // Step 4: Parse the raw text (this may have already been done by Textract function)
       console.log('🔍 Parsing raw text...');
       const parsedData = this.parseRawText(report.raw_text);
       
-      // Step 5: Store parsed data
-      console.log('💾 Storing parsed data...');
+      // Step 5: Store any additional parsed data if needed
+      console.log('💾 Storing any additional parsed data...');
       await this.storeParsedData(reportId, parsedData);
       
       return {
@@ -107,19 +108,30 @@ export class UnifiedCreditProcessor {
   }
   
   /**
-   * Trigger PDF text extraction
+   * Trigger Textract PDF text extraction
    */
-  private static async triggerExtraction(reportId: string, filePath: string): Promise<void> {
+  private static async triggerTextractExtraction(reportId: string, filePath: string): Promise<void> {
     try {
-      const { data, error } = await supabase.functions.invoke('enhanced-pdf-extract', {
+      console.log('🚀 Triggering Amazon Textract extraction...');
+      const { data, error } = await supabase.functions.invoke('textract-extract', {
         body: { reportId, filePath }
       });
       
       if (error) {
-        throw new Error(`Extraction failed: ${error.message}`);
+        console.log('⚠️ Textract failed, trying fallback extraction...');
+        // Fallback to enhanced extraction
+        const { error: fallbackError } = await supabase.functions.invoke('enhanced-pdf-extract', {
+          body: { reportId, filePath }
+        });
+        
+        if (fallbackError) {
+          throw new Error(`Both Textract and fallback extraction failed: ${fallbackError.message}`);
+        }
+        
+        console.log('✅ Fallback extraction successful');
+      } else {
+        console.log('✅ Textract extraction triggered successfully');
       }
-      
-      console.log('✅ Extraction triggered successfully');
     } catch (error) {
       console.error('❌ Failed to trigger extraction:', error);
       throw error;

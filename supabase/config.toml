@@ -1,9 +1,13 @@
+
 project_id = "rcrpqdhfawtpjicttgvx"
 
 [functions.adobe-pdf-extract]
 verify_jwt = false
 
 [functions.enhanced-pdf-extract]
+verify_jwt = false
+
+[functions.textract-extract]
 verify_jwt = false
 
 [functions.openai-analysis]

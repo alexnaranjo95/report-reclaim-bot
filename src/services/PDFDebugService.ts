@@ -1,215 +1,339 @@
 import { supabase } from '@/integrations/supabase/client';
 
+export interface ExtractionDebugInfo {
+  reportId: string;
+  filePath: string;
+  fileSize: number;
+  extractionStatus: string;
+  processingErrors?: string;
+  rawTextLength: number;
+  rawTextPreview: string;
+  hasCreditKeywords: boolean;
+  extractionMethod: string;
+  timestamp: string;
+}
+
 export class PDFDebugService {
-  
-  static async debugPDFProcessing(file: File): Promise<{
-    fileInfo: any;
-    extractionAttempts: any[];
-    finalResult: any;
-  }> {
-    console.log('🔍 DEBUG: Starting PDF processing audit...');
-    
-    const fileInfo = {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      lastModified: file.lastModified
-    };
-    
-    console.log('📄 File Info:', fileInfo);
-    
-    const extractionAttempts = [];
-    
-    // Attempt 1: Check if this is a valid PDF
+  /**
+   * Get comprehensive debug information for a PDF extraction
+   */
+  static async getExtractionDebugInfo(reportId: string): Promise<ExtractionDebugInfo> {
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      const header = new TextDecoder().decode(uint8Array.slice(0, 10));
-      
-      const attempt1 = {
-        method: 'PDF Header Check',
-        success: header.startsWith('%PDF'),
-        details: { header, isPDF: header.startsWith('%PDF') }
-      };
-      
-      extractionAttempts.push(attempt1);
-      console.log('🔍 PDF Header Check:', attempt1);
-      
-      if (!attempt1.success) {
-        return { fileInfo, extractionAttempts, finalResult: { error: 'Not a valid PDF file' } };
-      }
-      
-    } catch (error) {
-      extractionAttempts.push({
-        method: 'PDF Header Check',
-        success: false,
-        error: error.message
-      });
-    }
-    
-    // Attempt 2: Try basic text extraction from current edge function
-    try {
-      console.log('🔄 Attempting current edge function analysis...');
-      
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('action', 'analyzePDF');
-      
-      const { data, error } = await supabase.functions.invoke('openai-analysis', {
-        body: formData
-      });
-      
-      const attempt2 = {
-        method: 'Current Edge Function',
-        success: !error && data && Object.keys(data).length > 0,
-        details: { data, error },
-        dataSize: data ? JSON.stringify(data).length : 0
-      };
-      
-      extractionAttempts.push(attempt2);
-      console.log('🔍 Current Edge Function Result:', attempt2);
-      
-      if (attempt2.success) {
-        return { fileInfo, extractionAttempts, finalResult: data };
-      }
-      
-    } catch (error) {
-      extractionAttempts.push({
-        method: 'Current Edge Function',
-        success: false,
-        error: error.message
-      });
-    }
-    
-    // Attempt 3: Try enhanced PDF extraction
-    try {
-      console.log('🔄 Attempting enhanced PDF extraction...');
-      
-      const { data, error } = await supabase.functions.invoke('enhanced-pdf-extract', {
-        body: { 
-          filePath: `temp/${file.name}`,
-          reportId: 'debug-' + Date.now()
-        }
-      });
-      
-      const attempt3 = {
-        method: 'Enhanced PDF Extract',
-        success: !error,
-        details: { data, error }
-      };
-      
-      extractionAttempts.push(attempt3);
-      console.log('🔍 Enhanced PDF Extract Result:', attempt3);
-      
-    } catch (error) {
-      extractionAttempts.push({
-        method: 'Enhanced PDF Extract',
-        success: false,
-        error: error.message
-      });
-    }
-    
-    // Attempt 4: Try PDF.js extraction directly
-    try {
-      console.log('🔄 Attempting PDF.js extraction...');
-      
-      // Import PDFProcessor and try direct extraction
-      const { PDFProcessor } = await import('./PDFProcessor');
-      const extractedText = await PDFProcessor.extractTextFromPDF(file);
-      
-      const attempt4 = {
-        method: 'PDF.js Direct',
-        success: extractedText && extractedText.length > 100,
-        details: { 
-          textLength: extractedText?.length || 0, 
-          preview: extractedText?.substring(0, 200) || '',
-          isValidCreditReport: PDFProcessor.isValidCreditReportText(extractedText || '')
-        }
-      };
-      
-      extractionAttempts.push(attempt4);
-      console.log('🔍 PDF.js Direct Result:', attempt4);
-      
-      if (attempt4.success) {
-        // If we got text, try to analyze it
-        try {
-          const { data, error } = await supabase.functions.invoke('openai-analysis', {
-            body: { 
-              action: 'analyzeCreditReport',
-              data: { reportText: extractedText }
-            }
-          });
-          
-          return { 
-            fileInfo, 
-            extractionAttempts, 
-            finalResult: error ? { error } : data 
-          };
-          
-        } catch (analysisError) {
-          return { 
-            fileInfo, 
-            extractionAttempts, 
-            finalResult: { 
-              extractedText: extractedText?.substring(0, 500),
-              analysisError: analysisError.message 
-            }
-          };
-        }
-      }
-      
-    } catch (error) {
-      extractionAttempts.push({
-        method: 'PDF.js Direct',
-        success: false,
-        error: error.message
-      });
-    }
-    
-    return { 
-      fileInfo, 
-      extractionAttempts, 
-      finalResult: { error: 'All extraction methods failed' }
-    };
-  }
-  
-  static async checkCreditReportsTable(): Promise<any> {
-    try {
-      const { data, error } = await supabase
+      // Get report details
+      const { data: report, error: reportError } = await supabase
         .from('credit_reports')
         .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5);
-        
-      console.log('📊 Recent Credit Reports:', { data, error });
-      return { data, error };
-      
+        .eq('id', reportId)
+        .single();
+
+      if (reportError || !report) {
+        throw new Error(`Report not found: ${reportError?.message || 'Unknown error'}`);
+      }
+
+      // Get file size from storage
+      let fileSize = 0;
+      try {
+        if (report.file_path) {
+          const { data: fileData } = await supabase.storage
+            .from('credit-reports')
+            .download(report.file_path);
+          
+          if (fileData) {
+            fileSize = fileData.size;
+          }
+        }
+      } catch (error) {
+        console.warn('Could not get file size:', error);
+      }
+
+      // Analyze raw text
+      const rawText = report.raw_text || '';
+      const hasCreditKeywords = this.hasCreditKeywords(rawText);
+      const extractionMethod = this.determineExtractionMethod(report);
+
+      return {
+        reportId,
+        filePath: report.file_path || 'N/A',
+        fileSize,
+        extractionStatus: report.extraction_status || 'unknown',
+        processingErrors: report.processing_errors || undefined,
+        rawTextLength: rawText.length,
+        rawTextPreview: rawText.substring(0, 500),
+        hasCreditKeywords,
+        extractionMethod,
+        timestamp: new Date().toISOString()
+      };
     } catch (error) {
-      console.error('❌ Error checking credit reports:', error);
-      return { error: error.message };
+      console.error('Error getting debug info:', error);
+      throw error;
     }
   }
-  
-  static async checkCreditAccountsTable(reportId?: string): Promise<any> {
-    try {
-      let query = supabase
-        .from('credit_accounts')
-        .select('*');
-        
-      if (reportId) {
-        query = query.eq('report_id', reportId);
-      }
-      
-      const { data, error } = await query
-        .order('created_at', { ascending: false })
-        .limit(10);
-        
-      console.log('💳 Credit Accounts:', { data, error });
-      return { data, error };
-      
-    } catch (error) {
-      console.error('❌ Error checking credit accounts:', error);
-      return { error: error.message };
+
+  /**
+   * Test different extraction methods on a report
+   */
+  static async testExtractionMethods(reportId: string): Promise<{
+    textract: { success: boolean; textLength: number; error?: string };
+    enhanced: { success: boolean; textLength: number; error?: string };
+    process: { success: boolean; textLength: number; error?: string };
+  }> {
+    const results = {
+      textract: { success: false, textLength: 0, error: undefined as string | undefined },
+      enhanced: { success: false, textLength: 0, error: undefined as string | undefined },
+      process: { success: false, textLength: 0, error: undefined as string | undefined }
+    };
+
+    // Get report file path
+    const { data: report } = await supabase
+      .from('credit_reports')
+      .select('file_path')
+      .eq('id', reportId)
+      .single();
+
+    if (!report?.file_path) {
+      throw new Error('Report file path not found');
     }
+
+    // Test Textract extraction
+    try {
+      console.log('Testing Textract extraction...');
+      const { data, error } = await supabase.functions.invoke('textract-extract', {
+        body: { reportId, filePath: report.file_path }
+      });
+
+      if (error) {
+        results.textract.error = error.message;
+      } else if (data?.success) {
+        results.textract.success = true;
+        results.textract.textLength = data.textLength || 0;
+      } else {
+        results.textract.error = data?.error || 'Unknown error';
+      }
+    } catch (error) {
+      results.textract.error = error.message;
+    }
+
+    // Test Enhanced extraction
+    try {
+      console.log('Testing Enhanced extraction...');
+      const { data, error } = await supabase.functions.invoke('enhanced-pdf-extract', {
+        body: { reportId, filePath: report.file_path }
+      });
+
+      if (error) {
+        results.enhanced.error = error.message;
+      } else if (data?.success) {
+        results.enhanced.success = true;
+        results.enhanced.textLength = data.textLength || 0;
+      } else {
+        results.enhanced.error = data?.error || 'Unknown error';
+      }
+    } catch (error) {
+      results.enhanced.error = error.message;
+    }
+
+    // Test Process extraction
+    try {
+      console.log('Testing Process extraction...');
+      const { data, error } = await supabase.functions.invoke('process-credit-report', {
+        body: { reportId, filePath: report.file_path }
+      });
+
+      if (error) {
+        results.process.error = error.message;
+      } else if (data?.success) {
+        results.process.success = true;
+        results.process.textLength = data.textLength || 0;
+      } else {
+        results.process.error = data?.error || 'Unknown error';
+      }
+    } catch (error) {
+      results.process.error = error.message;
+    }
+
+    return results;
+  }
+
+  /**
+   * Analyze extracted text quality
+   */
+  static analyzeTextQuality(text: string): {
+    score: number;
+    issues: string[];
+    suggestions: string[];
+    creditKeywords: string[];
+  } {
+    const issues: string[] = [];
+    const suggestions: string[] = [];
+    let score = 100;
+
+    // Check text length
+    if (text.length < 100) {
+      issues.push('Text too short (less than 100 characters)');
+      score -= 30;
+    } else if (text.length < 500) {
+      issues.push('Text relatively short (less than 500 characters)');
+      score -= 10;
+    }
+
+    // Check for credit keywords
+    const creditKeywords = this.findCreditKeywords(text);
+    if (creditKeywords.length === 0) {
+      issues.push('No credit report keywords found');
+      score -= 40;
+      suggestions.push('This may not be a credit report PDF');
+    } else if (creditKeywords.length < 3) {
+      issues.push('Very few credit report keywords found');
+      score -= 20;
+    }
+
+    // Check for readable text patterns
+    const readableWords = text.match(/\b[A-Za-z]{3,}\b/g) || [];
+    if (readableWords.length < 10) {
+      issues.push('Very few readable words found');
+      score -= 25;
+    }
+
+    // Check for gibberish patterns
+    const gibberishPatterns = [
+      /[A-Za-z]{1,2}[A-Za-z0-9]{1,2}[A-Za-z]{1,2}/g, // Short random sequences
+      /[^\w\s]{3,}/g, // Too many special characters
+      /[A-Z]{5,}/g, // All caps sequences
+    ];
+
+    let gibberishCount = 0;
+    for (const pattern of gibberishPatterns) {
+      const matches = text.match(pattern) || [];
+      gibberishCount += matches.length;
+    }
+
+    if (gibberishCount > readableWords.length * 0.5) {
+      issues.push('High amount of gibberish detected');
+      score -= 35;
+      suggestions.push('Consider using a different extraction method');
+    }
+
+    // Check for specific credit report elements
+    const hasName = /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(text);
+    const hasAddress = /\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:St|Street|Ave|Avenue|Rd|Road)/.test(text);
+    const hasAccount = /(?:Account|Credit|Balance|Payment)/i.test(text);
+    const hasDate = /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(text);
+
+    if (!hasName && !hasAddress && !hasAccount) {
+      issues.push('Missing common credit report elements (name, address, accounts)');
+      score -= 15;
+    }
+
+    // Generate suggestions
+    if (score < 50) {
+      suggestions.push('Consider re-uploading the PDF or using a different file');
+    }
+    if (score < 70) {
+      suggestions.push('Try the enhanced extraction method');
+    }
+
+    return {
+      score: Math.max(0, score),
+      issues,
+      suggestions,
+      creditKeywords
+    };
+  }
+
+  /**
+   * Get extraction health summary
+   */
+  static async getExtractionHealth(): Promise<{
+    totalReports: number;
+    successfulExtractions: number;
+    failedExtractions: number;
+    pendingExtractions: number;
+    averageTextLength: number;
+    commonErrors: string[];
+  }> {
+    try {
+      // Get all reports
+      const { data: reports, error } = await supabase
+        .from('credit_reports')
+        .select('extraction_status, raw_text, processing_errors')
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        throw error;
+      }
+
+      const totalReports = reports.length;
+      const successfulExtractions = reports.filter(r => r.extraction_status === 'completed').length;
+      const failedExtractions = reports.filter(r => r.extraction_status === 'failed').length;
+      const pendingExtractions = reports.filter(r => r.extraction_status === 'pending' || r.extraction_status === 'processing').length;
+
+      // Calculate average text length
+      const completedReports = reports.filter(r => r.extraction_status === 'completed' && r.raw_text);
+      const totalTextLength = completedReports.reduce((sum, r) => sum + (r.raw_text?.length || 0), 0);
+      const averageTextLength = completedReports.length > 0 ? Math.round(totalTextLength / completedReports.length) : 0;
+
+      // Get common errors
+      const errors = reports
+        .filter(r => r.processing_errors)
+        .map(r => r.processing_errors)
+        .filter(Boolean) as string[];
+
+      const errorCounts: Record<string, number> = {};
+      errors.forEach(error => {
+        const key = error.substring(0, 50); // Truncate long errors
+        errorCounts[key] = (errorCounts[key] || 0) + 1;
+      });
+
+      const commonErrors = Object.entries(errorCounts)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 5)
+        .map(([error]) => error);
+
+      return {
+        totalReports,
+        successfulExtractions,
+        failedExtractions,
+        pendingExtractions,
+        averageTextLength,
+        commonErrors
+      };
+    } catch (error) {
+      console.error('Error getting extraction health:', error);
+      throw error;
+    }
+  }
+
+  // Helper methods
+  private static hasCreditKeywords(text: string): boolean {
+    const keywords = [
+      'credit', 'account', 'balance', 'payment', 'inquiry', 'collection',
+      'name', 'address', 'phone', 'date', 'birth', 'social', 'security',
+      'experian', 'equifax', 'transunion', 'fico', 'score', 'visa', 'mastercard',
+      'chase', 'capital', 'wells', 'bank', 'mortgage', 'loan'
+    ];
+    
+    return keywords.some(keyword => text.toLowerCase().includes(keyword));
+  }
+
+  private static findCreditKeywords(text: string): string[] {
+    const keywords = [
+      'credit', 'account', 'balance', 'payment', 'inquiry', 'collection',
+      'name', 'address', 'phone', 'date', 'birth', 'social', 'security',
+      'experian', 'equifax', 'transunion', 'fico', 'score', 'visa', 'mastercard',
+      'chase', 'capital', 'wells', 'bank', 'mortgage', 'loan'
+    ];
+    
+    return keywords.filter(keyword => text.toLowerCase().includes(keyword));
+  }
+
+  private static determineExtractionMethod(report: any): string {
+    if (report.processing_errors?.includes('Textract')) {
+      return 'textract-failed';
+    }
+    if (report.raw_text && report.raw_text.length > 0) {
+      return 'extracted';
+    }
+    return 'unknown';
   }
 }

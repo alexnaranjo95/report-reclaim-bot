@@ -437,39 +437,30 @@ async function analyzePDFFile(file: File) {
   try {
     console.log('Processing PDF file:', file.name, 'Size:', file.size);
     
-    // Convert PDF to text using a simple extraction method
+    // Use proper PDF text extraction
     const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    
-    // Simple PDF text extraction - look for text content between stream objects
-    const pdfText = new TextDecoder().decode(uint8Array);
-    
-    // Extract readable text from PDF content
     let extractedText = '';
-    const textMatches = pdfText.match(/stream\s*(.*?)\s*endstream/gs);
     
-    if (textMatches) {
-      for (const match of textMatches) {
-        const streamContent = match.replace(/^stream\s*/, '').replace(/\s*endstream$/, '');
-        // Try to extract readable text
-        const readableText = streamContent.replace(/[^\x20-\x7E\n\r]/g, ' ');
-        if (readableText.trim().length > 10) {
-          extractedText += readableText + '\n';
-        }
+    try {
+      // Try multiple extraction methods
+      extractedText = await extractTextFromPDF(arrayBuffer);
+      
+      if (!extractedText || extractedText.length < 100) {
+        throw new Error('No readable text found in PDF');
       }
-    }
-    
-    // Fallback: extract any readable text from the entire PDF
-    if (!extractedText.trim()) {
-      extractedText = pdfText.replace(/[^\x20-\x7E\n\r]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-    
-    console.log('Extracted text length:', extractedText.length);
-    
-    if (extractedText.length < 100) {
-      throw new Error('Could not extract sufficient text from PDF');
+      
+      console.log('Successfully extracted text, length:', extractedText.length);
+      console.log('Text preview (first 500 chars):', extractedText.substring(0, 500));
+      
+      // Validate the extracted text contains credit report keywords
+      if (!containsCreditReportKeywords(extractedText)) {
+        console.warn('Extracted text may not be a valid credit report');
+        console.log('Text sample for debugging:', extractedText.substring(0, 1000));
+      }
+      
+    } catch (extractionError) {
+      console.error('PDF extraction failed:', extractionError);
+      throw new Error(`PDF extraction failed: ${extractionError.message}`);
     }
     
     // Now analyze the extracted text with OpenAI
@@ -485,4 +476,151 @@ async function analyzePDFFile(file: File) {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+}
+
+async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
+  const uint8Array = new Uint8Array(arrayBuffer);
+  const textDecoder = new TextDecoder('latin1');
+  const pdfString = textDecoder.decode(uint8Array);
+  
+  let extractedText = '';
+  
+  console.log('=== PDF TEXT EXTRACTION ===');
+  console.log('PDF size:', uint8Array.length);
+  
+  // Method 1: Extract from text streams
+  console.log('Attempting text stream extraction...');
+  const streamPattern = /stream\s*([\s\S]*?)\s*endstream/g;
+  const streams = [];
+  let match;
+  
+  while ((match = streamPattern.exec(pdfString)) !== null) {
+    streams.push(match[1]);
+  }
+  
+  console.log('Found', streams.length, 'streams');
+  
+  for (const stream of streams) {
+    const decodedText = decodeTextStream(stream);
+    if (decodedText && decodedText.length > 10) {
+      extractedText += decodedText + ' ';
+    }
+  }
+  
+  // Method 2: Extract from text objects if streams didn't work
+  if (extractedText.length < 100) {
+    console.log('Trying text object extraction...');
+    const textObjects = pdfString.match(/BT\s+[\s\S]*?ET/gs) || [];
+    console.log('Found', textObjects.length, 'text objects');
+    
+    for (const textObj of textObjects) {
+      const patterns = [
+        /\(([^)]*)\)\s*Tj/g,
+        /\[((?:[^\[\]]*(?:\[[^\]]*\])?)*)\]\s*TJ/g
+      ];
+      
+      for (const pattern of patterns) {
+        let match;
+        while ((match = pattern.exec(textObj)) !== null) {
+          const rawText = match[1];
+          const cleanText = decodePDFString(rawText);
+          if (cleanText && cleanText.trim().length > 2) {
+            extractedText += cleanText + ' ';
+          }
+        }
+      }
+    }
+  }
+  
+  // Method 3: Raw text scanning as last resort
+  if (extractedText.length < 100) {
+    console.log('Using raw text scanning...');
+    let currentSequence = '';
+    
+    for (let i = 0; i < uint8Array.length; i++) {
+      const byte = uint8Array[i];
+      
+      if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
+        currentSequence += String.fromCharCode(byte);
+      } else {
+        if (currentSequence.length >= 8) {
+          const clean = currentSequence.replace(/[^\w\s.,()-]/g, ' ').trim();
+          if (clean.length >= 5 && containsCreditReportKeywords(clean)) {
+            extractedText += clean + ' ';
+          }
+        }
+        currentSequence = '';
+      }
+    }
+    
+    // Process final sequence
+    if (currentSequence.length >= 8) {
+      const clean = currentSequence.replace(/[^\w\s.,()-]/g, ' ').trim();
+      if (clean.length >= 5) {
+        extractedText += clean + ' ';
+      }
+    }
+  }
+  
+  // Clean the final text
+  extractedText = extractedText
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s\$\.,\-\/\(\):@]/g, ' ')
+    .trim();
+  
+  console.log('Final extracted text length:', extractedText.length);
+  
+  if (extractedText.length < 100) {
+    throw new Error('Insufficient text extracted from PDF - file may be image-based or corrupted');
+  }
+  
+  return extractedText;
+}
+
+function decodeTextStream(stream: string): string {
+  let text = '';
+  
+  // Remove PDF filters and decode
+  let cleanStream = stream
+    .replace(/\/Filter\s*\/FlateDecode/gi, '')
+    .replace(/\/Length\s*\d+/gi, '')
+    .trim();
+  
+  // Extract readable text sequences
+  const textMatches = cleanStream.match(/[\x20-\x7E]{5,}/g) || [];
+  
+  for (const textMatch of textMatches) {
+    if (containsCreditReportKeywords(textMatch)) {
+      text += textMatch + ' ';
+    }
+  }
+  
+  return text;
+}
+
+function decodePDFString(text: string): string {
+  return text
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\b/g, '\b')
+    .replace(/\\f/g, '\f')
+    .replace(/\\[(]/g, '(')
+    .replace(/\\[)]/g, ')')
+    .replace(/\\\\/g, '\\')
+    .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+}
+
+function containsCreditReportKeywords(text: string): boolean {
+  if (!text || text.length < 5) return false;
+  
+  const keywords = [
+    'credit', 'account', 'balance', 'payment', 'name', 'address',
+    'phone', 'date', 'birth', 'social', 'security', 'experian',
+    'equifax', 'transunion', 'visa', 'mastercard', 'discover',
+    'chase', 'capital', 'wells', 'bank', 'fico', 'score'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  return keywords.some(keyword => lowerText.includes(keyword));
 }

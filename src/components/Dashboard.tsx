@@ -11,6 +11,7 @@ import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
 import { RegenerateButton } from './RegenerateButton';
 import { CreditAnalysis } from './CreditAnalysis';
+import { CreditReportProcessing } from './CreditReportProcessing';
 import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, ChevronDown, ChevronRight, BarChart3, RotateCcw } from 'lucide-react';
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
@@ -30,6 +31,9 @@ export const Dashboard = () => {
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<CreditAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [processingStep, setProcessingStep] = useState<string>('');
+  const [processingProgress, setProcessingProgress] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [expandedRoundIndex, setExpandedRoundIndex] = useState<number | null>(null);
   
@@ -92,6 +96,9 @@ export const Dashboard = () => {
     setAnalysisComplete(false);
     setAnalysisResults(null);
     setIsAnalyzing(false);
+    setAnalysisError(null);
+    setProcessingStep('');
+    setProcessingProgress(0);
 
     // Clear any saved round data for current round
     if (currentSession) {
@@ -119,89 +126,51 @@ export const Dashboard = () => {
     }
   };
   const handleFileUpload = async (file: File) => {
+    console.log('File uploaded:', file.name, file.size);
+    
+    if (!currentSession) {
+      toast({
+        title: "Session required",
+        description: "Please wait while we create your session.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setUploadedFile(file);
     setIsAnalyzing(true);
-    setAnalysisComplete(false);
+    setAnalysisError(null);
+    setProcessingStep('upload');
+    setProcessingProgress(0);
+    
     try {
-      // Store the credit report in the database first
-      try {
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError || !user) {
-          throw new Error('User not authenticated');
+      // Continue with analysis with progress tracking
+      const results = await CreditAnalysisService.analyzePDF(
+        { file, round: currentRound },
+        (step: string, progress: number) => {
+          setProcessingStep(step);
+          setProcessingProgress(progress);
         }
-        
-        // Create file path and upload file
-        // Generate storage path like CreditReportUpload component
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = (now.getMonth() + 1).toString().padStart(2, '0');
-        const timestamp = now.getTime();
-        const extension = file.name.split('.').pop();
-        const filePath = `${user.id}/${year}/${month}/Analysis_${timestamp}.${extension}`;
-        
-        // Upload file to storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('credit-reports')
-          .upload(filePath, file, {
-            cacheControl: '3600',
-            upsert: false,
-          });
-
-        if (uploadError) {
-          throw new Error(`File upload failed: ${uploadError.message}`);
-        }
-
-        // Create credit report record
-        const { data: reportData, error: reportError } = await supabase
-          .from('credit_reports')
-          .insert({
-            user_id: user.id,
-            bureau_name: file.name.toLowerCase().includes('equifax') ? 'Equifax' : 
-                        file.name.toLowerCase().includes('experian') ? 'Experian' : 
-                        file.name.toLowerCase().includes('transunion') ? 'TransUnion' : 'Equifax', // Default to Equifax instead of Unknown
-            file_name: file.name,
-            file_path: filePath, // Use the filePath we generated, not uploadData.path
-            report_date: new Date().toISOString().split('T')[0],
-            extraction_status: 'pending'
-          })
-          .select()
-          .single();
-
-        if (reportError) {
-          throw new Error(`Database insert failed: ${reportError.message}`);
-        }
-
-        
-        toast({
-          title: "Credit Report Stored",
-          description: "Your credit report has been saved for future access.",
-        });
-      } catch (storageError) {
-        // Continue with analysis even if storage fails
-        toast({
-          title: "Storage Warning", 
-          description: `Analysis will proceed, but credit report storage failed: ${storageError.message}`,
-          variant: "destructive",
-        });
-      }
+      );
       
-      // Continue with analysis
-      const results = await CreditAnalysisService.analyzePDF({
-        file,
-        round: currentRound
-      });
       setAnalysisResults(results);
       setAnalysisComplete(true);
+      setProcessingStep('completed');
+      setProcessingProgress(100);
+      
       toast({
         title: "Analysis Complete",
         description: `Found ${results.summary.totalNegativeItems} negative items, ${results.summary.totalPositiveAccounts} positive accounts out of ${results.summary.totalAccounts} total accounts.`
       });
-    } catch (error) {
+      
+    } catch (error: any) {
       console.error('Analysis failed:', error);
+      setAnalysisError(error.message || 'Analysis failed');
+      setProcessingStep('error');
+      
       toast({
         title: "Analysis Failed",
-        description: "Failed to analyze credit report. Please try again.",
+        description: error.message || "Failed to analyze credit report. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -213,6 +182,9 @@ export const Dashboard = () => {
     setAnalysisComplete(false);
     setAnalysisResults(null);
     setIsAnalyzing(false);
+    setAnalysisError(null);
+    setProcessingStep('');
+    setProcessingProgress(0);
     toast({
       title: "File Removed",
       description: "Upload a new credit report to begin analysis."
@@ -652,12 +624,28 @@ export const Dashboard = () => {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    {isAnalyzing ? <div className="space-y-4">
-                        <div className="text-sm text-muted-foreground">
-                          Analyzing credit report...
-                        </div>
-                        <Progress value={75} className="h-2" />
-                      </div> : analysisComplete && analysisResults ? <CreditAnalysis analysisResults={analysisResults} /> : null}
+                    {isAnalyzing ? 
+                      <CreditReportProcessing
+                        reportName={uploadedFile?.name || 'Credit Report'}
+                        currentStep={processingStep}
+                        progress={processingProgress}
+                        error={analysisError}
+                        onRetry={() => {
+                          setAnalysisError(null);
+                          setProcessingStep('upload');
+                          setProcessingProgress(0);
+                          if (uploadedFile) {
+                            handleFileUpload(uploadedFile);
+                          }
+                        }}
+                        onReupload={() => {
+                          handleDeleteFile();
+                        }}
+                      />
+                      : analysisComplete && analysisResults ? 
+                      <CreditAnalysis analysisResults={analysisResults} /> 
+                      : null
+                    }
                   </CardContent>
                 </Card>
 

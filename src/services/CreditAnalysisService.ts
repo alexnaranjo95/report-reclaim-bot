@@ -5,9 +5,13 @@ import { CreditPatterns } from '../utils/CreditPatterns';
 import { supabase } from '@/integrations/supabase/client';
 
 export class CreditAnalysisService {
-  static async analyzePDF(request: PDFAnalysisRequest): Promise<CreditAnalysisResult> {
+  static async analyzePDF(
+    request: PDFAnalysisRequest, 
+    onProgress?: (step: string, progress: number) => void
+  ): Promise<CreditAnalysisResult> {
     try {
       console.log('Starting PDF analysis...');
+      onProgress?.('upload', 10);
       
       // Send PDF directly to edge function for processing
       const formData = new FormData();
@@ -15,6 +19,7 @@ export class CreditAnalysisService {
       formData.append('action', 'analyzePDF');
       
       console.log('Calling Supabase edge function...');
+      onProgress?.('extraction', 30);
       
       // Get current session to ensure authentication
       const { data: { session } } = await supabase.auth.getSession();
@@ -23,6 +28,7 @@ export class CreditAnalysisService {
       }
       
       console.log('Session valid, making API call...');
+      onProgress?.('validation', 50);
       
       const { data, error } = await supabase.functions.invoke('openai-analysis', {
         body: formData
@@ -30,20 +36,19 @@ export class CreditAnalysisService {
       });
 
       console.log('Edge function response received:', { data, error });
+      onProgress?.('analysis', 75);
 
       if (error) {
         console.error('Supabase function error:', error);
-        // If edge function fails, fall back to pattern analysis
-        console.log('Falling back to pattern analysis...');
-        return this.fallbackAnalysisWithMockData(request.file);
+        throw new Error(`Edge function failed: ${error.message || 'Unknown error'}`);
+      }
+
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from analysis service - no data received');
       }
 
       console.log('Received data from edge function:', data);
-
-      // Ensure we have the basic structure
-      if (!data || typeof data !== 'object') {
-        throw new Error('Invalid response from analysis service');
-      }
+      onProgress?.('parsing', 90);
 
       // Process and validate the results
       const items: CreditItem[] = (data.items || []).map((item: any, index: number) => ({
@@ -103,6 +108,7 @@ export class CreditAnalysisService {
       };
 
       console.log('Returning final result:', result);
+      onProgress?.('completed', 100);
       return result;
       
     } catch (error) {

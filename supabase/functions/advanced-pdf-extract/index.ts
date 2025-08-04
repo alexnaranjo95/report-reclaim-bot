@@ -93,6 +93,7 @@ console.log('=== REAL DATA ADVANCED PDF EXTRACTION STARTED ===');
         } catch (binaryError) {
           console.log(`❌ Binary extraction failed: ${binaryError.message}`);
           
+          
           // Method 3: OCR with Google Vision API (if available)
           if (googleApiKey) {
             try {
@@ -102,15 +103,46 @@ console.log('=== REAL DATA ADVANCED PDF EXTRACTION STARTED ===');
                 extractionMethod = 'Google Vision OCR';
                 console.log('✅ OCR extraction successful');
               } else {
-                throw new Error('OCR extraction returned insufficient text');
+                console.log('⚠️ OCR returned insufficient text, trying manual text extraction...');
+                // Try to extract any readable text from the binary data
+                extractedText = extractReadableTextFromBinary(arrayBuffer);
+                if (extractedText && extractedText.length > 100) {
+                  extractionMethod = 'Manual Text Extraction';
+                  console.log('✅ Manual extraction found some text');
+                } else {
+                  throw new Error('All extraction methods failed - no readable text found');
+                }
               }
             } catch (ocrError) {
               console.log(`❌ OCR failed: ${ocrError.message}`);
-              throw new Error('All extraction methods failed - PDF may be corrupted or image-based without OCR capability');
+              console.log('🔧 Trying manual text extraction as final fallback...');
+              
+              // Final fallback: try to extract any readable text
+              try {
+                extractedText = extractReadableTextFromBinary(arrayBuffer);
+                if (extractedText && extractedText.length > 100) {
+                  extractionMethod = 'Manual Text Extraction (Fallback)';
+                  console.log('✅ Manual fallback extraction found some text');
+                } else {
+                  throw new Error('PDF appears to be image-based and no text could be extracted');
+                }
+              } catch (manualError) {
+                throw new Error('All extraction methods failed - PDF may be corrupted, encrypted, or image-based without OCR capability');
+              }
             }
           } else {
-            console.log('⚠️ Google Vision API key not configured');
-            throw new Error('PDF text extraction failed and OCR not available');
+            console.log('⚠️ Google Vision API key not configured, trying manual extraction...');
+            try {
+              extractedText = extractReadableTextFromBinary(arrayBuffer);
+              if (extractedText && extractedText.length > 100) {
+                extractionMethod = 'Manual Text Extraction';
+                console.log('✅ Manual extraction found some text');
+              } else {
+                throw new Error('PDF text extraction failed - OCR not available and no readable text found');
+              }
+            } catch (manualError) {
+              throw new Error('PDF text extraction failed - please ensure OCR is configured or provide a text-based PDF');
+            }
           }
         }
       }
@@ -382,7 +414,61 @@ async function extractTextWithOCR(arrayBuffer: ArrayBuffer, apiKey: string): Pro
   }
 }
 
-// Enhanced helper functions
+// Manual text extraction fallback function
+function extractReadableTextFromBinary(arrayBuffer: ArrayBuffer): string {
+  console.log('🔧 Starting manual text extraction from binary...');
+  
+  const uint8Array = new Uint8Array(arrayBuffer);
+  let extractedText = '';
+  const textChunks = [];
+  
+  // Scan for readable ASCII sequences with lower threshold
+  let currentChunk = '';
+  
+  for (let i = 0; i < uint8Array.length; i++) {
+    const byte = uint8Array[i];
+    
+    // Check if byte is printable ASCII or whitespace
+    if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
+      currentChunk += String.fromCharCode(byte);
+    } else {
+      // End of readable sequence - use lower threshold for manual extraction
+      if (currentChunk.length >= 5) {
+        const cleanChunk = currentChunk.replace(/[^\w\s.,()-]/g, ' ').trim();
+        if (cleanChunk.length >= 3 && /[A-Za-z]/.test(cleanChunk)) {
+          textChunks.push(cleanChunk);
+        }
+      }
+      currentChunk = '';
+    }
+  }
+  
+  // Add final chunk if it exists
+  if (currentChunk.length >= 5) {
+    const cleanChunk = currentChunk.replace(/[^\w\s.,()-]/g, ' ').trim();
+    if (cleanChunk.length >= 3 && /[A-Za-z]/.test(cleanChunk)) {
+      textChunks.push(cleanChunk);
+    }
+  }
+  
+  // Combine chunks and filter out PDF-specific content
+  const filteredChunks = textChunks.filter(chunk => {
+    const lower = chunk.toLowerCase();
+    return !lower.includes('obj') && 
+           !lower.includes('endobj') && 
+           !lower.includes('stream') && 
+           !lower.includes('endstream') &&
+           !lower.includes('xref') &&
+           chunk.length > 2;
+  });
+  
+  extractedText = filteredChunks.join(' ');
+  
+  console.log(`📝 Manual extraction found ${filteredChunks.length} text chunks`);
+  console.log(`📝 Total manual extracted text length: ${extractedText.length}`);
+  
+  return extractedText.trim();
+}
 
 function extractReadableFromStream(stream: string): string {
   const readableChars = stream.match(/[\x20-\x7E]{5,}/g) || [];

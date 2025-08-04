@@ -137,83 +137,167 @@ serve(async (req) => {
 });
 
 async function extractWithEnhancedMethod(arrayBuffer: ArrayBuffer): Promise<string> {
-  console.log('=== ENHANCED PDF TEXT EXTRACTION ===');
+  console.log('=== REAL PDF TEXT EXTRACTION ===');
   
   try {
-    const uint8Array = new Uint8Array(arrayBuffer);
-    const textDecoder = new TextDecoder('latin1');
-    const pdfString = textDecoder.decode(uint8Array);
-    
-    let extractedText = '';
-    
-    // Method 1: Extract from text objects with proper decoding
-    console.log('Extracting from PDF text objects...');
-    const textObjects = pdfString.match(/BT\s+[\s\S]*?ET/gs) || [];
-    console.log(`Found ${textObjects.length} text objects`);
-    
-    for (const textObj of textObjects) {
-      // Enhanced patterns for different PDF text formats
-      const patterns = [
-        /\(((?:[^()\\]|\\[()\\nrtbf]|\\[0-7]{3})*?)\)\s*(?:Tj|TJ)/g,
-        /\[((?:\([^)]*\)|[^\[\]])*?)\]\s*TJ/g,
-      ];
-      
-      for (const pattern of patterns) {
-        let match;
-        while ((match = pattern.exec(textObj)) !== null) {
-          let text = match[1];
-          
-          // Decode PDF string properly
-          text = decodePDFString(text);
-          
-          if (text.trim() && isReadableText(text)) {
-            extractedText += text + ' ';
-          }
-        }
-      }
+    // Method 1: Try direct text stream extraction
+    console.log('Attempting direct text stream extraction...');
+    const directText = await extractFromTextStreams(arrayBuffer);
+    if (directText && directText.length > 100 && isValidCreditReportContent(directText)) {
+      console.log('✅ Direct text extraction successful');
+      return cleanExtractedText(directText);
     }
-    
-    // Method 2: Extract readable ASCII sequences if text objects didn't work
-    if (extractedText.length < 200) {
-      console.log('Fallback: Extracting readable ASCII sequences...');
-      let currentSequence = '';
-      
-      for (let i = 0; i < uint8Array.length; i++) {
-        const byte = uint8Array[i];
-        
-        // Check for printable ASCII characters
-        if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
-          currentSequence += String.fromCharCode(byte);
-        } else {
-          // End of sequence
-          if (currentSequence.length >= 10 && containsCreditKeywords(currentSequence)) {
-            extractedText += currentSequence + ' ';
-          }
-          currentSequence = '';
-        }
-      }
-      
-      // Add final sequence
-      if (currentSequence.length >= 10 && containsCreditKeywords(currentSequence)) {
-        extractedText += currentSequence + ' ';
-      }
+
+    // Method 2: Try structured PDF parsing
+    console.log('Attempting structured PDF parsing...');
+    const structuredText = await extractFromPDFStructure(arrayBuffer);
+    if (structuredText && structuredText.length > 100 && isValidCreditReportContent(structuredText)) {
+      console.log('✅ Structured parsing successful');
+      return cleanExtractedText(structuredText);
     }
-    
-    // Clean and format the extracted text
-    extractedText = cleanExtractedText(extractedText);
-    
-    console.log('Extraction successful, text length:', extractedText.length);
-    
-    if (extractedText.length < 100) {
-      throw new Error('Insufficient text extracted from PDF');
+
+    // Method 3: Raw text scanning as last resort
+    console.log('Using raw text scanning as fallback...');
+    const rawText = await extractFromRawBytes(arrayBuffer);
+    if (rawText && rawText.length > 100 && isValidCreditReportContent(rawText)) {
+      console.log('✅ Raw text extraction successful');
+      return cleanExtractedText(rawText);
     }
-    
-    return extractedText;
-    
+
+    throw new Error('All extraction methods failed - PDF may be image-based or corrupted');
+
   } catch (error) {
-    console.error('Enhanced PDF extraction failed:', error.message);
+    console.error('PDF extraction failed:', error.message);
     throw error;
   }
+}
+
+async function extractFromTextStreams(arrayBuffer: ArrayBuffer): Promise<string> {
+  const uint8Array = new Uint8Array(arrayBuffer);
+  const pdfString = new TextDecoder('latin1').decode(uint8Array);
+  
+  // Look for PDF text streams
+  const streamPattern = /stream\s*([\s\S]*?)\s*endstream/g;
+  const streams = [];
+  let match;
+  
+  while ((match = streamPattern.exec(pdfString)) !== null) {
+    streams.push(match[1]);
+  }
+  
+  let extractedText = '';
+  
+  for (const stream of streams) {
+    // Try to decode text from stream
+    const decodedText = decodeTextStream(stream);
+    if (decodedText && containsCreditKeywords(decodedText)) {
+      extractedText += decodedText + ' ';
+    }
+  }
+  
+  return extractedText.trim();
+}
+
+function decodeTextStream(stream: string): string {
+  let text = '';
+  
+  // Remove common PDF filters and decode
+  let cleanStream = stream
+    .replace(/\/Filter\s*\/FlateDecode/gi, '')
+    .replace(/\/Length\s*\d+/gi, '')
+    .trim();
+  
+  // Extract readable text sequences
+  const textMatches = cleanStream.match(/[\x20-\x7E]{5,}/g) || [];
+  
+  for (const textMatch of textMatches) {
+    if (containsCreditKeywords(textMatch)) {
+      text += textMatch + ' ';
+    }
+  }
+  
+  return text;
+}
+
+async function extractFromPDFStructure(arrayBuffer: ArrayBuffer): Promise<string> {
+  const uint8Array = new Uint8Array(arrayBuffer);
+  const pdfString = new TextDecoder('latin1').decode(uint8Array);
+  
+  // Look for PDF objects containing text
+  const objectPattern = /(\d+)\s+\d+\s+obj\s*([\s\S]*?)\s*endobj/g;
+  let extractedText = '';
+  let match;
+  
+  while ((match = objectPattern.exec(pdfString)) !== null) {
+    const objectContent = match[2];
+    
+    // Check if this object contains text data
+    if (objectContent.includes('/Type') && (objectContent.includes('/Text') || objectContent.includes('Tj') || objectContent.includes('TJ'))) {
+      const textContent = extractTextFromPDFObject(objectContent);
+      if (textContent && containsCreditKeywords(textContent)) {
+        extractedText += textContent + ' ';
+      }
+    }
+  }
+  
+  return extractedText.trim();
+}
+
+function extractTextFromPDFObject(objectContent: string): string {
+  let text = '';
+  
+  // Extract text from Tj and TJ operators
+  const textPatterns = [
+    /\(([^)]*)\)\s*Tj/g,
+    /\[((?:[^[\]]*(?:\[[^\]]*\])?)*)\]\s*TJ/g
+  ];
+  
+  for (const pattern of textPatterns) {
+    let match;
+    while ((match = pattern.exec(objectContent)) !== null) {
+      const rawText = match[1];
+      const decodedText = decodePDFString(rawText);
+      if (decodedText && isReadableText(decodedText)) {
+        text += decodedText + ' ';
+      }
+    }
+  }
+  
+  return text.trim();
+}
+
+async function extractFromRawBytes(arrayBuffer: ArrayBuffer): Promise<string> {
+  const uint8Array = new Uint8Array(arrayBuffer);
+  let extractedText = '';
+  let currentSequence = '';
+  
+  for (let i = 0; i < uint8Array.length; i++) {
+    const byte = uint8Array[i];
+    
+    // Check for printable ASCII characters
+    if ((byte >= 32 && byte <= 126) || byte === 9 || byte === 10 || byte === 13) {
+      currentSequence += String.fromCharCode(byte);
+    } else {
+      // End of sequence - check if it's useful
+      if (currentSequence.length >= 8) {
+        const cleanSequence = currentSequence.replace(/[^\w\s.,()-]/g, ' ').trim();
+        if (cleanSequence.length >= 5 && containsCreditKeywords(cleanSequence)) {
+          extractedText += cleanSequence + ' ';
+        }
+      }
+      currentSequence = '';
+    }
+  }
+  
+  // Process final sequence
+  if (currentSequence.length >= 8) {
+    const cleanSequence = currentSequence.replace(/[^\w\s.,()-]/g, ' ').trim();
+    if (cleanSequence.length >= 5 && containsCreditKeywords(cleanSequence)) {
+      extractedText += cleanSequence + ' ';
+    }
+  }
+  
+  return extractedText.trim();
 }
 
 function decodePDFString(text: string): string {

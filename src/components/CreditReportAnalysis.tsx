@@ -72,108 +72,48 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
     try {
       setLoading(true);
 
-      // Check report status first
-      const { data: reportData } = await supabase
-        .from('credit_reports')
-        .select('raw_text, extraction_status, processing_errors')
-        .eq('id', reportId)
-        .single();
+      console.log('🔄 Loading analysis data for report:', reportId);
 
-      console.log('Report status:', reportData);
+      // Use the unified processor to handle everything
+      const { UnifiedCreditProcessor } = await import('@/services/UnifiedCreditProcessor');
+      const result = await UnifiedCreditProcessor.processReport(reportId);
 
-      // If still processing, show status
-      if (reportData?.extraction_status === 'processing') {
-        console.log('Report is still processing...');
-        // Continue to load any existing data
-      }
+      if (result.success) {
+        console.log('✅ Processing successful:', {
+          personalInfo: !!result.personalInfo,
+          accounts: result.accounts.length,
+          inquiries: result.inquiries.length,
+          negativeItems: result.negativeItems.length
+        });
 
-      // If failed, show error but continue loading
-      if (reportData?.extraction_status === 'failed') {
-        console.log('Report extraction failed:', reportData.processing_errors);
-        toast.error(`Extraction failed: ${reportData.processing_errors || 'Unknown error'}`);
-      }
+        // Set the data
+        setPersonalInfo(result.personalInfo);
+        setAccounts(result.accounts);
+        setInquiries(result.inquiries);
 
-      // If we have raw text but no parsed data, try comprehensive parsing
-      if (reportData?.raw_text && reportData.extraction_status === 'completed') {
-        try {
-          // Check if we already have personal info (indicating parsing was done)
-          const { data: existingPersonalInfo } = await supabase
-            .from('personal_information')
-            .select('id')
-            .eq('report_id', reportId)
-            .maybeSingle();
-
-          // If no personal info exists, trigger comprehensive parsing
-          if (!existingPersonalInfo) {
-            console.log('Triggering comprehensive parsing for enhanced data extraction...');
-            const { ComprehensiveCreditParser } = await import('@/services/ComprehensiveCreditParser');
-            await ComprehensiveCreditParser.parseReport(reportId);
-            console.log('Comprehensive parsing completed');
-          }
-        } catch (parseError) {
-          console.error('Error in comprehensive parsing:', parseError);
-          // Continue loading existing data even if parsing fails
+        // Show success message
+        if (result.accounts.length > 0 || result.personalInfo) {
+          toast.success(`Successfully loaded ${result.accounts.length} accounts and personal information`);
         }
-      }
-
-      // Load personal information
-      const { data: personalData, error: personalError } = await supabase
-        .from('personal_information')
-        .select('*')
-        .eq('report_id', reportId)
-        .maybeSingle();
-
-      if (personalError) {
-        console.error('Error loading personal info:', personalError);
       } else {
-        setPersonalInfo(personalData);
-      }
-
-      // Load credit accounts
-      const { data: accountsData, error: accountsError } = await supabase
-        .from('credit_accounts')
-        .select('*')
-        .eq('report_id', reportId)
-        .order('is_negative', { ascending: false })
-        .order('creditor_name');
-
-      if (accountsError) {
-        console.error('Error loading accounts:', accountsError);
-      } else {
-        setAccounts(accountsData || []);
-      }
-
-      // Load credit inquiries
-      const { data: inquiriesData, error: inquiriesError } = await supabase
-        .from('credit_inquiries')
-        .select('*')
-        .eq('report_id', reportId)
-        .order('inquiry_date', { ascending: false });
-
-      if (inquiriesError) {
-        console.error('Error loading inquiries:', inquiriesError);
-      } else {
-        setInquiries(inquiriesData || []);
-      }
-
-      // If still no data, try fallback PDF parsing
-      if ((!personalData && !accountsData?.length && !inquiriesData?.length) && reportData?.raw_text) {
-        console.log('No extracted data found, using fallback PDF parsing...');
-        const PDFProcessor = await import('@/services/PDFProcessor');
-        const parsedData = await import('@/services/CreditReportParser');
+        console.error('❌ Processing failed:', result.errors);
+        toast.error(`Processing failed: ${result.errors.join(', ')}`);
         
-        try {
-          await parsedData.CreditReportParser.parseReport(reportId);
-          // Reload data after parsing
-          setTimeout(() => loadAnalysisData(), 1000);
-        } catch (fallbackError) {
-          console.error('Fallback parsing also failed:', fallbackError);
-        }
+        // Still try to load any existing data
+        const [personalResponse, accountsResponse, inquiriesResponse] = await Promise.all([
+          supabase.from('personal_information').select('*').eq('report_id', reportId).maybeSingle(),
+          supabase.from('credit_accounts').select('*').eq('report_id', reportId),
+          supabase.from('credit_inquiries').select('*').eq('report_id', reportId)
+        ]);
+
+        setPersonalInfo(personalResponse.data);
+        setAccounts(accountsResponse.data || []);
+        setInquiries(inquiriesResponse.data || []);
       }
 
     } catch (error) {
-      console.error('Error loading analysis data:', error);
-      toast.error('Failed to load analysis data');
+      console.error('❌ Error in loadAnalysisData:', error);
+      toast.error('Failed to load credit report data');
     } finally {
       setLoading(false);
     }
@@ -185,40 +125,41 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
 
   const handleForceReparse = async () => {
     try {
-      toast.info('Processing credit report...');
+      toast.info('Re-processing credit report...');
       setLoading(true);
       
-      // Use the new working processing function
-      const { data: report } = await supabase
+      // Clear existing data first
+      await Promise.all([
+        supabase.from('personal_information').delete().eq('report_id', reportId),
+        supabase.from('credit_accounts').delete().eq('report_id', reportId),
+        supabase.from('credit_inquiries').delete().eq('report_id', reportId),
+        supabase.from('negative_items').delete().eq('report_id', reportId)
+      ]);
+
+      // Reset extraction status
+      await supabase
         .from('credit_reports')
-        .select('file_path')
-        .eq('id', reportId)
-        .single();
+        .update({ extraction_status: 'pending', raw_text: null })
+        .eq('id', reportId);
 
-      if (!report?.file_path) {
-        toast.error('No file found to process');
-        return;
+      // Use unified processor to re-process everything
+      const { UnifiedCreditProcessor } = await import('@/services/UnifiedCreditProcessor');
+      const result = await UnifiedCreditProcessor.processReport(reportId);
+
+      if (result.success) {
+        toast.success('Re-processing completed! Data extracted successfully.');
+        
+        // Update UI with new data
+        setPersonalInfo(result.personalInfo);
+        setAccounts(result.accounts);
+        setInquiries(result.inquiries);
+      } else {
+        toast.error(`Re-processing failed: ${result.errors.join(', ')}`);
       }
-
-      // Call the new working processing function
-      const { data, error } = await supabase.functions.invoke('process-credit-report', {
-        body: { reportId, filePath: report.file_path }
-      });
-
-      if (error) {
-        toast.error(`Processing failed: ${error.message}`);
-        return;
-      }
-
-      toast.success('Processing completed! Data extracted successfully.');
-      console.log('Processing result:', data);
-      
-      // Wait a moment then reload data
-      setTimeout(() => loadAnalysisData(), 2000);
       
     } catch (error) {
-      console.error('Processing failed:', error);
-      toast.error('Processing failed');
+      console.error('Re-processing failed:', error);
+      toast.error('Re-processing failed');
     } finally {
       setLoading(false);
     }

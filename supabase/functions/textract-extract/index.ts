@@ -5,11 +5,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// AWS Textract client interface
+// AWS Textract client interface with enhanced error handling
 class TextractClient {
   private accessKeyId: string;
   private secretAccessKey: string;
   private region: string;
+  private maxRetries: number = 3;
+  private timeout: number = 30000; // 30 seconds
 
   constructor(accessKeyId: string, secretAccessKey: string, region: string) {
     this.accessKeyId = accessKeyId;
@@ -18,147 +20,210 @@ class TextractClient {
   }
 
   async detectDocumentText(document: Uint8Array): Promise<string> {
-    console.log("=== AWS TEXTRACT API CALL ===");
-    console.log("Document size:", document.length, "bytes");
-    console.log("AWS Region:", this.region);
-    console.log("AWS Access Key ID exists:", !!this.accessKeyId);
-    console.log("Timestamp:", new Date().toISOString());
+    // Validate document size (AWS Textract limit is 10MB)
+    if (document.byteLength > 10 * 1024 * 1024) {
+      throw new Error('Document size exceeds AWS Textract limit of 10MB');
+    }
 
-    const base64Document = btoa(String.fromCharCode.apply(null, Array.from(document)));
-    console.log("Base64 document size:", base64Document.length);
+    console.log(`📄 Processing document of size: ${(document.byteLength / 1024 / 1024).toFixed(2)}MB`);
 
-    const requestBody = {
-      Document: {
-        Bytes: base64Document
+    // Retry logic with exponential backoff
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        console.log(`🔄 AWS Textract attempt ${attempt}/${this.maxRetries}`);
+        
+        const result = await this.makeTextractRequest(document);
+        
+        // Extract text from the response
+        let extractedText = '';
+        if (result.Blocks) {
+          const lineBlocks = result.Blocks.filter(block => block.BlockType === 'LINE');
+          console.log(`📝 Found ${lineBlocks.length} text lines in Textract response`);
+          
+          for (const block of lineBlocks) {
+            if (block.Text) {
+              extractedText += block.Text + '\n';
+            }
+          }
+        }
+
+        if (extractedText.length < 100) {
+          throw new Error('Insufficient text extracted from document - may be an image or corrupted file');
+        }
+
+        console.log(`✅ AWS Textract extracted ${extractedText.length} characters`);
+        return extractedText;
+
+      } catch (error) {
+        console.error(`❌ AWS Textract attempt ${attempt} failed:`, error.message);
+        
+        if (attempt === this.maxRetries) {
+          throw error;
+        }
+        
+        // Wait before retry (exponential backoff)
+        const delay = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
+    }
+
+    throw new Error('AWS Textract failed after all retry attempts');
+  }
+
+  private async makeTextractRequest(document: Uint8Array): Promise<any> {
+    const host = `textract.${this.region}.amazonaws.com`;
+    const endpoint = `https://${host}/`;
+    
+    const payload = {
+      Document: {
+        Bytes: this.encodeBase64Chunked(document)
+      },
+      FeatureTypes: []
     };
 
-    const url = `https://textract.${this.region}.amazonaws.com/`;
-    const headers = await this.createAWSHeaders('DetectDocumentText', JSON.stringify(requestBody));
+    const body = JSON.stringify(payload);
+    const headers = await this.createAWSHeaders('DetectDocumentText', body);
 
-    console.log("Making AWS Textract API request...");
-    const startTime = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(url, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify(requestBody)
+        body: body,
+        signal: controller.signal
       });
 
-      const duration = Date.now() - startTime;
-      console.log("AWS Textract response received in", duration, "ms");
-      console.log("Response status:", response.status);
-      console.log("Response headers:", Object.fromEntries(response.headers.entries()));
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("AWS Textract error response:", errorText);
-        throw new Error(`AWS Textract API error: ${response.status} - ${errorText}`);
+        if (response.status === 429) {
+          throw new Error(`Rate limited: ${errorText}`);
+        }
+        throw new Error(`Textract API error: ${response.status} - ${errorText}`);
       }
 
-      const result = await response.json();
-      console.log("AWS Textract successful response received");
-      console.log("Blocks found:", result.Blocks?.length || 0);
-
-      // Extract text from blocks
-      let extractedText = '';
-      if (result.Blocks) {
-        const textBlocks = result.Blocks.filter((block: any) => block.BlockType === 'LINE');
-        extractedText = textBlocks.map((block: any) => block.Text).join(' ');
-        console.log("Text extracted from", textBlocks.length, "LINE blocks");
-      }
-
-      console.log("✅ AWS Textract extraction completed successfully");
-      console.log("Extracted text length:", extractedText.length);
-      
-      return extractedText;
+      return await response.json();
     } catch (error) {
-      console.error("❌ AWS Textract API call failed:", error);
+      clearTimeout(timeoutId);
       throw error;
+    }
+  }
+
+  private encodeBase64Chunked(data: Uint8Array): string {
+    try {
+      // Process in chunks to avoid memory issues with large files
+      const chunkSize = 8192;
+      let binary = '';
+      
+      for (let i = 0; i < data.length; i += chunkSize) {
+        const chunk = data.subarray(i, i + chunkSize);
+        const chunkBinary = Array.from(chunk).map(byte => String.fromCharCode(byte)).join('');
+        binary += chunkBinary;
+      }
+      
+      return btoa(binary);
+    } catch (error) {
+      console.error('Base64 encoding failed:', error);
+      throw new Error('Failed to encode document for AWS Textract');
     }
   }
 
   private async createAWSHeaders(action: string, payload: string): Promise<Record<string, string>> {
     const host = `textract.${this.region}.amazonaws.com`;
-    const date = new Date().toISOString().replace(/[:\-]|\.\d{3}/g, '');
-    const dateStamp = date.substr(0, 8);
+    const now = new Date();
+    const isoDate = now.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const date = isoDate.substring(0, 8);
 
-    const headers = {
-      'Content-Type': 'application/x-amz-json-1.1',
-      'X-Amz-Target': `Textract.${action}`,
-      'X-Amz-Date': date,
-      'Host': host,
-      'Authorization': await this.createAuthHeader(action, payload, date, dateStamp)
-    };
-
-    return headers;
-  }
-
-  private async createAuthHeader(action: string, payload: string, date: string, dateStamp: string): Promise<string> {
-    // AWS Signature Version 4 implementation
-    const algorithm = 'AWS4-HMAC-SHA256';
-    const credentialScope = `${dateStamp}/${this.region}/textract/aws4_request`;
-    
     // Create canonical request
-    const host = `textract.${this.region}.amazonaws.com`;
-    const canonicalHeaders = `host:${host}\nx-amz-date:${date}\nx-amz-target:Textract.${action}\n`;
-    const signedHeaders = 'host;x-amz-date;x-amz-target';
+    const canonicalHeaders = [
+      `content-type:application/x-amz-json-1.1`,
+      `host:${host}`,
+      `x-amz-date:${isoDate}`,
+      `x-amz-target:Textract.${action}`
+    ].join('\n') + '\n';
+    
+    const signedHeaders = 'content-type;host;x-amz-date;x-amz-target';
     const payloadHash = await this.sha256(payload);
     
     const canonicalRequest = [
       'POST',
       '/',
-      '',
+      '', // query string
       canonicalHeaders,
       signedHeaders,
       payloadHash
     ].join('\n');
-    
+
     // Create string to sign
+    const algorithm = 'AWS4-HMAC-SHA256';
+    const credentialScope = `${date}/${this.region}/textract/aws4_request`;
     const stringToSign = [
       algorithm,
-      date,
+      isoDate,
       credentialScope,
       await this.sha256(canonicalRequest)
     ].join('\n');
-    
+
     // Calculate signature
-    const kDate = await this.hmac(`AWS4${this.secretAccessKey}`, dateStamp);
-    const kRegion = await this.hmac(kDate, this.region);
-    const kService = await this.hmac(kRegion, 'textract');
-    const kSigning = await this.hmac(kService, 'aws4_request');
-    const signature = await this.hmac(kSigning, stringToSign, true);
-    
-    return `${algorithm} Credential=${this.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+    const signingKey = await this.getSigningKey(this.secretAccessKey, date, this.region, 'textract');
+    const signature = await this.hmacSha256(signingKey, stringToSign);
+
+    const authorizationHeader = `${algorithm} Credential=${this.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    return {
+      'Content-Type': 'application/x-amz-json-1.1',
+      'X-Amz-Target': `Textract.${action}`,
+      'X-Amz-Date': isoDate,
+      'Host': host,
+      'Authorization': authorizationHeader
+    };
   }
 
-  private async sha256(data: string): Promise<string> {
+  private async sha256(message: string): Promise<string> {
     const encoder = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data));
-    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const data = encoder.encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  private async hmac(key: string | Uint8Array, data: string, hex: boolean = false): Promise<string | Uint8Array> {
-    const keyData = typeof key === 'string' ? new TextEncoder().encode(key) : key;
-    const dataBuffer = new TextEncoder().encode(data);
-    
-    const cryptoKey = await crypto.subtle.importKey(
+  private async hmacSha256(key: Uint8Array, message: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const keyObject = await crypto.subtle.importKey(
       'raw',
-      keyData,
+      key,
       { name: 'HMAC', hash: 'SHA-256' },
       false,
       ['sign']
     );
-    
-    const signature = await crypto.subtle.sign('HMAC', cryptoKey, dataBuffer);
-    const sigArray = new Uint8Array(signature);
-    
-    if (hex) {
-      return Array.from(sigArray).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-    
-    return sigArray;
+    const signature = await crypto.subtle.sign('HMAC', keyObject, encoder.encode(message));
+    const signatureArray = Array.from(new Uint8Array(signature));
+    return signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  private async getSigningKey(key: string, dateStamp: string, regionName: string, serviceName: string): Promise<Uint8Array> {
+    const encoder = new TextEncoder();
+    const kDate = await this.hmacSha256Raw(encoder.encode('AWS4' + key), dateStamp);
+    const kRegion = await this.hmacSha256Raw(kDate, regionName);
+    const kService = await this.hmacSha256Raw(kRegion, serviceName);
+    const kSigning = await this.hmacSha256Raw(kService, 'aws4_request');
+    return kSigning;
+  }
+
+  private async hmacSha256Raw(key: Uint8Array, message: string): Promise<Uint8Array> {
+    const encoder = new TextEncoder();
+    const keyObject = await crypto.subtle.importKey(
+      'raw',
+      key,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const signature = await crypto.subtle.sign('HMAC', keyObject, encoder.encode(message));
+    return new Uint8Array(signature);
   }
 }
 

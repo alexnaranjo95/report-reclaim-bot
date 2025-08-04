@@ -1180,6 +1180,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: undefined
       }
+      cleanup_stuck_processing_reports: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       ensure_round_templates: {
         Args: Record<PropertyKey, never>
         Returns: undefined

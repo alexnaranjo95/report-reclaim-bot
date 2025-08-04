@@ -62,10 +62,27 @@ export class PDFExtractionService {
       console.log('🔍 Starting comprehensive credit data parsing...');
       
       try {
-        await ComprehensiveCreditParser.parseReport(reportId);
-        console.log('✅ Credit data parsing completed successfully');
+        // First try the enhanced parser with better error handling
+        const { EnhancedCreditParser } = await import('./EnhancedCreditParser');
+        const success = await EnhancedCreditParser.parseWithFuzzyMatching(reportId);
+        
+        if (success) {
+          console.log('✅ Enhanced credit data parsing completed successfully');
+        } else {
+          // Fallback to comprehensive parser
+          await ComprehensiveCreditParser.parseReport(reportId);
+          console.log('✅ Fallback credit data parsing completed successfully');
+        }
       } catch (parseError) {
         console.error('❌ Credit data parsing failed:', parseError);
+        
+        // Try to call cleanup for stuck processing reports
+        try {
+          await supabase.rpc('cleanup_stuck_processing_reports');
+        } catch (cleanupError) {
+          console.error('Failed to call cleanup function:', cleanupError);
+        }
+        
         // Don't throw here - we have the raw text, just log the parsing issue
         console.log('Raw text extracted but parsing failed - this will be handled by validation');
       }

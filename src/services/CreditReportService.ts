@@ -4,9 +4,9 @@ export interface CreditReport {
   id: string;
   user_id: string;
   bureau_name: string;
-  report_date?: string;
+  file_name: string;
   file_path?: string;
-  file_name?: string;
+  report_date?: string;
   raw_text?: string;
   extraction_status: 'pending' | 'processing' | 'completed' | 'failed';
   processing_errors?: string;
@@ -50,7 +50,7 @@ export class CreditReportService {
 
     if (error) {
       if (error.code === 'PGRST116') {
-        return null; // No data found
+        return null;
       }
       console.error('Error fetching credit report:', error);
       throw new Error('Failed to fetch credit report');
@@ -84,7 +84,7 @@ export class CreditReportService {
   }
 
   /**
-   * Update credit report with file path and status
+   * Update credit report status and data
    */
   static async updateCreditReport(
     id: string, 
@@ -106,59 +106,11 @@ export class CreditReportService {
   }
 
   /**
-   * Delete a credit report and associated file
-   */
-  static async deleteCreditReport(id: string): Promise<void> {
-    // First get the report to find the file path
-    const report = await this.getCreditReport(id);
-    
-    if (report?.file_path) {
-      // Delete file from storage
-      const { error: storageError } = await supabase.storage
-        .from('credit-reports')
-        .remove([report.file_path]);
-
-      if (storageError) {
-        console.error('Error deleting file from storage:', storageError);
-        // Continue with database deletion even if file deletion fails
-      }
-    }
-
-    // Delete database record
-    const { error } = await supabase
-      .from('credit_reports')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      console.error('Error deleting credit report:', error);
-      throw new Error('Failed to delete credit report');
-    }
-  }
-
-  /**
-   * Get signed URL for accessing credit report file
-   */
-  static async getFileDownloadUrl(filePath: string): Promise<string> {
-    const { data, error } = await supabase.storage
-      .from('credit-reports')
-      .createSignedUrl(filePath, 3600); // 1 hour expiry
-
-    if (error) {
-      console.error('Error creating signed URL:', error);
-      throw new Error('Failed to get file download URL');
-    }
-
-    return data.signedUrl;
-  }
-
-  /**
    * Upload file to storage
    */
   static async uploadFile(
     filePath: string, 
-    file: File,
-    onProgress?: (progress: number) => void
+    file: File
   ): Promise<string> {
     const { data, error } = await supabase.storage
       .from('credit-reports')
@@ -176,63 +128,67 @@ export class CreditReportService {
   }
 
   /**
-   * Check if user has already uploaded a report for a specific bureau today
+   * Get signed URL for file download
    */
-  static async hasReportForBureauToday(bureau: string): Promise<boolean> {
-    const today = new Date().toISOString().split('T')[0];
-    
-    const { data, error } = await supabase
-      .from('credit_reports')
-      .select('id')
-      .eq('bureau_name', bureau)
-      .gte('created_at', `${today}T00:00:00`)
-      .lt('created_at', `${today}T23:59:59`)
-      .limit(1);
+  static async getFileDownloadUrl(filePath: string): Promise<string> {
+    const { data, error } = await supabase.storage
+      .from('credit-reports')
+      .createSignedUrl(filePath, 3600);
 
     if (error) {
-      console.error('Error checking existing reports:', error);
-      return false;
+      console.error('Error creating signed URL:', error);
+      throw new Error('Failed to get file download URL');
     }
 
-    return (data?.length || 0) > 0;
+    return data.signedUrl;
   }
 
   /**
-   * Get summary statistics for user's credit reports
+   * Delete a credit report and associated data
    */
-  static async getReportSummary(): Promise<{
-    total: number;
-    byBureau: Record<string, number>;
-    recentCount: number;
-  }> {
-    const { data, error } = await supabase
-      .from('credit_reports')
-      .select('bureau_name, created_at');
+  static async deleteCreditReport(id: string): Promise<void> {
+    const report = await this.getCreditReport(id);
+    
+    if (report?.file_path) {
+      const { error: storageError } = await supabase.storage
+        .from('credit-reports')
+        .remove([report.file_path]);
 
-    if (error) {
-      console.error('Error fetching report summary:', error);
-      throw new Error('Failed to fetch report summary');
+      if (storageError) {
+        console.error('Error deleting file from storage:', storageError);
+      }
     }
 
-    const total = data?.length || 0;
-    const byBureau = (data || []).reduce((acc, report) => {
-      acc[report.bureau_name] = (acc[report.bureau_name] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const { error } = await supabase
+      .from('credit_reports')
+      .delete()
+      .eq('id', id);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    const recentCount = (data || []).filter(
-      report => new Date(report.created_at) > thirtyDaysAgo
-    ).length;
+    if (error) {
+      console.error('Error deleting credit report:', error);
+      throw new Error('Failed to delete credit report');
+    }
+  }
+
+  /**
+   * Get parsed data for a credit report
+   */
+  static async getParsedData(reportId: string) {
+    const [personalInfo, accounts, inquiries, negativeItems, publicRecords] = await Promise.all([
+      supabase.from('personal_information').select('*').eq('report_id', reportId).maybeSingle(),
+      supabase.from('credit_accounts').select('*').eq('report_id', reportId),
+      supabase.from('credit_inquiries').select('*').eq('report_id', reportId),
+      supabase.from('negative_items').select('*').eq('report_id', reportId),
+      supabase.from('public_records').select('*').eq('report_id', reportId)
+    ]);
 
     return {
-      total,
-      byBureau,
-      recentCount,
+      personalInfo: personalInfo.data,
+      accounts: accounts.data || [],
+      inquiries: inquiries.data || [],
+      negativeItems: negativeItems.data || [],
+      scores: [],
+      publicRecords: publicRecords.data || []
     };
   }
 }
-
-export default CreditReportService;

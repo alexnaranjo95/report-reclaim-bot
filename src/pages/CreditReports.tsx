@@ -7,7 +7,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { CreditReportCard } from '@/components/CreditReportCard';
 import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
 import { RoundProgressCard } from '@/components/RoundProgressCard';
-import CreditReportService, { type CreditReport } from '@/services/CreditReportService';
+import { CreditReportService, type CreditReport } from '@/services/CreditReportService';
 import CreditReportUpload from '@/components/CreditReportUpload';
 import { CreditReportPreviewModal } from '@/components/CreditReportPreviewModal';
 import { CreditReportAnalysis } from '@/components/CreditReportAnalysis';

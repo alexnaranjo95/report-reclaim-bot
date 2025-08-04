@@ -227,12 +227,161 @@ class TextractClient {
   }
 }
 
-// Text sanitization utilities
+// Enhanced PDF extraction with multiple approaches
+async function enhancedPDFExtraction(bytes: Uint8Array): Promise<string> {
+  console.log("=== ENHANCED PDF EXTRACTION ===");
+  let extractedText = '';
+  
+  // Convert bytes to string for processing
+  const pdfString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+  
+  // Method 1: Extract text objects using PDF structure
+  console.log("🔍 Extracting text objects from PDF structure...");
+  const textObjects = extractPDFTextObjects(pdfString);
+  if (textObjects.length > 1000) {
+    extractedText += textObjects + '\n';
+    console.log(`📝 Found ${textObjects.length} characters from text objects`);
+  }
+  
+  // Method 2: Extract readable strings from binary data
+  console.log("🔍 Extracting readable strings from binary data...");
+  const readableStrings = extractReadableStrings(pdfString);
+  if (readableStrings.length > 1000) {
+    extractedText += readableStrings + '\n';
+    console.log(`📝 Found ${readableStrings.length} characters from binary strings`);
+  }
+  
+  // Method 3: Advanced regex pattern matching for credit data
+  console.log("🔍 Advanced pattern matching for credit report data...");
+  const creditData = extractCreditPatterns(pdfString);
+  if (creditData.length > 500) {
+    extractedText += creditData + '\n';
+    console.log(`📝 Found ${creditData.length} characters from credit patterns`);
+  }
+  
+  console.log(`📊 Total extracted text length: ${extractedText.length}`);
+  return extractedText;
+}
+
+// Extract text objects from PDF structure
+function extractPDFTextObjects(pdfString: string): string {
+  const textParts: string[] = [];
+  
+  // Look for text in parentheses (PDF text objects)
+  const textMatches = pdfString.match(/\(([^)]+)\)/g);
+  if (textMatches) {
+    textMatches.forEach(match => {
+      const text = match.slice(1, -1);
+      if (text.length > 2 && /[a-zA-Z]/.test(text)) {
+        // Clean and decode PDF text
+        const cleaned = text
+          .replace(/\\([0-7]{1,3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)))
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t')
+          .replace(/\\([\\()[\]])/g, '$1')
+          .replace(/[^\x20-\x7E\n\r\t]/g, ' ');
+        textParts.push(cleaned);
+      }
+    });
+  }
+  
+  // Look for text in brackets (alternative PDF format)
+  const bracketMatches = pdfString.match(/\[([^\]]+)\]/g);
+  if (bracketMatches) {
+    bracketMatches.forEach(match => {
+      const text = match.slice(1, -1);
+      if (text.length > 2 && /[a-zA-Z]/.test(text)) {
+        textParts.push(text.replace(/[^\x20-\x7E]/g, ' '));
+      }
+    });
+  }
+  
+  return textParts.join(' ');
+}
+
+// Extract readable ASCII strings from binary data
+function extractReadableStrings(pdfString: string): string {
+  const strings: string[] = [];
+  let currentString = '';
+  
+  for (let i = 0; i < pdfString.length; i++) {
+    const char = pdfString[i];
+    const charCode = char.charCodeAt(0);
+    
+    // Check if character is printable ASCII
+    if (charCode >= 32 && charCode <= 126) {
+      currentString += char;
+    } else {
+      // End of readable string
+      if (currentString.length > 5 && /[a-zA-Z]/.test(currentString)) {
+        // Filter out obvious PDF metadata
+        if (!isPDFMetadata(currentString)) {
+          strings.push(currentString);
+        }
+      }
+      currentString = '';
+    }
+  }
+  
+  // Add final string if valid
+  if (currentString.length > 5 && /[a-zA-Z]/.test(currentString) && !isPDFMetadata(currentString)) {
+    strings.push(currentString);
+  }
+  
+  return strings.join(' ');
+}
+
+// Extract credit report specific patterns
+function extractCreditPatterns(pdfString: string): string {
+  const creditParts: string[] = [];
+  
+  // Look for specific credit report patterns
+  const patterns = [
+    /(?:Name|Consumer|Personal Information)[^a-z]{0,50}([A-Z][A-Za-z\s,]{10,100})/gi,
+    /(?:Address|Current Address)[^a-z]{0,50}([A-Z0-9][A-Za-z0-9\s,.-]{10,150})/gi,
+    /(?:SSN|Social Security)[^a-z]{0,20}([0-9-]{9,11})/gi,
+    /(?:Date of Birth|DOB)[^a-z]{0,20}([0-9/.-]{8,12})/gi,
+    /(?:Account|Acct)[^a-z]{0,20}([A-Z0-9]{6,20})/gi,
+    /(?:Balance|Current Balance)[^a-z]{0,20}(\$?[0-9,]{1,10})/gi,
+    /(?:Credit Limit|Limit)[^a-z]{0,20}(\$?[0-9,]{1,10})/gi,
+    /(?:Creditor|Lender)[^a-z]{0,50}([A-Z][A-Za-z\s&]{5,50})/gi,
+    /(?:Experian|Equifax|TransUnion|FICO|IdentityIQ)/gi
+  ];
+  
+  patterns.forEach(pattern => {
+    const matches = pdfString.match(pattern);
+    if (matches) {
+      matches.forEach(match => {
+        if (match.length > 5) {
+          creditParts.push(match.replace(/[^\x20-\x7E]/g, ' ').trim());
+        }
+      });
+    }
+  });
+  
+  return creditParts.join(' ');
+}
+
+// Check if text is PDF metadata (to filter out)
+function isPDFMetadata(text: string): boolean {
+  const metadataIndicators = [
+    'endstream', 'endobj', 'stream', 'xref', 'trailer', 'startxref',
+    'Filter', 'FlateDecode', 'Length', 'Type', 'Font', 'Pages',
+    'Mozilla', 'Skia/PDF', 'webkit', 'chrome', 'safari'
+  ];
+  
+  return metadataIndicators.some(indicator => 
+    text.toLowerCase().includes(indicator.toLowerCase())
+  );
+}
+
+// Enhanced text sanitization utilities
 function sanitizeText(text: string): string {
   console.log("=== TEXT SANITIZATION ===");
   console.log("Original text length:", text.length);
   
-  // Remove null characters and other problematic Unicode sequences
+  // Remove null characters and control characters
   let sanitized = text
     .replace(/\x00/g, '') // Remove null characters
     .replace(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Remove control characters
@@ -240,10 +389,24 @@ function sanitizeText(text: string): string {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '') // Remove additional control chars
     .trim();
 
-  // Normalize whitespace
-  sanitized = sanitized.replace(/\s+/g, ' ');
+  // Remove PDF metadata patterns
+  sanitized = sanitized
+    .replace(/Mozilla\/[\d.]+\s*\([^)]+\)[^D]*D:\d{14}[^']*'/g, '') // Remove Mozilla metadata
+    .replace(/Filter\s*\/FlateDecode[^>]*>/g, '') // Remove Filter metadata
+    .replace(/Length\s+\d+[^>]*>/g, '') // Remove Length metadata
+    .replace(/endstream\s*endobj/g, '') // Remove PDF object endings
+    .replace(/stream\s*[^a-zA-Z]{50,}/g, '') // Remove binary streams
+    .replace(/xref\s*\d+[\s\d]*trailer/g, '') // Remove xref tables
+    .replace(/startxref\s*\d+/g, ''); // Remove startxref
+
+  // Clean up remaining artifacts
+  sanitized = sanitized
+    .replace(/[^\x20-\x7E\n\r\t]/g, ' ') // Replace non-printable with space
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .replace(/^\s*[^a-zA-Z0-9]*\s*/g, '') // Remove leading junk
+    .trim();
   
-  console.log("Sanitized text length:", sanitized.length);
+  console.log("Sanitized length:", sanitized.length);
   console.log("Characters removed:", text.length - sanitized.length);
   
   return sanitized;
@@ -315,8 +478,9 @@ function validatePDFContent(text: string): {
   // IMPROVED VALIDATION LOGIC - More permissive for legitimate reports
   
   // Special handling for IdentityIQ reports (very permissive)
-  if (isIdentityIQ && text.length > 30000) {
-    if (creditKeywords >= 1 && alphabeticRatio > 0.2) {
+  if (isIdentityIQ && text.length > 10000) {
+    // For IdentityIQ, accept if we have ANY credit keywords OR decent text ratio
+    if (creditKeywords >= 1 || (alphabeticRatio > 0.3 && alphaNumericRatio > 0.25)) {
       console.log("✅ IdentityIQ report validated with relaxed criteria");
       return {
         isValid: true,
@@ -328,8 +492,9 @@ function validatePDFContent(text: string): {
   }
   
   // Special handling for browser-generated PDFs with substantial content
-  if (hasMozilla && text.length > 50000) {
-    if (creditKeywords >= 2 && alphabeticRatio > 0.25) {
+  if (hasMozilla && text.length > 30000) {
+    // More permissive for browser PDFs - they often have corrupted text
+    if (creditKeywords >= 1 || (alphabeticRatio > 0.3 && alphaNumericRatio > 0.25)) {
       console.log("✅ Browser-generated PDF validated with substantial content");
       return {
         isValid: true,
@@ -341,8 +506,19 @@ function validatePDFContent(text: string): {
   }
   
   // Standard validation for other PDFs (more permissive than before)
-  if (creditKeywords >= 1 && alphaNumericRatio > 0.25) {
+  if (creditKeywords >= 1 && alphaNumericRatio > 0.2) {
     console.log("✅ Standard PDF validation passed");
+    return {
+      isValid: true,
+      detectedType: 'credit_report',
+      creditKeywords,
+      contentRatio: alphaNumericRatio
+    };
+  }
+  
+  // Additional permissive check for heavily corrupted but potentially valid reports
+  if (text.length > 30000 && alphabeticRatio > 0.4 && alphaNumericRatio > 0.3) {
+    console.log("✅ Large document with good text ratio - likely valid despite low keyword count");
     return {
       isValid: true,
       detectedType: 'credit_report',
@@ -437,24 +613,17 @@ async function processPDFFile(bytes: Uint8Array): Promise<string> {
     }
   }
 
-  // Fallback to enhanced PDF parsing if Textract fails
+// Fallback to enhanced PDF parsing if Textract fails
   if (!extractedText || extractedText.length < 100) {
     console.log("=== ATTEMPTING ENHANCED PDF EXTRACTION ===");
-    const pdfString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
-    
-    // Extract text from PDF structure
-    const textMatches = pdfString.match(/\(([^)]+)\)/g);
-    if (textMatches) {
-      const cleanedMatches = textMatches
-        .map(match => match.slice(1, -1))
-        .filter(text => text.length > 2 && /[a-zA-Z]/.test(text))
-        .map(text => text.replace(/[^\x20-\x7E]/g, ' '))
-        .join(' ');
-      extractedText += cleanedMatches;
+    try {
+      extractedText = await enhancedPDFExtraction(bytes);
+      extractionMethod = 'pdf_processing';
+      console.log("✅ Enhanced PDF extraction completed");
+    } catch (pdfError) {
+      console.error("❌ Enhanced PDF extraction failed:", pdfError);
+      extractionError = pdfError.message;
     }
-    
-    extractionMethod = 'enhanced_pdf_parsing';
-    console.log("✅ Enhanced PDF extraction completed");
   }
 
   return extractedText;

@@ -348,16 +348,20 @@ export const Dashboard = () => {
       
       const hasExtractedText = updatedReport?.raw_text && updatedReport.raw_text.length > 100;
       
-      // Validate that we have either structured data or raw text content
-      if (extractedCounts.personalInfo === 0 && extractedCounts.accounts === 0 && !hasExtractedText) {
-        throw new Error('No valid credit data was extracted from the PDF. This may be an image-based PDF or not a credit report.');
+      // Require meaningful structured data for a successful analysis
+      // We need at least some personal info OR some accounts to proceed
+      if (extractedCounts.personalInfo === 0 && extractedCounts.accounts === 0) {
+        // Even if we have raw text, if no structured data was parsed, it's not a successful extraction
+        console.error('❌ No structured credit data extracted from PDF');
+        console.log('📊 Extraction counts:', extractedCounts);
+        if (hasExtractedText) {
+          console.log('📝 Raw text was extracted but could not be parsed into credit data');
+          console.log('📝 Raw text preview:', updatedReport?.raw_text?.substring(0, 300));
+        }
+        throw new Error('No credit data could be extracted from this PDF. Please ensure this is a valid credit report from Experian, Equifax, or TransUnion, and try again.');
       }
       
-      // If we have text but no structured data, create a basic analysis
-      if (extractedCounts.personalInfo === 0 && extractedCounts.accounts === 0 && hasExtractedText) {
-        console.log('⚠️ Found extracted text but no structured data - creating basic analysis');
-        console.log('📝 Raw text preview:', updatedReport?.raw_text?.substring(0, 500));
-      }
+      console.log('✅ Structured credit data found, proceeding with analysis...');
 
       // Step 6: Create analysis result from real extracted data
       setProcessingStep('Building analysis from real data...');

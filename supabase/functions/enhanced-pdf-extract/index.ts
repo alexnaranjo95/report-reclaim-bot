@@ -234,7 +234,7 @@ async function extractTextWithMultipleMethods(bytes: Uint8Array): Promise<string
     }
   }
   
-  // Method 3: Binary scanning
+  // Method 3: Binary scanning with improved filtering
   if (extractedText.length < 200) {
     console.log("Method 3: Binary scanning...");
     const binaryText = extractUsingBinaryScanning(bytes);
@@ -246,13 +246,23 @@ async function extractTextWithMultipleMethods(bytes: Uint8Array): Promise<string
     }
   }
   
-  // Method 4: ASCII sequence extraction
+  // Method 4: ASCII sequence extraction with metadata filtering
   if (extractedText.length < 200) {
     console.log("Method 4: ASCII sequence extraction...");
     const asciiText = extractUsingASCIISequences(bytes);
     if (asciiText.length > extractedText.length) {
       extractedText = asciiText;
       console.log("✅ ASCII extraction successful, length:", asciiText.length);
+    }
+  }
+  
+  // Method 5: Enhanced text extraction with metadata removal
+  if (extractedText.length < 200) {
+    console.log("Method 5: Enhanced text extraction...");
+    const enhancedText = extractEnhancedText(bytes);
+    if (enhancedText.length > extractedText.length) {
+      extractedText = enhancedText;
+      console.log("✅ Enhanced extraction successful, length:", enhancedText.length);
     }
   }
   

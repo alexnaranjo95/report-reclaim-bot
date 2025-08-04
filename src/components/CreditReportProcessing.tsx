@@ -13,14 +13,17 @@ import {
   Clock, 
   AlertTriangle,
   RefreshCw,
-  Upload
+  Upload,
+  Brain,
+  Eye,
+  HelpCircle
 } from 'lucide-react';
 
 interface ProcessingStep {
   id: string;
   title: string;
   description: string;
-  status: 'pending' | 'processing' | 'completed' | 'error';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   icon: React.ComponentType<any>;
 }
 
@@ -29,44 +32,39 @@ interface CreditReportProcessingProps {
   currentStep?: string;
   progress?: number;
   error?: string;
+  extractionMethod?: string;
   onRetry?: () => void;
   onReupload?: () => void;
+  onViewDetails?: () => void;
   steps?: ProcessingStep[];
 }
 
 const defaultSteps: ProcessingStep[] = [
   {
     id: 'upload',
-    title: 'File Upload',
-    description: 'Credit report PDF uploaded to secure storage',
+    title: 'Upload & Validation',
+    description: 'PDF uploaded and file format validated',
     status: 'completed',
     icon: Upload
   },
   {
     id: 'extraction',
     title: 'Text Extraction',
-    description: 'Extracting readable text from PDF document',
+    description: 'Extracting text using multiple advanced methods',
     status: 'processing',
     icon: FileText
   },
   {
-    id: 'validation',
-    title: 'Content Validation',
-    description: 'Verifying extracted content is a valid credit report',
-    status: 'pending',
-    icon: CheckCircle
-  },
-  {
     id: 'analysis',
     title: 'AI Analysis',
-    description: 'Analyzing credit data and identifying negative items',
+    description: 'Analyzing credit data with OpenAI',
     status: 'pending',
-    icon: Search
+    icon: Brain
   },
   {
-    id: 'parsing',
-    title: 'Data Parsing',
-    description: 'Organizing personal info, accounts, and inquiries',
+    id: 'storage',
+    title: 'Data Storage',
+    description: 'Storing structured credit information',
     status: 'pending',
     icon: Download
   }
@@ -77,8 +75,10 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
   currentStep = 'extraction',
   progress = 20,
   error,
+  extractionMethod,
   onRetry,
   onReupload,
+  onViewDetails,
   steps = defaultSteps
 }) => {
   const getStepIcon = (step: ProcessingStep) => {
@@ -89,7 +89,7 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
         return <CheckCircle className="w-5 h-5 text-green-500" />;
       case 'processing':
         return <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />;
-      case 'error':
+      case 'failed':
         return <XCircle className="w-5 h-5 text-red-500" />;
       default:
         return <IconComponent className="w-5 h-5 text-gray-400" />;
@@ -102,7 +102,7 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
         return <Badge variant="default" className="bg-green-500">Complete</Badge>;
       case 'processing':
         return <Badge variant="secondary">Processing...</Badge>;
-      case 'error':
+      case 'failed':
         return <Badge variant="destructive">Failed</Badge>;
       default:
         return <Badge variant="outline">Pending</Badge>;
@@ -112,7 +112,21 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
   const currentStepIndex = steps.findIndex(step => step.id === currentStep);
   const completedSteps = steps.filter(step => step.status === 'completed').length;
   const totalSteps = steps.length;
-  const progressPercentage = Math.round((completedSteps / totalSteps) * 100);
+  const progressPercentage = progress || Math.round((completedSteps / totalSteps) * 100);
+
+  const isExtractionError = error && (
+    error.includes('PDF text extraction failed') ||
+    error.includes('image-based') ||
+    error.includes('encrypted') ||
+    error.includes('No readable text') ||
+    error.includes('extraction methods failed')
+  );
+
+  const isAuthError = error && (
+    error.includes('Authentication') ||
+    error.includes('sign in') ||
+    error.includes('JWT')
+  );
 
   return (
     <div className="min-h-screen bg-gradient-dashboard">
@@ -125,11 +139,16 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <FileText className="w-6 h-6" />
-                    Round 1 Analysis
+                    Enhanced Credit Report Analysis
                   </CardTitle>
                   <p className="text-muted-foreground mt-1">
-                    AI analysis of {reportName}
+                    AI-powered analysis of {reportName}
                   </p>
+                  {extractionMethod && (
+                    <Badge variant="outline" className="w-fit mt-2">
+                      Extraction Method: {extractionMethod}
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   {error && onReupload && (
@@ -144,6 +163,12 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
                       Retry
                     </Button>
                   )}
+                  {onViewDetails && (
+                    <Button onClick={onViewDetails} variant="ghost">
+                      <Eye className="w-4 h-4 mr-2" />
+                      Details
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -155,7 +180,7 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
                     Processing Progress
                   </span>
                   <span className="text-sm text-muted-foreground">
-                    {completedSteps} of {totalSteps} steps completed
+                    {progressPercentage}% complete
                   </span>
                 </div>
                 <Progress value={progressPercentage} className="w-full" />
@@ -177,28 +202,48 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
 
           {/* Error Alert */}
           {error && (
-            <Alert variant="destructive">
+            <Alert variant={isAuthError ? "default" : "destructive"}>
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription className="ml-2">
-                <div className="space-y-2">
-                  <p className="font-medium">Processing Failed</p>
-                  <p>{error}</p>
-                  <div className="flex gap-2 mt-3">
-                    <Button 
-                      onClick={onRetry} 
-                      variant="destructive" 
-                      size="sm"
-                      className="bg-red-600 hover:bg-red-700"
-                    >
-                      Try Again
-                    </Button>
-                    <Button 
-                      onClick={onReupload} 
-                      variant="outline" 
-                      size="sm"
-                    >
-                      Upload Different File
-                    </Button>
+                <div className="space-y-3">
+                  <div className="font-medium">
+                    {isAuthError ? 'Authentication Required' : 
+                     isExtractionError ? 'PDF Extraction Failed' : 
+                     'Processing Error'}
+                  </div>
+                  <div className="text-sm whitespace-pre-wrap">{error}</div>
+                  
+                  {/* Action Buttons */}
+                  <div className="flex gap-2">
+                    {isAuthError ? (
+                      <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                        <RefreshCw className="h-4 w-4 mr-1" />
+                        Refresh Page
+                      </Button>
+                    ) : isExtractionError ? (
+                      <>
+                        <Button variant="outline" size="sm" onClick={onReupload}>
+                          <Upload className="h-4 w-4 mr-1" />
+                          Try Different PDF
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={onRetry}>
+                          <RefreshCw className="h-4 w-4 mr-1" />
+                          Retry Processing
+                        </Button>
+                      </>
+                    ) : (
+                      <Button variant="outline" size="sm" onClick={onRetry}>
+                        <RefreshCw className="h-4 w-4 mr-1" />
+                        Retry
+                      </Button>
+                    )}
+                    
+                    {onViewDetails && (
+                      <Button variant="ghost" size="sm" onClick={onViewDetails}>
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Details
+                      </Button>
+                    )}
                   </div>
                 </div>
               </AlertDescription>
@@ -208,9 +253,9 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
           {/* Processing Steps */}
           <Card>
             <CardHeader>
-              <CardTitle>Processing Steps</CardTitle>
+              <CardTitle>Enhanced Processing Pipeline</CardTitle>
               <p className="text-muted-foreground">
-                Detailed breakdown of credit report analysis process
+                Multi-method extraction and AI-powered analysis
               </p>
             </CardHeader>
             <CardContent>
@@ -223,7 +268,7 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
                         ? 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800' 
                         : step.status === 'completed'
                         ? 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800'
-                        : step.status === 'error'
+                        : step.status === 'failed'
                         ? 'bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800'
                         : 'bg-gray-50 border-gray-200 dark:bg-gray-900 dark:border-gray-700'
                     }`}
@@ -255,32 +300,73 @@ export const CreditReportProcessing: React.FC<CreditReportProcessingProps> = ({
             </CardContent>
           </Card>
 
-          {/* Troubleshooting Tips */}
-          {error && (
+          {/* Success Message */}
+          {progress === 100 && !error && (
+            <Alert className="border-green-200 bg-green-50">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-800">
+                <div className="font-medium">Analysis Complete!</div>
+                <div className="text-sm mt-1">
+                  Your credit report has been successfully processed and analyzed.
+                  {extractionMethod && ` Extraction method: ${extractionMethod}`}
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Enhanced Troubleshooting Tips */}
+          {error && isExtractionError && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-yellow-500" />
-                  Troubleshooting Tips
+                  <HelpCircle className="w-5 h-5 text-blue-500" />
+                  Enhanced Troubleshooting Guide
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3 text-sm">
-                  <div className="flex items-start gap-2">
-                    <span className="font-medium text-yellow-600 dark:text-yellow-400">•</span>
-                    <span>Make sure the uploaded file is a valid credit report PDF from Experian, Equifax, or TransUnion</span>
+                <div className="space-y-4 text-sm">
+                  <div className="font-medium text-blue-600 dark:text-blue-400">
+                    PDF Requirements:
                   </div>
-                  <div className="flex items-start gap-2">
-                    <span className="font-medium text-yellow-600 dark:text-yellow-400">•</span>
-                    <span>Ensure the PDF is not password-protected or image-only (scanned documents may not work)</span>
+                  <div className="space-y-2 ml-4">
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium text-blue-500">•</span>
+                      <span>Must be text-based, not a scanned image or screenshot</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium text-blue-500">•</span>
+                      <span>From official sources: Experian, Equifax, or TransUnion</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium text-blue-500">•</span>
+                      <span>Not password-protected or encrypted</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium text-blue-500">•</span>
+                      <span>File size under 10MB for optimal processing</span>
+                    </div>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <span className="font-medium text-yellow-600 dark:text-yellow-400">•</span>
-                    <span>Try downloading a fresh copy of your credit report and uploading again</span>
+                  
+                  <div className="font-medium text-blue-600 dark:text-blue-400 mt-4">
+                    Recommended Actions:
                   </div>
-                  <div className="flex items-start gap-2">
-                    <span className="font-medium text-yellow-600 dark:text-yellow-400">•</span>
-                    <span>Contact support if the issue persists with multiple valid credit report files</span>
+                  <div className="space-y-2 ml-4">
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium text-green-500">1.</span>
+                      <span>Download a fresh copy directly from your credit bureau's website</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium text-green-500">2.</span>
+                      <span>Ensure you select "PDF" format (not HTML or other formats)</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium text-green-500">3.</span>
+                      <span>Verify the PDF opens correctly in a standard PDF viewer</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className="font-medium text-green-500">4.</span>
+                      <span>Try the retry button - our system uses multiple extraction methods</span>
+                    </div>
                   </div>
                 </div>
               </CardContent>

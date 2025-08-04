@@ -307,9 +307,9 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
         // Simulate detailed processing steps
         await simulateProcessingSteps(uploadFile.id, reportRecord.id);
         
-        // Trigger actual processing using enhanced extraction
+        // Trigger actual processing using advanced extraction with OCR
         try {
-          const { data: extractionResult, error: extractError } = await supabase.functions.invoke('enhanced-pdf-extract', {
+          const { data: extractionResult, error: extractError } = await supabase.functions.invoke('advanced-pdf-extract', {
             body: {
               reportId: reportRecord.id,
               filePath: storagePath,

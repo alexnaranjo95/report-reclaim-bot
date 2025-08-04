@@ -633,7 +633,31 @@ Deno.serve(async (req) => {
       console.error("Credit keywords found:", validation.creditKeywords);
       console.error("Content ratio:", validation.contentRatio);
       
-      throw new Error(validation.reason || "PDF content validation failed");
+      // Update database with failure status
+      await supabase
+        .from('credit_reports')
+        .update({
+          extraction_status: 'failed',
+          processing_errors: validation.reason,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', body.reportId);
+      
+      // Return structured error response (200 status with error details)
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: validation.reason || "File content validation failed",
+          detectedType: validation.detectedType,
+          creditKeywords: validation.creditKeywords,
+          contentRatio: validation.contentRatio,
+          timestamp: new Date().toISOString()
+        }),
+        { 
+          status: 200, // Return 200 with error details instead of 500
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
     
     console.log("✅ Content validation passed:");

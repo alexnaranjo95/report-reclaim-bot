@@ -12,9 +12,12 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let reportId: string | null = null;
+
   try {
     const requestBody = await req.text();
-    const { reportId, filePath } = JSON.parse(requestBody);
+    const { reportId: parsedReportId, filePath } = JSON.parse(requestBody);
+    reportId = parsedReportId;
     
     console.log('=== ADVANCED PDF EXTRACTION STARTED ===');
     console.log('Report ID:', reportId);
@@ -214,18 +217,6 @@ serve(async (req) => {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseKey);
-      
-      // Get reportId from the request body (handle JSON parsing errors)
-      let reportId;
-      try {
-        const clonedReq = req.clone();
-        const body = await clonedReq.text();
-        const parsed = JSON.parse(body);
-        reportId = parsed.reportId;
-      } catch (parseError) {
-        console.error('Failed to parse request body for error update:', parseError);
-        reportId = null;
-      }
       
       if (reportId) {
         await supabase

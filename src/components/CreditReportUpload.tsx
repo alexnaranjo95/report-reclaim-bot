@@ -1,199 +1,918 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
-import { Upload, FileText, CheckCircle, AlertCircle, X } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
+import { EnhancedProgressBar, uploadProgressSteps } from './EnhancedProgressBar';
+import { PDFDebugService } from '@/services/PDFDebugService';
+import { 
+  Upload, 
+  FileText, 
+  Image, 
+  X, 
+  Check, 
+  AlertCircle, 
+  Camera,
+  FileUp,
+  RefreshCw
+} from 'lucide-react';
 
-interface CreditReportUploadProps {
-  onUploadComplete?: (reportId: string) => void;
+interface UploadFile {
+  id: string;
+  file: File;
+  bureau: string;
+  progress: number;
+  status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error';
+  currentStep: number;
+  currentStatus: string;
+  error?: string;
+  reportId?: string;
+  extractedDataPreview?: {
+    personalInfoCount: number;
+    accountsCount: number;
+    inquiriesCount: number;
+    negativeItemsCount: number;
+  };
 }
 
-export const CreditReportUpload = ({ onUploadComplete }: CreditReportUploadProps) => {
+const ACCEPTED_FILE_TYPES = {
+  'application/pdf': ['.pdf'],
+  'image/png': ['.png'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+};
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILES = 3;
+
+const bureauOptions = [
+  { value: 'Equifax', label: 'Equifax' },
+  { value: 'Experian', label: 'Experian' },
+  { value: 'TransUnion', label: 'TransUnion' },
+];
+
+interface CreditReportUploadProps {
+  onUploadSuccess?: () => void;
+}
+
+const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess }) => {
+  console.log('🚀 ENHANCED CREDIT REPORT UPLOAD COMPONENT LOADED');
+  
   const { user } = useAuth();
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [processing, setProcessing] = useState(false);
+  const { toast } = useToast();
+  const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugResults, setDebugResults] = useState<any>(null);
+  
+  console.log('📊 Upload component state:', { uploadFiles: uploadFiles.length, isUploading });
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (!user || acceptedFiles.length === 0) return;
+  // Enhanced notification functions
+  const showSuccessNotification = (title: string, message: string) => {
+    toast({
+      title,
+      description: message,
+      variant: "default",
+    });
+  };
 
-    const file = acceptedFiles[0];
-    setUploadedFile(file);
-    setUploading(true);
-    setProgress(0);
+  const showErrorNotification = (title: string, message: string) => {
+    toast({
+      title,
+      description: message,
+      variant: "destructive",
+    });
+  };
+
+  const showWarningNotification = (title: string, message: string) => {
+    toast({
+      title,
+      description: message,
+      variant: "default",
+    });
+  };
+
+  const updateFileProgress = useCallback((fileId: string, step: number, status: string, errorMessage?: string, extractedData?: any) => {
+    setUploadFiles(prev => 
+      prev.map(f => f.id === fileId ? { 
+        ...f, 
+        currentStep: step,
+        currentStatus: status,
+        progress: Math.round((step / uploadProgressSteps.length) * 100),
+        status: errorMessage ? 'error' : (step === uploadProgressSteps.length ? 'completed' : 'processing'),
+        error: errorMessage,
+        extractedDataPreview: extractedData
+      } : f)
+    );
+  }, []);
+
+  const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
+    console.log('📁 FILES DROPPED:', { acceptedFiles: acceptedFiles.length, rejectedFiles: rejectedFiles.length });
+    
+    // Handle rejected files with specific error messages
+    rejectedFiles.forEach((rejected) => {
+      const { file, errors } = rejected;
+      console.log('❌ REJECTED FILE:', file.name, errors);
+      errors.forEach((error: any) => {
+        if (error.code === 'file-too-large') {
+          showErrorNotification(
+            "File Too Large",
+            `${file.name} exceeds the 10MB limit. Please compress or choose a smaller file.`
+          );
+        } else if (error.code === 'file-invalid-type') {
+          showErrorNotification(
+            "Invalid File Format",
+            `${file.name} is not supported. Please upload PDF, PNG, or JPG files only.`
+          );
+        }
+      });
+    });
+
+    // Check file limit
+    if (uploadFiles.length + acceptedFiles.length > MAX_FILES) {
+      console.log('🚫 TOO MANY FILES:', { current: uploadFiles.length, adding: acceptedFiles.length, max: MAX_FILES });
+      showErrorNotification(
+        "Too Many Files",
+        `You can upload a maximum of ${MAX_FILES} files at once. Please remove some files first.`
+      );
+      return;
+    }
+
+    // Add accepted files
+    const newFiles: UploadFile[] = acceptedFiles.map((file) => ({
+      id: `${file.name}-${Date.now()}-${Math.random()}`,
+      file,
+      bureau: '',
+      progress: 0,
+      status: 'pending',
+      currentStep: 0,
+      currentStatus: 'pending',
+    }));
+
+    console.log('✅ ADDING NEW FILES:', newFiles.map(f => ({ name: f.file.name, id: f.id })));
+    setUploadFiles(prev => {
+      const updated = [...prev, ...newFiles];
+      console.log('📊 UPDATED UPLOAD FILES:', updated.length);
+      return updated;
+    });
+    
+    if (acceptedFiles.length > 0) {
+      console.log('🎉 SHOWING SUCCESS NOTIFICATION FOR', acceptedFiles.length, 'files');
+      showSuccessNotification(
+        "Files Added",
+        `${acceptedFiles.length} file(s) added successfully. Select bureau for each file.`
+      );
+    }
+  }, [uploadFiles.length, showSuccessNotification, showErrorNotification]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: ACCEPTED_FILE_TYPES,
+    maxSize: MAX_FILE_SIZE,
+    multiple: true,
+    disabled: uploadFiles.length >= MAX_FILES || isUploading,
+  });
+
+  const removeFile = (fileId: string) => {
+    setUploadFiles(prev => prev.filter(f => f.id !== fileId));
+  };
+
+  const retryFile = (id: string) => {
+    setUploadFiles(prev => prev.map(f => 
+      f.id === id 
+        ? { 
+            ...f, 
+            status: 'pending' as const, 
+            currentStep: 0, 
+            currentStatus: 'pending',
+            error: undefined,
+            extractedDataPreview: undefined
+          }
+        : f
+    ));
+    showSuccessNotification(
+      "Retry Initiated",
+      "File has been reset and is ready for re-upload. Click 'Upload & Analyze' to try again."
+    );
+  };
+
+  const updateFileBureau = (fileId: string, bureau: string) => {
+    setUploadFiles(prev => 
+      prev.map(f => f.id === fileId ? { ...f, bureau } : f)
+    );
+  };
+
+  const generateStoragePath = (bureau: string, fileName: string): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const timestamp = now.getTime();
+    const extension = fileName.split('.').pop();
+    
+    return `${user?.id}/${year}/${month}/${bureau}_${timestamp}.${extension}`;
+  };
+
+  const simulateProcessingSteps = async (fileId: string, reportId: string) => {
+    const steps = uploadProgressSteps.slice(0, -3); // Only simulate up to text extraction, not completion
+    
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      
+      // Add realistic delays for each step
+      const delays = [500, 300, 800, 1000, 1200]; // Shorter delays for UI feedback only
+      await new Promise(resolve => setTimeout(resolve, delays[i] || 500));
+      
+      updateFileProgress(fileId, step.step, step.status);
+      
+      // Send progress notifications for key steps
+      if (step.step === 4) {
+        showSuccessNotification(
+          "Text Extraction Started",
+          "Advanced PDF processing with OCR is analyzing your credit report..."
+        );
+      }
+    }
+    
+    // Do NOT mark as completed here - let the actual extraction function handle completion
+  };
+
+  const uploadSingleFile = async (uploadFile: UploadFile): Promise<void> => {
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
 
     try {
-      // Simulate upload progress
-      const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 200);
+      // Step 1: Start upload
+      updateFileProgress(uploadFile.id, 1, 'uploading');
 
-      // Upload file to Supabase Storage
-      const fileName = `${user.id}/${Date.now()}_${file.name}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('credit-reports')
-        .upload(fileName, file);
-
-      if (uploadError) throw uploadError;
-
-      setProgress(100);
-      clearInterval(progressInterval);
-
-      // Create credit report record
-      const { data: reportData, error: reportError } = await supabase
+      // Create database record
+      const { data: reportRecord, error: dbError } = await supabase
         .from('credit_reports')
         .insert({
           user_id: user.id,
-          bureau_name: 'Unknown', // Will be detected during processing
-          file_path: uploadData.path,
-          file_name: file.name,
-          extraction_status: 'pending'
+          bureau_name: uploadFile.bureau,
+          file_name: uploadFile.file.name,
+          extraction_status: 'pending',
         })
         .select()
         .single();
 
-      if (reportError) throw reportError;
+      if (dbError) throw dbError;
 
-      setUploading(false);
-      setProcessing(true);
+      // Step 2: Validate format
+      updateFileProgress(uploadFile.id, 2, 'validating');
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Start PDF processing
-      await processPDF(reportData.id, uploadData.path);
+      // Generate storage path and upload
+      const storagePath = generateStoragePath(uploadFile.bureau, uploadFile.file.name);
+      const { error: uploadError } = await supabase.storage
+        .from('credit-reports')
+        .upload(storagePath, uploadFile.file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
 
-    } catch (error) {
-      console.error('Upload error:', error);
-      toast.error('Failed to upload file');
-      setUploading(false);
-      setProgress(0);
-    }
-  }, [user]);
+      if (uploadError) throw uploadError;
 
-  const processPDF = async (reportId: string, filePath: string) => {
-    try {
-      const { data, error } = await supabase.functions.invoke('pdf-extract', {
-        body: { reportId, filePath }
-      });
+      // Update database with file path
+      const { error: updateError } = await supabase
+        .from('credit_reports')
+        .update({
+          file_path: storagePath,
+          extraction_status: 'processing',
+        })
+        .eq('id', reportRecord.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      setProcessing(false);
-      toast.success('Credit report processed successfully!');
-      onUploadComplete?.(reportId);
+      // Start processing for PDF files
+      if (uploadFile.file.type === 'application/pdf') {
+        // Start progress simulation (but don't complete)
+        const progressPromise = simulateProcessingSteps(uploadFile.id, reportRecord.id);
+        
+        // Trigger actual processing using advanced extraction with OCR
+        console.log('🚀 Starting advanced PDF extraction for report:', reportRecord.id);
+        
+        try {
+          const { data: extractionResult, error: extractError } = await supabase.functions.invoke('advanced-pdf-extract', {
+            body: {
+              reportId: reportRecord.id,
+              filePath: storagePath,
+            },
+          });
 
-    } catch (error) {
-      console.error('Processing error:', error);
-      setProcessing(false);
-      toast.error('Failed to process credit report');
+          console.log('📊 REAL DATA - Extraction result:', extractionResult);
+          console.log('❌ REAL DATA - Extraction error:', extractError);
+          
+          // Log the exact data flow
+          console.log('🔍 DATA FLOW CHECK:');
+          console.log('  📄 File:', uploadFile.file.name);
+          console.log('  🆔 Report ID:', reportRecord.id);
+          console.log('  📁 Storage Path:', storagePath);
+          console.log('  🔧 Function Called: advanced-pdf-extract');
+          console.log('  ✅ Success:', extractionResult?.success);
+          console.log('  📊 Text Length:', extractionResult?.textLength);
+          console.log('  🔍 Extraction Method:', extractionResult?.extractionMethod);
+
+          if (extractError || !extractionResult?.success) {
+            updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
+            throw new Error(extractError?.message || extractionResult?.error || 'Failed to extract PDF content - file may be corrupted or image-based');
+          }
+
+          // Wait for progress simulation to finish
+          await progressPromise;
+          
+          // Fetch actual extracted data counts from database
+          const [personalInfo, accounts, inquiries, negativeItems] = await Promise.all([
+            supabase.from('personal_information').select('*').eq('report_id', reportRecord.id),
+            supabase.from('credit_accounts').select('*').eq('report_id', reportRecord.id),
+            supabase.from('credit_inquiries').select('*').eq('report_id', reportRecord.id),
+            supabase.from('negative_items').select('*').eq('report_id', reportRecord.id)
+          ]);
+
+          const extractedDataPreview = {
+            personalInfoCount: personalInfo.data?.length || 0,
+            accountsCount: accounts.data?.length || 0,
+            inquiriesCount: inquiries.data?.length || 0,
+            negativeItemsCount: negativeItems.data?.length || 0
+          };
+
+          console.log('📈 REAL EXTRACTED DATA COUNTS:', extractedDataPreview);
+          console.log('🔍 DETAILED DATA VERIFICATION:');
+          console.log('  👤 Personal Info Records:', personalInfo.data);
+          console.log('  💳 Account Records:', accounts.data);
+          console.log('  🔎 Inquiry Records:', inquiries.data);
+          console.log('  ⚠️ Negative Item Records:', negativeItems.data);
+          
+          // Verify data is actually from this upload
+          if (extractedDataPreview.personalInfoCount === 0 && 
+              extractedDataPreview.accountsCount === 0 && 
+              extractedDataPreview.inquiriesCount === 0) {
+            console.warn('⚠️ WARNING: No real data extracted from PDF!');
+          } else {
+            console.log('✅ REAL DATA CONFIRMED: Data successfully extracted and stored');
+          }
+          
+          // Show success with extraction method used
+          showSuccessNotification(
+            "Analysis Complete!",
+            `${uploadFile.file.name} extracted using ${extractionResult.extractionMethod || 'Enhanced PDF Extraction'}`
+          );
+
+          updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'completed', undefined, extractedDataPreview);
+          
+        } catch (bgError) {
+          console.error('PDF extraction failed:', bgError);
+          updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
+          throw bgError;
+        }
+      } else {
+        // For non-PDF files, just mark as completed
+        showSuccessNotification(
+          "Upload Complete!",
+          `${uploadFile.file.name} has been uploaded successfully.`
+        );
+        updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'completed');
+      }
+
+    } catch (error: any) {
+      console.error('Upload failed:', error);
+      updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
+      
+      // Show specific error message based on error type
+      if (error.message.includes('extract') || error.message.includes('PDF')) {
+        showErrorNotification(
+          "PDF Processing Failed",
+          error.message || "The PDF could not be processed. It may be image-based, corrupted, or password protected."
+        );
+      } else {
+        showErrorNotification(
+          "Upload Failed",
+          error.message || "An unexpected error occurred during upload."
+        );
+      }
+      
+      throw error;
     }
   };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'application/pdf': ['.pdf']
-    },
-    maxFiles: 1,
-    disabled: uploading || processing
-  });
+  const retryFailedUpload = async (fileId: string) => {
+    const uploadFile = uploadFiles.find(f => f.id === fileId);
+    if (!uploadFile) return;
 
-  const clearFile = () => {
-    setUploadedFile(null);
-    setProgress(0);
-    setUploading(false);
-    setProcessing(false);
+    try {
+      // Reset file status
+      updateFileProgress(fileId, 0, 'uploading');
+      
+      // Retry the upload
+      await uploadSingleFile(uploadFile);
+      
+      showSuccessNotification(
+        "Retry Successful",
+        `${uploadFile.file.name} has been processed successfully.`
+      );
+    } catch (error) {
+      console.error('Retry failed:', error);
+      showErrorNotification(
+        "Retry Failed",
+        "The file still cannot be processed. Please try a different file or contact support."
+      );
+    }
+  };
+
+  const handleUpload = async () => {
+    console.log('🚀 HANDLE UPLOAD STARTED');
+    console.log('👤 User:', user ? 'authenticated' : 'not authenticated');
+    console.log('📁 Upload files:', uploadFiles.length);
+    
+    if (!user) {
+      console.log('❌ USER NOT AUTHENTICATED');
+      showErrorNotification("Authentication Required", "Please log in to upload files.");
+      return;
+    }
+
+    // Validate all files have bureau selected
+    const filesWithoutBureau = uploadFiles.filter(f => !f.bureau && f.status === 'pending');
+    console.log('🏢 Files without bureau:', filesWithoutBureau.length);
+    
+    if (filesWithoutBureau.length > 0) {
+      console.log('❌ MISSING BUREAU SELECTION');
+      showErrorNotification(
+        "Bureau Selection Required",
+        "Please select a credit bureau for all files before uploading."
+      );
+      return;
+    }
+
+    console.log('✅ STARTING UPLOAD PROCESS');
+    setIsUploading(true);
+
+    try {
+      showSuccessNotification(
+        "Upload Started",
+        "Processing your credit reports. This may take a few minutes..."
+      );
+
+      // Upload files sequentially for better progress tracking
+      const pendingFiles = uploadFiles.filter(f => f.status === 'pending');
+      
+      for (const file of pendingFiles) {
+        try {
+          await uploadSingleFile(file);
+        } catch (error) {
+          console.error(`Failed to upload ${file.file.name}:`, error);
+          // Continue with other files
+        }
+      }
+
+      const successful = uploadFiles.filter(f => f.status === 'completed').length;
+      const failed = uploadFiles.filter(f => f.status === 'error').length;
+
+      if (successful > 0) {
+        showSuccessNotification(
+          "Upload Complete",
+          `Successfully processed ${successful} credit report(s). You can now view your credit analysis.`
+        );
+        
+        if (onUploadSuccess) {
+          onUploadSuccess();
+        }
+      }
+      
+      if (failed > 0) {
+        showErrorNotification(
+          "Some Uploads Failed",
+          `${failed} file(s) failed to upload. Please try again or contact support.`
+        );
+      }
+
+    } catch (error) {
+      console.error('Upload process error:', error);
+      showErrorNotification(
+        "Upload Process Failed",
+        "An unexpected error occurred during upload. Please try again."
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const retryFailedUploads = async () => {
+    const failedFiles = uploadFiles.filter(f => f.status === 'error');
+    
+    if (failedFiles.length === 0) return;
+    
+    // Reset failed files to pending
+    setUploadFiles(prev => 
+      prev.map(f => f.status === 'error' ? { 
+        ...f, 
+        status: 'pending', 
+        currentStep: 0, 
+        currentStatus: 'pending',
+        error: undefined,
+        progress: 0 
+      } : f)
+    );
+    
+    showSuccessNotification(
+      "Retry Started",
+      `Retrying upload for ${failedFiles.length} failed file(s)...`
+    );
+  };
+
+  const getFileIcon = (fileName: string) => {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    if (extension === 'pdf') {
+      return <FileText className="w-8 h-8 text-red-500" />;
+    }
+    return <Image className="w-8 h-8 text-blue-500" />;
+  };
+
+  const getStatusIcon = (status: UploadFile['status']) => {
+    switch (status) {
+      case 'completed':
+        return <Check className="w-5 h-5 text-success" />;
+      case 'error':
+        return <AlertCircle className="w-5 h-5 text-destructive" />;
+      default:
+        return null;
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const completedFiles = uploadFiles.filter(f => f.status === 'completed').length;
+  const failedFiles = uploadFiles.filter(f => f.status === 'error').length;
+  const processingFiles = uploadFiles.filter(f => f.status === 'processing').length;
+  const totalFiles = uploadFiles.length;
+
+  // Debug PDF extraction functionality
+  const debugPDFExtraction = async (file: File) => {
+    setDebugMode(true);
+    setDebugResults({ status: 'running', message: 'Running PDF extraction audit...' });
+    
+    try {
+      const results = await PDFDebugService.debugPDFProcessing(file);
+      setDebugResults({ status: 'complete', ...results });
+      
+      console.log('🔍 DEBUG RESULTS:', results);
+      
+      // Show results summary in toast
+      const successfulMethods = results.extractionAttempts.filter(a => a.success).length;
+      showSuccessNotification(
+        "Debug Complete",
+        `Tested ${results.extractionAttempts.length} extraction methods. ${successfulMethods} successful.`
+      );
+      
+    } catch (error) {
+      console.error('Debug error:', error);
+      setDebugResults({ status: 'error', error: error.message });
+      showErrorNotification("Debug Failed", "Could not complete PDF extraction audit.");
+    }
   };
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="h-5 w-5 text-primary" />
-          Upload Credit Report
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {!uploadedFile ? (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileUp className="w-6 h-6" />
+            Upload Credit Reports
+          </CardTitle>
+          <CardDescription>
+            Upload your credit reports from Equifax, Experian, and TransUnion for comprehensive analysis.
+            Supported formats: PDF, PNG, JPG (max 10MB each)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Upload Area */}
           <div
             {...getRootProps()}
             className={`
-              border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+              border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer
               ${isDragActive 
                 ? 'border-primary bg-primary/5' 
-                : 'border-border hover:border-primary/50'
+                : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
               }
+              ${uploadFiles.length >= MAX_FILES || isUploading ? 'opacity-50 cursor-not-allowed' : ''}
             `}
           >
             <input {...getInputProps()} />
-            <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-medium mb-2">
-              {isDragActive ? 'Drop your credit report here' : 'Upload Credit Report'}
-            </h3>
-            <p className="text-muted-foreground mb-4">
-              Drag and drop your PDF credit report, or click to browse
-            </p>
-            <Button variant="outline">
-              Choose File
-            </Button>
-            <p className="text-xs text-muted-foreground mt-4">
-              Supports PDF files up to 10MB. Your data is encrypted and secure.
-            </p>
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex gap-2">
+                <Upload className="w-10 h-10 text-muted-foreground" />
+                <Camera className="w-10 h-10 text-muted-foreground md:hidden" />
+              </div>
+              <div>
+                <p className="text-lg font-medium">
+                  {isDragActive 
+                    ? 'Drop files here...' 
+                    : 'Drop credit reports here or click to browse'
+                  }
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  PDF, PNG, JPG up to 10MB • Maximum {MAX_FILES} files
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 md:hidden">
+                  Tap to access camera or files
+                </p>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-card-elevated rounded-lg">
-              <div className="flex items-center gap-3">
-                <FileText className="h-8 w-8 text-primary" />
-                <div>
-                  <p className="font-medium">{uploadedFile.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
+
+          {/* File List */}
+          {uploadFiles.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-medium">📊 Upload Progress (ENHANCED VERSION ACTIVE)</h3>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  {processingFiles > 0 && (
+                    <span className="text-primary">
+                      {processingFiles} processing
+                    </span>
+                  )}
+                  {completedFiles > 0 && (
+                    <span className="text-success">
+                      {completedFiles} completed
+                    </span>
+                  )}
+                  {failedFiles > 0 && (
+                    <span className="text-destructive">
+                      {failedFiles} failed
+                    </span>
+                  )}
                 </div>
               </div>
-              {!uploading && !processing && (
-                <Button variant="ghost" size="sm" onClick={clearFile}>
-                  <X className="h-4 w-4" />
+
+              <div className="space-y-4">
+                {uploadFiles.map((uploadFile) => (
+                  <Card key={uploadFile.id} className="p-4">
+                    <div className="flex items-start gap-4">
+                      {getFileIcon(uploadFile.file.name)}
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <p className="font-medium truncate">{uploadFile.file.name}</p>
+                          {getStatusIcon(uploadFile.status)}
+                        </div>
+                        
+                        <div className="flex items-center gap-4 mb-3">
+                          <span className="text-sm text-muted-foreground">
+                            {formatFileSize(uploadFile.file.size)}
+                          </span>
+                          {uploadFile.bureau && (
+                            <Badge variant="outline">{uploadFile.bureau}</Badge>
+                          )}
+                        </div>
+
+                        {/* Bureau Selection */}
+                        {uploadFile.status === 'pending' && (
+                          <div className="mb-4">
+                            <Select
+                              value={uploadFile.bureau}
+                              onValueChange={(value) => updateFileBureau(uploadFile.id, value)}
+                            >
+                              <SelectTrigger className="w-full max-w-48">
+                                <SelectValue placeholder="Select Bureau" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {bureauOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+
+                        {/* Enhanced Progress Display - Prominently Featured */}
+                        {uploadFile.status === 'processing' && (
+                          <div className="mb-6">
+                            <div className="bg-gradient-to-r from-primary/10 to-secondary/10 border-2 border-primary/20 rounded-xl p-6">
+                              <div className="text-center mb-4">
+                                <h4 className="text-xl font-bold text-primary mb-2">
+                                  🚀 Processing Credit Report
+                                </h4>
+                                <p className="text-muted-foreground">
+                                  Analyzing {uploadFile.file.name} using advanced AI technology
+                                </p>
+                              </div>
+                              <EnhancedProgressBar
+                                currentStep={uploadFile.currentStep}
+                                totalSteps={uploadProgressSteps.length}
+                                currentStatus={uploadFile.currentStatus}
+                                errorMessage={uploadFile.error}
+                                isProcessing={uploadFile.status === 'processing'}
+                                hasError={false}
+                                extractedDataPreview={uploadFile.extractedDataPreview}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Error Detection for Failed Data Extraction (All Zeros) */}
+                        {uploadFile.status === 'completed' && uploadFile.extractedDataPreview && 
+                          uploadFile.extractedDataPreview.personalInfoCount === 0 && 
+                          uploadFile.extractedDataPreview.accountsCount === 0 && 
+                          uploadFile.extractedDataPreview.inquiriesCount === 0 && (
+                          <div className="mb-6">
+                            <div className="bg-destructive/5 border-2 border-destructive/20 rounded-xl p-6">
+                              <div className="text-center">
+                                <div className="text-6xl mb-4">❌</div>
+                                <h4 className="text-2xl font-bold text-destructive mb-4">
+                                  Data Extraction Failed
+                                </h4>
+                                <p className="text-muted-foreground mb-6">
+                                  No credit report data was extracted from <strong>{uploadFile.file.name}</strong>
+                                </p>
+                                
+                                <div className="bg-background/50 rounded-lg p-4 mb-6 text-left">
+                                  <h5 className="font-semibold mb-2">Possible causes:</h5>
+                                  <ul className="text-sm text-muted-foreground space-y-1">
+                                    <li>• Document may be image-based or scanned</li>
+                                    <li>• PDF file may be corrupted or password protected</li>
+                                    <li>• Document may not be a valid credit report</li>
+                                    <li>• File may be from an unsupported credit bureau format</li>
+                                  </ul>
+                                </div>
+
+                                <div className="flex flex-wrap gap-3 justify-center">
+                                  <Button
+                                    onClick={() => retryFile(uploadFile.id)}
+                                    className="bg-primary text-primary-foreground px-6 py-3 hover:bg-primary/90"
+                                  >
+                                    🔄 Retry Upload
+                                  </Button>
+                                  <Button
+                                    onClick={() => removeFile(uploadFile.id)}
+                                    variant="secondary"
+                                    className="px-6 py-3"
+                                  >
+                                    📁 Upload Different File
+                                  </Button>
+                                  <Button
+                                    onClick={() => window.open('mailto:support@creditfix.com', '_blank')}
+                                    variant="outline"
+                                    className="px-6 py-3"
+                                  >
+                                    📞 Contact Support
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Success State with Data Preview */}
+                        {uploadFile.status === 'completed' && uploadFile.extractedDataPreview && 
+                          (uploadFile.extractedDataPreview.personalInfoCount > 0 || 
+                           uploadFile.extractedDataPreview.accountsCount > 0 || 
+                           uploadFile.extractedDataPreview.inquiriesCount > 0) && (
+                          <div className="mb-4">
+                            <EnhancedProgressBar
+                              currentStep={uploadFile.currentStep}
+                              totalSteps={uploadProgressSteps.length}
+                              currentStatus={uploadFile.currentStatus}
+                              errorMessage={uploadFile.error}
+                              isProcessing={false}
+                              hasError={false}
+                              extractedDataPreview={uploadFile.extractedDataPreview}
+                            />
+                          </div>
+                        )}
+
+                        {/* Error Message */}
+                        {uploadFile.status === 'error' && uploadFile.error && (
+                          <Alert className="mb-2">
+                            <AlertCircle className="w-4 h-4" />
+                            <AlertDescription>{uploadFile.error}</AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+
+                      {/* Remove Button */}
+                      {uploadFile.status === 'pending' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeFile(uploadFile.id)}
+                          className="shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-2">
+                {failedFiles > 0 && (
+                  <Button
+                    variant="outline"
+                    onClick={retryFailedUploads}
+                    disabled={isUploading}
+                    className="flex items-center gap-2"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Retry Failed
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => setUploadFiles([])}
+                  disabled={isUploading}
+                >
+                  Clear All
                 </Button>
+                <Button
+                  onClick={handleUpload}
+                  disabled={
+                    isUploading || 
+                    uploadFiles.length === 0 || 
+                    uploadFiles.some(f => f.status === 'pending' && !f.bureau)
+                  }
+                >
+                  {isUploading ? 'Processing...' : 'Upload & Analyze'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Debug PDF Extraction */}
+          {uploadFiles.length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h4 className="font-medium mb-2 flex items-center gap-2">
+                🔍 DEBUG: PDF Extraction Audit
+              </h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                Test why PDF data extraction is failing by running a comprehensive audit of all extraction methods.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {uploadFiles.filter(f => f.file.type === 'application/pdf').map(uploadFile => (
+                  <Button
+                    key={uploadFile.id}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => debugPDFExtraction(uploadFile.file)}
+                    disabled={debugMode}
+                    className="text-xs"
+                  >
+                    🔍 Debug {uploadFile.file.name}
+                  </Button>
+                ))}
+              </div>
+              
+              {debugResults && (
+                <div className="mt-4 bg-white border rounded p-3">
+                  <h5 className="font-medium mb-2">Debug Results:</h5>
+                  {debugResults.status === 'running' && (
+                    <p className="text-blue-600">⏳ {debugResults.message}</p>
+                  )}
+                  {debugResults.status === 'complete' && (
+                    <div className="space-y-2">
+                      <p className="text-green-600">✅ Audit complete</p>
+                      <div className="text-xs bg-gray-50 p-2 rounded max-h-64 overflow-y-auto">
+                        <pre>{JSON.stringify(debugResults, null, 2)}</pre>
+                      </div>
+                    </div>
+                  )}
+                  {debugResults.status === 'error' && (
+                    <p className="text-red-600">❌ {debugResults.error}</p>
+                  )}
+                </div>
               )}
             </div>
+          )}
 
-            {uploading && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Uploading...</span>
-                  <span className="text-sm text-muted-foreground">{progress}%</span>
-                </div>
-                <Progress value={progress} className="w-full" />
-              </div>
-            )}
-
-            {processing && (
-              <div className="flex items-center gap-2 p-4 bg-primary/5 rounded-lg">
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
-                <span className="text-sm font-medium">Processing credit report...</span>
-              </div>
-            )}
-
-            {!uploading && !processing && (
-              <div className="flex items-center gap-2 p-4 bg-success/5 rounded-lg">
-                <CheckCircle className="h-4 w-4 text-success" />
-                <span className="text-sm font-medium text-success">Upload complete</span>
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          {/* Upload Tips */}
+          {uploadFiles.length === 0 && (
+            <div className="bg-muted/50 rounded-lg p-4">
+              <h4 className="font-medium mb-2">Upload Tips:</h4>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li>• Download reports directly from credit bureau websites for best results</li>
+                <li>• Ensure PDFs are not password protected</li>
+                <li>• High-resolution images work better for text extraction</li>
+                <li>• Processing typically takes 2-3 minutes per report</li>
+              </ul>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 };
+
+export default CreditReportUpload;

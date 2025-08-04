@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { CreditAnalysisResult, DisputeLetter } from '@/types/CreditTypes';
 
 export interface Session {
   id: string;
@@ -6,251 +7,442 @@ export interface Session {
   status: 'active' | 'completed' | 'paused';
   created_at: string;
   updated_at: string;
-  analysis_data?: any; // Credit analysis types removed
-  user_id: string;
+  analysis_data?: CreditAnalysisResult;
 }
 
 export interface Round {
   id: string;
   session_id: string;
   round_number: number;
-  status: 'active' | 'completed' | 'locked';
+  status: 'draft' | 'saved' | 'sent' | 'active' | 'completed' | 'waiting';
   created_at: string;
   completed_at?: string;
   can_start_at?: string;
-  user_id: string;
-  last_regeneration_date?: string;
-  regeneration_count?: number;
-  append_settings?: {
-    includeSSN?: boolean;
-    includeGovId?: boolean;
-    includeProofOfAddress?: boolean;
-  };
   snapshot_data?: any;
+  sent_at?: string;
+  mail_responses?: MailResponse[];
+  regeneration_count?: number;
+  last_regeneration_date?: string;
+}
+
+export interface MailResponse {
+  id: string;
+  creditor: string;
+  uploaded_at: string;
+  file_name: string;
+  file_url: string;
+  response_type: 'positive' | 'negative' | 'neutral';
+}
+
+export interface Letter {
+  id: string;
+  round_id: string;
+  creditor: string;
+  bureau: string;
+  items: string[];
+  content: string;
+  status: 'draft' | 'sent';
+  type: string;
+  sent_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResponseLog {
+  id: string;
+  round_id: string;
+  creditor: string;
+  received_response: boolean;
+  response_content?: string;
+  response_summary?: string;
+  documents?: string[];
+  created_at: string;
 }
 
 export class SessionService {
-  /**
-   * Create a new session
-   */
-  static async createSession(userId: string, name?: string): Promise<Session> {
-    const sessionName = name || `Session ${new Date().toLocaleDateString()}`;
-    
+  static async createSession(name: string, analysisData: CreditAnalysisResult): Promise<Session> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
     const { data, error } = await supabase
       .from('sessions')
-      .insert({
-        user_id: userId,
-        name: sessionName,
-        status: 'active'
-      })
+      .insert([
+        {
+          name,
+          status: 'active' as const,
+          analysis_data: analysisData as any,
+          user_id: user.id
+        }
+      ])
       .select()
       .single();
 
-    if (error) {
-      throw new Error(`Failed to create session: ${error.message}`);
-    }
-
-    return data as Session;
+    if (error) throw error;
+    return {
+      ...data,
+      status: data.status as Session['status'],
+      analysis_data: data.analysis_data as any as CreditAnalysisResult
+    };
   }
 
-  /**
-   * Get all sessions for a user
-   */
-  static async getUserSessions(userId: string): Promise<Session[]> {
+  static async getSessions(): Promise<Session[]> {
     const { data, error } = await supabase
       .from('sessions')
       .select('*')
-      .eq('user_id', userId)
       .order('updated_at', { ascending: false });
 
-    if (error) {
-      throw new Error(`Failed to fetch sessions: ${error.message}`);
-    }
-
-    return (data || []) as Session[];
+    if (error) throw error;
+    return (data || []).map(session => ({
+      ...session,
+      status: session.status as Session['status'],
+      analysis_data: session.analysis_data as any as CreditAnalysisResult
+    }));
   }
 
-  /**
-   * Get a specific session by ID
-   */
-  static async getSession(sessionId: string): Promise<Session | null> {
+  static async getSession(id: string): Promise<Session | null> {
     const { data, error } = await supabase
       .from('sessions')
       .select('*')
-      .eq('id', sessionId)
+      .eq('id', id)
       .single();
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null; // Session not found
-      }
-      throw new Error(`Failed to fetch session: ${error.message}`);
-    }
-
-    return data as Session;
+    if (error) return null;
+    return {
+      ...data,
+      status: data.status as Session['status'],
+      analysis_data: data.analysis_data as any as CreditAnalysisResult
+    };
   }
 
-  /**
-   * Update session status
-   */
-  static async updateSessionStatus(sessionId: string, status: 'active' | 'completed' | 'paused'): Promise<Session> {
-    const { data, error } = await supabase
+  static async updateSession(id: string, updates: Partial<Session>): Promise<void> {
+    const { error } = await supabase
       .from('sessions')
-      .update({ 
-        status,
-        updated_at: new Date().toISOString()
+      .update({
+        ...updates,
+        analysis_data: updates.analysis_data as any
       })
-      .eq('id', sessionId)
+      .eq('id', id);
+
+    if (error) throw error;
+  }
+
+  static async createRound(sessionId: string, roundNumber: number): Promise<Round> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { data, error } = await supabase
+      .from('rounds')
+      .insert([
+        {
+          session_id: sessionId,
+          round_number: roundNumber,
+          status: 'active',
+          user_id: user.id
+        }
+      ])
       .select()
       .single();
 
-    if (error) {
-      throw new Error(`Failed to update session status: ${error.message}`);
-    }
-
-    return data as Session;
+    if (error) throw error;
+    return {
+      ...data,
+      status: data.status as Round['status']
+    };
   }
 
-  /**
-   * Delete a session and all associated rounds
-   */
-  static async deleteSession(sessionId: string): Promise<void> {
-    // First delete all rounds in this session
-    const { error: roundsError } = await supabase
-      .from('rounds')
-      .delete()
-      .eq('session_id', sessionId);
-
-    if (roundsError) {
-      throw new Error(`Failed to delete session rounds: ${roundsError.message}`);
-    }
-
-    // Then delete the session
-    const { error } = await supabase
-      .from('sessions')
-      .delete()
-      .eq('id', sessionId);
-
-    if (error) {
-      throw new Error(`Failed to delete session: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get rounds for a session
-   */
-  static async getSessionRounds(sessionId: string): Promise<Round[]> {
+  static async getRounds(sessionId: string): Promise<Round[]> {
     const { data, error } = await supabase
       .from('rounds')
       .select('*')
       .eq('session_id', sessionId)
       .order('round_number', { ascending: true });
 
-    if (error) {
-      throw new Error(`Failed to fetch rounds: ${error.message}`);
-    }
-
-    return (data || []) as Round[];
+    if (error) throw error;
+    return (data || []).map(round => ({
+      ...round,
+      status: round.status as Round['status']
+    }));
   }
 
-  /**
-   * Create a new round for a session
-   */
-  static async createRound(sessionId: string, userId: string, roundNumber: number): Promise<Round> {
+  static async getCurrentRound(sessionId: string): Promise<Round | null> {
     const { data, error } = await supabase
       .from('rounds')
-      .insert({
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('status', 'active')
+      .single();
+
+    if (error) return null;
+    return data ? {
+      ...data,
+      status: data.status as Round['status']
+    } : null;
+  }
+
+  static async completeRound(roundId: string): Promise<void> {
+    const nextStartDate = new Date();
+    nextStartDate.setDate(nextStartDate.getDate() + 30);
+
+    const { error } = await supabase
+      .from('rounds')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', roundId);
+
+    if (error) throw error;
+
+    // Create next round with 30-day delay
+    const { data: currentRound } = await supabase
+      .from('rounds')
+      .select('session_id, round_number')
+      .eq('id', roundId)
+      .single();
+
+    if (currentRound) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+      
+      await supabase
+        .from('rounds')
+        .insert([
+          {
+            session_id: currentRound.session_id,
+            round_number: currentRound.round_number + 1,
+            status: 'waiting',
+            can_start_at: nextStartDate.toISOString(),
+            user_id: user.id
+          }
+        ]);
+    }
+  }
+
+  static async saveLetter(letter: Omit<Letter, 'id' | 'created_at' | 'updated_at'>): Promise<Letter> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { data, error } = await supabase
+      .from('letters')
+      .insert([{
+        ...letter,
+        user_id: user.id
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return {
+      ...data,
+      status: data.status as Letter['status']
+    };
+  }
+
+  static async updateLetter(id: string, updates: Partial<Letter>): Promise<void> {
+    const { error } = await supabase
+      .from('letters')
+      .update(updates)
+      .eq('id', id);
+
+    if (error) throw error;
+  }
+
+  static async getLetters(roundId: string): Promise<Letter[]> {
+    const { data, error } = await supabase
+      .from('letters')
+      .select('*')
+      .eq('round_id', roundId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map(letter => ({
+      ...letter,
+      status: letter.status as Letter['status']
+    }));
+  }
+
+  static async markLetterAsSent(letterId: string): Promise<void> {
+    const { error } = await supabase
+      .from('letters')
+      .update({
+        status: 'sent',
+        sent_at: new Date().toISOString()
+      })
+      .eq('id', letterId);
+
+    if (error) throw error;
+  }
+
+  static async saveResponseLog(log: Omit<ResponseLog, 'id' | 'created_at'>): Promise<ResponseLog> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    const { data, error } = await supabase
+      .from('response_logs')
+      .insert([{
+        ...log,
+        user_id: user.id
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  static async getResponseLogs(roundId: string): Promise<ResponseLog[]> {
+    const { data, error } = await supabase
+      .from('response_logs')
+      .select('*')
+      .eq('round_id', roundId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  static async canStartNextRound(sessionId: string): Promise<{ canStart: boolean; nextRoundDate?: string }> {
+    const { data, error } = await supabase
+      .from('rounds')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('status', 'waiting')
+      .order('round_number', { ascending: true })
+      .limit(1)
+      .single();
+
+    if (error || !data) return { canStart: false };
+
+    if (data.can_start_at) {
+      const canStartDate = new Date(data.can_start_at);
+      const now = new Date();
+      return {
+        canStart: now >= canStartDate,
+        nextRoundDate: data.can_start_at
+      };
+    }
+
+    return { canStart: true };
+  }
+
+  static async saveRoundSnapshot(roundId: string, snapshotData: any): Promise<void> {
+    const { error } = await supabase
+      .from('rounds')
+      .update({
+        snapshot_data: snapshotData,
+        status: 'saved'
+      })
+      .eq('id', roundId);
+
+    if (error) throw error;
+  }
+
+  static async createOrUpdateRound(sessionId: string, roundNumber: number, snapshotData?: any): Promise<Round> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
+
+    console.log('[SessionService] createOrUpdateRound called with:', {
+      sessionId,
+      roundNumber,
+      userId: user.id,
+      hasSnapshotData: !!snapshotData
+    });
+
+    // Check if round already exists
+    const { data: existingRound, error: fetchError } = await supabase
+      .from('rounds')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('round_number', roundNumber)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('[SessionService] Error fetching existing round:', fetchError);
+      throw fetchError;
+    }
+
+    console.log('[SessionService] Existing round found:', !!existingRound);
+
+    if (existingRound) {
+      // Update existing round
+      const updateData = {
+        snapshot_data: snapshotData || existingRound.snapshot_data,
+        status: snapshotData ? 'saved' : existingRound.status
+      };
+
+      console.log('[SessionService] Updating round with data:', updateData);
+
+      const { data, error } = await supabase
+        .from('rounds')
+        .update(updateData)
+        .eq('id', existingRound.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[SessionService] Error updating round:', error);
+        throw error;
+      }
+
+      console.log('[SessionService] Round updated successfully:', data);
+      return {
+        ...data,
+        status: data.status as Round['status']
+      };
+    } else {
+      // Create new round
+      const insertData = {
         session_id: sessionId,
-        user_id: userId,
         round_number: roundNumber,
-        status: 'active'
+        status: snapshotData ? 'saved' : 'draft',
+        snapshot_data: snapshotData || {},
+        user_id: user.id
+      };
+
+      console.log('[SessionService] Creating new round with data:', insertData);
+
+      const { data, error } = await supabase
+        .from('rounds')
+        .insert([insertData])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[SessionService] Error creating round:', error);
+        throw error;
+      }
+
+      console.log('[SessionService] Round created successfully:', data);
+      return {
+        ...data,
+        status: data.status as Round['status']
+      };
+    }
+  }
+
+  static async updateRoundStatus(roundId: string, status: Round['status']): Promise<void> {
+    const { error } = await supabase
+      .from('rounds')
+      .update({
+        status
       })
-      .select()
-      .single();
+      .eq('id', roundId);
 
-    if (error) {
-      throw new Error(`Failed to create round: ${error.message}`);
-    }
-
-    return data as Round;
+    if (error) throw error;
   }
 
-  /**
-   * Update round status
-   */
-  static async updateRoundStatus(roundId: string, status: 'active' | 'completed' | 'locked'): Promise<Round> {
+  static async getRound(roundId: string): Promise<Round | null> {
     const { data, error } = await supabase
       .from('rounds')
-      .update({ 
-        status,
-        ...(status === 'completed' ? { completed_at: new Date().toISOString() } : {})
-      })
-      .eq('id', roundId)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to update round status: ${error.message}`);
-    }
-
-    return data as Round;
-  }
-
-  /**
-   * Update round append settings
-   */
-  static async updateRoundAppendSettings(roundId: string, settings: Round['append_settings']): Promise<Round> {
-    const { data, error } = await supabase
-      .from('rounds')
-      .update({ append_settings: settings })
-      .eq('id', roundId)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to update round append settings: ${error.message}`);
-    }
-
-    return data as Round;
-  }
-
-  /**
-   * Check if user can start a specific round
-   */
-  static async canStartRound(roundId: string): Promise<boolean> {
-    const { data, error } = await supabase
-      .from('rounds')
-      .select('can_start_at, status')
+      .select('*')
       .eq('id', roundId)
       .single();
 
-    if (error) return false;
-
-    if (data.status !== 'locked') return true;
-    
-    if (!data.can_start_at) return false;
-
-    return new Date() >= new Date(data.can_start_at);
-  }
-
-  /**
-   * Set when a round can be started (for time locks)
-   */
-  static async setRoundStartTime(roundId: string, canStartAt: Date): Promise<Round> {
-    const { data, error } = await supabase
-      .from('rounds')
-      .update({ 
-        can_start_at: canStartAt.toISOString(),
-        status: 'locked'
-      })
-      .eq('id', roundId)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to set round start time: ${error.message}`);
-    }
-
-    return data as Round;
+    if (error) return null;
+    return {
+      ...data,
+      status: data.status as Round['status']
+    };
   }
 }

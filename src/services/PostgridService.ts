@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { templateService, type TemplateData } from './TemplateService';
+import { pdfMergeService, type DocumentToMerge } from './PDFMergeService';
 
 export interface PostgridAddress {
   firstName: string;
@@ -71,7 +72,20 @@ class PostgridService {
         }
       }
 
-      // Note: PDF merging functionality has been removed
+      // Create PDF and potentially merge with identification documents
+      let pdfToSend: Uint8Array | null = null;
+      if (letter.identificationDocs && letter.identificationDocs.length > 0) {
+        console.log('📎 Merging letter with identification documents...');
+        const documents: DocumentToMerge[] = [
+          { content: finalContent, type: 'html' }
+        ];
+        
+        pdfToSend = await pdfMergeService.mergePDFs(documents, letter.identificationDocs);
+        
+        // Upload merged PDF to storage for tracking
+        const fileName = `letter_${Date.now()}_round_${letter.roundNumber || 1}.pdf`;
+        await pdfMergeService.uploadMergedPDF(pdfToSend, fileName);
+      }
       
       // Validate required fields before sending
       this.validateLetterPayload({ ...letter, content: finalContent });

@@ -61,6 +61,14 @@ export const Dashboard = () => {
       if (!session && sessions.length > 0) {
         session = sessions[0];
       }
+      
+      // If no session exists, create a new one
+      if (!session) {
+        console.log('📅 No existing session found, creating new session...');
+        session = await SessionService.createSession(`Session ${new Date().toLocaleDateString()}`, {} as CreditAnalysisResult);
+        console.log('✅ New session created:', session.id);
+      }
+      
       if (session) {
         setCurrentSession(session);
         const sessionRounds = await SessionService.getRounds(session.id);

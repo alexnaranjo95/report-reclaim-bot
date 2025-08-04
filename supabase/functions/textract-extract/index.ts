@@ -9,26 +9,62 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log("=== TEXTRACT FUNCTION START ===");
+  console.log("Function called at:", new Date().toISOString());
+  console.log("Request method:", req.method);
+  console.log("Request headers:", Object.fromEntries(req.headers.entries()));
+  
   if (req.method === 'OPTIONS') {
+    console.log("CORS preflight request handled");
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const { reportId, filePath } = await req.json();
-    
-    console.log('=== TEXTRACT EXTRACTION STARTED ===');
-    console.log('Report ID:', reportId);
-    console.log('File Path:', filePath);
+  let reportId: string = '';
+  let filePath: string = '';
 
+  try {
+    // Test AWS credentials exist first
+    console.log("=== CHECKING AWS CREDENTIALS ===");
+    const awsAccessKey = Deno.env.get("AWS_ACCESS_KEY_ID");
+    const awsSecretKey = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+    const awsRegion = Deno.env.get("AWS_REGION");
+    
+    console.log("AWS_ACCESS_KEY_ID exists:", !!awsAccessKey, awsAccessKey ? `(length: ${awsAccessKey.length})` : '');
+    console.log("AWS_SECRET_ACCESS_KEY exists:", !!awsSecretKey, awsSecretKey ? `(length: ${awsSecretKey.length})` : '');
+    console.log("AWS_REGION:", awsRegion);
+    
+    if (!awsAccessKey || !awsSecretKey || !awsRegion) {
+      throw new Error(`Missing AWS credentials: accessKey=${!!awsAccessKey}, secretKey=${!!awsSecretKey}, region=${!!awsRegion}`);
+    }
+    
+    // Parse request body with detailed error handling
+    console.log("=== PARSING REQUEST ===");
+    let requestBody: any;
+    try {
+      requestBody = await req.json();
+      console.log("Request body parsed successfully");
+      console.log("Request body keys:", Object.keys(requestBody));
+    } catch (e) {
+      console.error("Request parsing failed:", e);
+      throw new Error(`Request parsing failed: ${e.message}`);
+    }
+    
+    reportId = requestBody.reportId;
+    filePath = requestBody.filePath;
+    
+    console.log("Report ID:", reportId);
+    console.log("File Path:", filePath);
+    
+    if (!reportId || !filePath) {
+      throw new Error(`Missing required fields: reportId=${!!reportId}, filePath=${!!filePath}`);
+    }
+    
+    console.log('=== CREATING SUPABASE CLIENT ===');
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const awsAccessKey = Deno.env.get('AWS_ACCESS_KEY_ID')!;
-    const awsSecretKey = Deno.env.get('AWS_SECRET_ACCESS_KEY')!;
-    const awsRegion = Deno.env.get('AWS_REGION') || 'us-east-1';
     
-    if (!awsAccessKey || !awsSecretKey) {
-      throw new Error('AWS credentials not configured');
-    }
+    console.log('Supabase URL exists:', !!supabaseUrl);
+    console.log('Supabase Service Key exists:', !!supabaseKey);
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -106,29 +142,38 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('=== TEXTRACT EXTRACTION ERROR ===');
-    console.error('Error:', error.message);
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Full error object:', JSON.stringify(error, null, 2));
     
-    // Update report with error status
-    try {
-      const { reportId } = await req.json();
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      
-      await supabase
-        .from('credit_reports')
-        .update({
-          extraction_status: 'failed',
-          processing_errors: error.message,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', reportId);
-    } catch (updateError) {
-      console.error('Failed to update error status:', updateError);
+    // Update report with error status (use the reportId we already have)
+    if (reportId) {
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        
+        console.log('Updating report status to failed for:', reportId);
+        await supabase
+          .from('credit_reports')
+          .update({
+            extraction_status: 'failed',
+            processing_errors: error.message,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', reportId);
+        console.log('Report status updated to failed');
+      } catch (updateError) {
+        console.error('Failed to update error status:', updateError);
+      }
     }
 
     return new Response(JSON.stringify({ 
-      error: error.message 
+      error: error.message,
+      errorType: error.constructor.name,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

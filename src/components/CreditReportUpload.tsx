@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { EnhancedProgressBar, uploadProgressSteps } from './EnhancedProgressBar';
+import { PDFDebugService } from '@/services/PDFDebugService';
 import { 
   Upload, 
   FileText, 
@@ -65,6 +66,8 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
   const { toast } = useToast();
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugResults, setDebugResults] = useState<any>(null);
   
   console.log('📊 Upload component state:', { uploadFiles: uploadFiles.length, isUploading });
 
@@ -491,6 +494,31 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
   const processingFiles = uploadFiles.filter(f => f.status === 'processing').length;
   const totalFiles = uploadFiles.length;
 
+  // Debug PDF extraction functionality
+  const debugPDFExtraction = async (file: File) => {
+    setDebugMode(true);
+    setDebugResults({ status: 'running', message: 'Running PDF extraction audit...' });
+    
+    try {
+      const results = await PDFDebugService.debugPDFProcessing(file);
+      setDebugResults({ status: 'complete', ...results });
+      
+      console.log('🔍 DEBUG RESULTS:', results);
+      
+      // Show results summary in toast
+      const successfulMethods = results.extractionAttempts.filter(a => a.success).length;
+      showSuccessNotification(
+        "Debug Complete",
+        `Tested ${results.extractionAttempts.length} extraction methods. ${successfulMethods} successful.`
+      );
+      
+    } catch (error) {
+      console.error('Debug error:', error);
+      setDebugResults({ status: 'error', error: error.message });
+      showErrorNotification("Debug Failed", "Could not complete PDF extraction audit.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -758,6 +786,52 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
                   {isUploading ? 'Processing...' : 'Upload & Analyze'}
                 </Button>
               </div>
+            </div>
+          )}
+
+          {/* Debug PDF Extraction */}
+          {uploadFiles.length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h4 className="font-medium mb-2 flex items-center gap-2">
+                🔍 DEBUG: PDF Extraction Audit
+              </h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                Test why PDF data extraction is failing by running a comprehensive audit of all extraction methods.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {uploadFiles.filter(f => f.file.type === 'application/pdf').map(uploadFile => (
+                  <Button
+                    key={uploadFile.id}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => debugPDFExtraction(uploadFile.file)}
+                    disabled={debugMode}
+                    className="text-xs"
+                  >
+                    🔍 Debug {uploadFile.file.name}
+                  </Button>
+                ))}
+              </div>
+              
+              {debugResults && (
+                <div className="mt-4 bg-white border rounded p-3">
+                  <h5 className="font-medium mb-2">Debug Results:</h5>
+                  {debugResults.status === 'running' && (
+                    <p className="text-blue-600">⏳ {debugResults.message}</p>
+                  )}
+                  {debugResults.status === 'complete' && (
+                    <div className="space-y-2">
+                      <p className="text-green-600">✅ Audit complete</p>
+                      <div className="text-xs bg-gray-50 p-2 rounded max-h-64 overflow-y-auto">
+                        <pre>{JSON.stringify(debugResults, null, 2)}</pre>
+                      </div>
+                    </div>
+                  )}
+                  {debugResults.status === 'error' && (
+                    <p className="text-red-600">❌ {debugResults.error}</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

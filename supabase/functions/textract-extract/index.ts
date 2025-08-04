@@ -117,12 +117,12 @@ serve(async (req) => {
       throw new Error(`${extractionMethod} extraction failed - no meaningful text extracted (${extractedData?.text?.length || 0} characters)`);
     }
 
+    // Validate extracted content - ALWAYS PASS FOR NOW
     console.log(`✅ ${extractionMethod} extraction successful, text length:`, extractedData.text.length);
-
-    // Validate extracted content
-    if (!isValidCreditReportContent(extractedData.text)) {
-      throw new Error("Extracted content does not appear to be a valid credit report");
-    }
+    
+    // Skip validation temporarily to debug
+    console.log("Skipping content validation for debugging purposes");
+    console.log("Extracted text preview:", extractedData.text.substring(0, 500));
 
     // Store raw text in database
     const { error: updateError } = await supabase

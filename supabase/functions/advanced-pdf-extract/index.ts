@@ -276,7 +276,7 @@ async function extractTextWithAdvancedPDFJS(arrayBuffer: ArrayBuffer): Promise<s
         // Decode various PDF text encodings
         text = decodePDFText(text);
         
-        if (text.trim() && isReadableText(text) && containsCreditKeywords(text)) {
+        if (text.trim() && isReadableText(text)) {
           extractedText += text + ' ';
         }
       }
@@ -291,7 +291,7 @@ async function extractTextWithAdvancedPDFJS(arrayBuffer: ArrayBuffer): Promise<s
   while ((streamMatch = streamPattern.exec(pdfString)) !== null) {
     const streamContent = streamMatch[1];
     const readableContent = extractReadableFromStream(streamContent);
-    if (readableContent && containsCreditKeywords(readableContent)) {
+    if (readableContent) {
       extractedText += readableContent + ' ';
     }
   }
@@ -305,7 +305,7 @@ async function extractTextWithAdvancedPDFJS(arrayBuffer: ArrayBuffer): Promise<s
     const objectContent = objMatch[2];
     if (objectContent.includes('/Type') && !objectContent.includes('/Image')) {
       const readableContent = extractReadableFromObject(objectContent);
-      if (readableContent && containsCreditKeywords(readableContent)) {
+      if (readableContent) {
         extractedText += readableContent + ' ';
       }
     }
@@ -478,7 +478,7 @@ function extractReadableTextFromBinary(arrayBuffer: ArrayBuffer): string {
 function extractReadableFromStream(stream: string): string {
   const readableChars = stream.match(/[\x20-\x7E]{5,}/g) || [];
   return readableChars
-    .filter(text => containsCreditKeywords(text) && /[A-Za-z]{3,}/.test(text))
+    .filter(text => /[A-Za-z]{3,}/.test(text))
     .join(' ');
 }
 
@@ -486,7 +486,7 @@ function extractReadableFromObject(obj: string): string {
   const textMatches = obj.match(/\(([^)]+)\)/g) || [];
   return textMatches
     .map(match => match.replace(/[()]/g, ''))
-    .filter(text => isReadableText(text) && containsCreditKeywords(text))
+    .filter(text => isReadableText(text))
     .join(' ');
 }
 

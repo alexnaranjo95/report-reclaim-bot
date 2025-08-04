@@ -172,14 +172,16 @@ async function analyzePDFFile(file: File) {
     
     // Analyze with OpenAI
     console.log('🧠 Analyzing with OpenAI...');
-    const analysis = await analyzeCreditReport(extractedText);
+    const analysisResponse = await analyzeCreditReport(extractedText);
+    const analysisText = await analysisResponse.text();
+    const analysis = JSON.parse(analysisText);
     
     return new Response(JSON.stringify({
       success: true,
       reportId,
       extractionMethod,
       textLength: extractedText.length,
-      analysis: JSON.parse(analysis.body || '{}')
+      analysis: analysis
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

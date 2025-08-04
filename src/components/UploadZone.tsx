@@ -5,25 +5,48 @@ import { Upload, FileText, AlertCircle, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { PDFValidationGuide } from './PDFValidationGuide';
+import { PDFContentValidator } from '@/services/PDFContentValidator';
+import { toast } from 'sonner';
 
 interface UploadZoneProps {
   onFileUpload: (file: File) => void;
 }
 
 export const UploadZone = ({ onFileUpload }: UploadZoneProps) => {
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      onFileUpload(acceptedFiles[0]);
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
+    
+    const file = acceptedFiles[0];
+    
+    // Validate file content before upload
+    const validation = await PDFContentValidator.validateFile(file);
+    
+    if (!validation.isValid) {
+      toast.error(`Upload Failed: ${validation.reason}`, {
+        description: validation.suggestions?.join(' • ') || 'Please try a different file'
+      });
+      return;
     }
+    
+    // Show processing method info
+    toast.success('File ready for processing', {
+      description: validation.reason || 'File will be processed appropriately'
+    });
+    
+    onFileUpload(file);
   }, [onFileUpload]);
 
   const { getRootProps, getInputProps, isDragActive, fileRejections } = useDropzone({
     onDrop,
     accept: {
-      'application/pdf': ['.pdf']
+      'application/pdf': ['.pdf'],
+      'image/*': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'],
+      'application/msword': ['.doc'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'text/html': ['.html', '.htm']
     },
     maxFiles: 1,
-    maxSize: 10 * 1024 * 1024 // 10MB
+    maxSize: 50 * 1024 * 1024 // 50MB to support images and documents
   });
 
   return (
@@ -52,10 +75,10 @@ export const UploadZone = ({ onFileUpload }: UploadZoneProps) => {
               {isDragActive ? "Drop your credit report here" : "Upload Credit Report"}
             </h3>
             <p className="text-muted-foreground">
-              Drag and drop your PDF credit report or click to browse
+              Drag and drop your credit report file or click to browse
             </p>
             <p className="text-xs text-muted-foreground">
-              Supports text-based PDF files up to 10MB from official credit bureaus
+              Supports PDF, images, Word docs, and HTML files up to 50MB
             </p>
           </div>
 

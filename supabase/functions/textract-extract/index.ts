@@ -355,6 +355,166 @@ function validateExtractedText(text: string): boolean {
   return validation.isValid;
 }
 
+/**
+ * Determine file type based on file path and content
+ */
+function determineFileType(filePath: string, bytes: Uint8Array): string {
+  const fileName = filePath.toLowerCase();
+  
+  // Check by file extension
+  if (fileName.endsWith('.pdf')) return 'pdf';
+  if (fileName.match(/\.(jpg|jpeg|png|gif|bmp|tiff|webp)$/)) return 'image';
+  if (fileName.match(/\.(doc|docx)$/)) return 'word';
+  if (fileName.match(/\.(html|htm)$/)) return 'html';
+  
+  // Check by content signature
+  const header = Array.from(bytes.slice(0, 10)).map(b => String.fromCharCode(b)).join('');
+  if (header.startsWith('%PDF-')) return 'pdf';
+  if (bytes[0] === 0xFF && bytes[1] === 0xD8) return 'image'; // JPEG
+  if (header.startsWith('\x89PNG')) return 'image';
+  if (header.startsWith('GIF8')) return 'image';
+  if (header.includes('<!DOCTYPE') || header.includes('<html')) return 'html';
+  
+  return 'unknown';
+}
+
+/**
+ * Process PDF files (existing logic)
+ */
+async function processPDFFile(bytes: Uint8Array): Promise<string> {
+  let extractedText = '';
+  let extractionMethod = 'none';
+  let extractionError = null;
+
+  // Try AWS Textract first if available
+  const awsAccessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
+  const awsSecretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY');
+  const awsRegion = Deno.env.get('AWS_REGION') || 'us-east-1';
+
+  if (awsAccessKeyId && awsSecretAccessKey) {
+    try {
+      console.log("=== ATTEMPTING AWS TEXTRACT EXTRACTION ===");
+      const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
+      extractedText = await textractClient.detectDocumentText(bytes);
+      extractionMethod = 'aws_textract';
+      console.log("✅ AWS Textract extraction successful");
+    } catch (textractError) {
+      console.error("❌ AWS Textract extraction failed:", textractError);
+      extractionError = textractError.message;
+    }
+  }
+
+  // Fallback to enhanced PDF parsing if Textract fails
+  if (!extractedText || extractedText.length < 100) {
+    console.log("=== ATTEMPTING ENHANCED PDF EXTRACTION ===");
+    const pdfString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+    
+    // Extract text from PDF structure
+    const textMatches = pdfString.match(/\(([^)]+)\)/g);
+    if (textMatches) {
+      const cleanedMatches = textMatches
+        .map(match => match.slice(1, -1))
+        .filter(text => text.length > 2 && /[a-zA-Z]/.test(text))
+        .map(text => text.replace(/[^\x20-\x7E]/g, ' '))
+        .join(' ');
+      extractedText += cleanedMatches;
+    }
+    
+    extractionMethod = 'enhanced_pdf_parsing';
+    console.log("✅ Enhanced PDF extraction completed");
+  }
+
+  return extractedText;
+}
+
+/**
+ * Process image files using OCR
+ */
+async function processImageFile(bytes: Uint8Array): Promise<string> {
+  // For image files, we'll use AWS Textract's OCR capabilities
+  const awsAccessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
+  const awsSecretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY');
+  const awsRegion = Deno.env.get('AWS_REGION') || 'us-east-1';
+
+  if (!awsAccessKeyId || !awsSecretAccessKey) {
+    throw new Error('AWS credentials required for image OCR processing');
+  }
+
+  try {
+    console.log("=== PROCESSING IMAGE WITH OCR ===");
+    const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
+    const extractedText = await textractClient.detectDocumentText(bytes);
+    console.log("✅ Image OCR processing completed");
+    return extractedText;
+  } catch (error) {
+    console.error("❌ Image OCR processing failed:", error);
+    throw new Error(`Image OCR failed: ${error.message}`);
+  }
+}
+
+/**
+ * Process Word documents by converting to text
+ */
+async function processWordDocument(bytes: Uint8Array): Promise<string> {
+  // For Word documents, we'll extract what text we can from the binary format
+  // This is a basic implementation - in production you'd want a proper Word parser
+  console.log("=== CONVERTING WORD DOCUMENT ===");
+  
+  try {
+    const docString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+    
+    // Extract readable ASCII text from Word document
+    const textMatches = docString.match(/[A-Za-z][A-Za-z0-9\s,.:\-()]{10,}/g);
+    if (textMatches) {
+      const extractedText = textMatches
+        .filter(text => text.length > 5)
+        .filter(text => /[a-zA-Z].*[a-zA-Z]/.test(text)) // Must contain letters
+        .join(' ')
+        .replace(/[^\x20-\x7E]/g, ' ') // Remove non-printable chars
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim();
+      
+      console.log("✅ Word document conversion completed");
+      return extractedText;
+    }
+    
+    throw new Error('No readable text found in Word document');
+  } catch (error) {
+    console.error("❌ Word document processing failed:", error);
+    throw new Error(`Word document processing failed: ${error.message}`);
+  }
+}
+
+/**
+ * Process HTML files by extracting text content
+ */
+async function processHTMLFile(bytes: Uint8Array): Promise<string> {
+  console.log("=== PROCESSING HTML FILE ===");
+  
+  try {
+    const htmlContent = new TextDecoder().decode(bytes);
+    
+    // Basic HTML text extraction (remove tags)
+    let extractedText = htmlContent
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove scripts
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '') // Remove styles
+      .replace(/<[^>]*>/g, ' ') // Remove HTML tags
+      .replace(/&[^;]+;/g, ' ') // Remove HTML entities
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
+    
+    if (extractedText.length < 50) {
+      throw new Error('Insufficient text content in HTML file');
+    }
+    
+    console.log("✅ HTML processing completed");
+    return extractedText;
+  } catch (error) {
+    console.error("❌ HTML processing failed:", error);
+    throw new Error(`HTML processing failed: ${error.message}`);
+  }
+}
+
 Deno.serve(async (req) => {
   console.log("=== TEXTRACT FUNCTION START ===");
   console.log("Function called at:", new Date().toISOString());
@@ -396,118 +556,62 @@ Deno.serve(async (req) => {
     console.log("AWS Secret Access Key exists:", !!awsSecretAccessKey);
     console.log("AWS Region:", awsRegion);
 
-    // Download PDF file
-    console.log("=== DOWNLOADING PDF FILE ===");
+    // Download file
+    console.log("=== DOWNLOADING FILE ===");
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('credit-reports')
       .download(body.filePath);
 
     if (downloadError) {
-      throw new Error(`Failed to download PDF: ${downloadError.message}`);
+      throw new Error(`Failed to download file: ${downloadError.message}`);
     }
 
     const bytes = new Uint8Array(await fileData.arrayBuffer());
-    console.log("PDF downloaded successfully, size:", bytes.length, "bytes");
+    console.log("File downloaded successfully, size:", bytes.length, "bytes");
 
     // Basic validation
     if (bytes.length === 0) {
-      throw new Error("PDF file is empty");
+      throw new Error("File is empty");
     }
 
-    if (bytes.length > 5000000) {
-      throw new Error("PDF file too large (max 5MB)");
+    if (bytes.length > 50000000) { // 50MB limit for all file types
+      throw new Error("File too large (max 50MB)");
     }
 
-    console.log("✅ PDF validation passed");
+    // Determine file type and process accordingly
+    const fileType = determineFileType(body.filePath, bytes);
+    console.log("Detected file type:", fileType);
 
     let extractedText = '';
-    let extractionMethod = 'none';
-    let extractionError = null;
+    let extractionMethod = '';
 
-    // PRIMARY: Try AWS Textract if credentials are available
-    if (awsAccessKeyId && awsSecretAccessKey) {
-      try {
-        console.log("=== ATTEMPTING AWS TEXTRACT EXTRACTION ===");
-        const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
-        extractedText = await textractClient.detectDocumentText(bytes);
-        extractionMethod = 'aws_textract';
+    switch (fileType) {
+      case 'pdf':
+        console.log("=== PROCESSING PDF FILE ===");
+        extractedText = await processPDFFile(bytes);
+        extractionMethod = 'pdf_processing';
+        break;
         
-        console.log("✅ AWS Textract extraction successful");
-        console.log("Extracted text length:", extractedText.length);
+      case 'image':
+        console.log("=== PROCESSING IMAGE FILE ===");
+        extractedText = await processImageFile(bytes);
+        extractionMethod = 'image_ocr';
+        break;
         
-        // Log AWS usage for monitoring
-        console.log("=== AWS USAGE TRACKING ===");
-        console.log("Service: AWS Textract");
-        console.log("Operation: DetectDocumentText");
-        console.log("Document size:", bytes.length);
-        console.log("Success: true");
-        console.log("Timestamp:", new Date().toISOString());
+      case 'word':
+        console.log("=== PROCESSING WORD DOCUMENT ===");
+        extractedText = await processWordDocument(bytes);
+        extractionMethod = 'document_conversion';
+        break;
         
-      } catch (textractError) {
-        console.error("❌ AWS Textract extraction failed:", textractError);
-        extractionError = textractError.message;
-        extractedText = ''; // Reset for fallback
-      }
-    } else {
-      console.log("⚠️ AWS credentials not available, skipping Textract");
-      extractionError = 'AWS credentials not configured';
-    }
-
-    // SECONDARY: Enhanced PDF.js extraction fallback
-    if (!extractedText || extractedText.length < 100) {
-      try {
-        console.log("=== ATTEMPTING ENHANCED PDF EXTRACTION ===");
-        const pdfString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+      case 'html':
+        console.log("=== PROCESSING HTML FILE ===");
+        extractedText = await processHTMLFile(bytes);
+        extractionMethod = 'html_conversion';
+        break;
         
-        // Method 1: Extract text in parentheses (cleaned)
-        const textMatches = pdfString.match(/\(([^)]+)\)/g);
-        if (textMatches) {
-          const cleanedMatches = textMatches
-            .map(match => match.slice(1, -1))
-            .filter(text => text.length > 2 && /[a-zA-Z]/.test(text))
-            .map(text => text.replace(/[^\x20-\x7E]/g, ' ')) // Remove non-printable chars
-            .join(' ');
-          extractedText += cleanedMatches;
-        }
-        
-        // Method 2: Extract readable ASCII sequences (improved)
-        const asciiMatches = pdfString.match(/[A-Za-z][A-Za-z0-9\s,.:-]{5,}/g);
-        if (asciiMatches) {
-          const cleanedAscii = asciiMatches
-            .filter(text => text.length > 3)
-            .map(text => text.replace(/[^\x20-\x7E]/g, ' ')) // Remove non-printable chars
-            .join(' ');
-          extractedText += ' ' + cleanedAscii;
-        }
-
-        extractionMethod = extractionMethod === 'none' ? 'enhanced_pdf_parsing' : 'aws_textract_with_pdf_fallback';
-        console.log("✅ Enhanced PDF extraction completed");
-        
-      } catch (pdfError) {
-        console.error("❌ Enhanced PDF extraction failed:", pdfError);
-        if (!extractionError) {
-          extractionError = pdfError.message;
-        }
-      }
-    }
-
-    // TERTIARY: Last resort manual parsing
-    if (!extractedText || extractedText.length < 50) {
-      console.log("=== ATTEMPTING MANUAL PARSING (LAST RESORT) ===");
-      try {
-        const pdfString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
-        const basicMatches = pdfString.match(/[A-Za-z]{3,}/g);
-        if (basicMatches) {
-          extractedText = basicMatches
-            .filter(text => text.length > 2)
-            .join(' ');
-        }
-        extractionMethod = extractionMethod.includes('aws') ? 'aws_textract_with_manual_fallback' : 'manual_parsing_only';
-        console.log("Manual parsing completed, length:", extractedText.length);
-      } catch (manualError) {
-        console.error("❌ Manual parsing failed:", manualError);
-        throw new Error("All extraction methods failed: " + (extractionError || manualError.message));
-      }
+      default:
+        throw new Error(`Unsupported file type: ${fileType}. Please upload PDF, image, Word document, or HTML file.`);
     }
 
     // Sanitize extracted text
@@ -544,7 +648,7 @@ Deno.serve(async (req) => {
       .update({
         raw_text: extractedText,
         extraction_status: 'completed',
-        processing_errors: extractionError,
+        processing_errors: null,
         updated_at: new Date().toISOString()
       })
       .eq('id', body.reportId);

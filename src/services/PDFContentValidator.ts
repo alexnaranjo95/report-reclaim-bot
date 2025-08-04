@@ -1,148 +1,159 @@
 /**
- * PDF Content Validator - Client-side PDF validation before upload
+ * File Content Validator - Client-side file validation before upload
+ * Supports PDFs, images, Word docs, HTML files with OCR processing
  */
 export class PDFContentValidator {
   /**
-   * Validate PDF content quality before upload
+   * Validate any supported file type for credit report processing
    */
-  static async validatePDFFile(file: File): Promise<{
+  static async validateFile(file: File): Promise<{
     isValid: boolean;
     reason?: string;
     suggestions?: string[];
-    detectedType: 'credit_report' | 'image_based' | 'encrypted' | 'empty' | 'other';
+    detectedType: 'text_pdf' | 'image_pdf' | 'browser_pdf' | 'encrypted_pdf' | 'word_doc' | 'html_file' | 'image_file' | 'unsupported';
+    processingMethod: 'text_extraction' | 'ocr_processing' | 'document_conversion' | 'not_supported';
   }> {
     try {
-      // Basic file validation
-      if (!file || file.type !== 'application/pdf') {
-        return {
-          isValid: false,
-          reason: 'Please select a valid PDF file',
-          detectedType: 'other'
-        };
-      }
+      const fileName = file.name.toLowerCase();
+      const fileType = file.type.toLowerCase();
 
+      // Check file size limits (increase for images and docs)
       if (file.size === 0) {
         return {
           isValid: false,
-          reason: 'PDF file appears to be empty',
-          detectedType: 'empty'
+          reason: 'File appears to be empty',
+          detectedType: 'unsupported',
+          processingMethod: 'not_supported'
         };
       }
 
-      if (file.size > 10 * 1024 * 1024) {
+      if (file.size > 50 * 1024 * 1024) { // 50MB for all file types
         return {
           isValid: false,
-          reason: 'PDF file is too large (max 10MB)',
-          detectedType: 'other'
+          reason: 'File is too large (max 50MB)',
+          detectedType: 'unsupported',
+          processingMethod: 'not_supported'
         };
       }
 
-      // Read file as text to check for basic content
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
+      // Classify file type and determine processing method
+      const classification = this.classifyFileType(file, fileName, fileType);
       
-      // Convert to string for basic analysis
-      let textContent = '';
-      for (let i = 0; i < Math.min(uint8Array.length, 50000); i++) {
-        textContent += String.fromCharCode(uint8Array[i]);
-      }
-
-      // Check for PDF structure
-      if (!textContent.startsWith('%PDF-')) {
+      if (classification.detectedType === 'unsupported') {
         return {
           isValid: false,
-          reason: 'File does not appear to be a valid PDF',
-          detectedType: 'other'
-        };
-      }
-
-      // Check for encryption
-      if (textContent.includes('/Encrypt') || textContent.includes('/Filter')) {
-        return {
-          isValid: false,
-          reason: 'PDF appears to be encrypted or password-protected',
+          reason: 'File type not supported. Please upload PDF, image, Word document, or HTML file.',
           suggestions: [
-            'Download an unprotected version from your credit bureau',
-            'If downloaded from a bureau website, try saving without password protection'
+            'Supported formats: PDF, JPG, PNG, TIFF, DOCX, DOC, HTML',
+            'Download credit reports in PDF format when possible'
           ],
-          detectedType: 'encrypted'
+          detectedType: 'unsupported',
+          processingMethod: 'not_supported'
         };
       }
 
-      // Look for credit report indicators
-      const creditKeywords = [
-        'credit report', 'experian', 'equifax', 'transunion',
-        'account number', 'creditor', 'inquiry', 'tradeline',
-        'fico', 'credit score', 'annual credit report'
-      ];
-
-      const hasKeywords = creditKeywords.some(keyword => 
-        textContent.toLowerCase().includes(keyword.toLowerCase())
-      );
-
-      // Check for text content vs images
-      const hasTextStreams = textContent.includes('/Type/Font') || 
-                            textContent.includes('BT') || 
-                            textContent.includes('ET');
-
-      const hasImageStreams = textContent.includes('/Type/XObject') ||
-                             textContent.includes('/Subtype/Image');
-
-      // Analyze file characteristics
-      if (!hasKeywords && file.size < 50000) {
-        return {
-          isValid: false,
-          reason: 'PDF is too small and contains no credit report keywords',
-          suggestions: [
-            'Ensure you\'re uploading a complete credit report',
-            'Download directly from Experian, Equifax, or TransUnion',
-            'Avoid screenshots or partial documents'
-          ],
-          detectedType: 'other'
-        };
-      }
-
-      if (hasImageStreams && !hasTextStreams && file.size > 5000000) {
-        return {
-          isValid: false,
-          reason: 'PDF appears to be image-based (scanned document)',
-          suggestions: [
-            'Download a text-based PDF directly from your credit bureau',
-            'Avoid PDFs created by scanning or taking photos',
-            'Look for "PDF" download option on bureau websites'
-          ],
-          detectedType: 'image_based'
-        };
-      }
-
-      // Check for suspicious browser-generated content
-      if (textContent.includes('Mozilla') && file.size < 100000) {
-        return {
-          isValid: false,
-          reason: 'PDF appears to be browser-generated or incomplete',
-          suggestions: [
-            'Download directly from credit bureau website, not browser print',
-            'Use the official "Download PDF" button, not "Print to PDF"',
-            'Ensure you\'re logged into your credit bureau account'
-          ],
-          detectedType: 'image_based'
-        };
-      }
-
-      // Passed basic validation
+      // All supported file types are now valid - we'll process them with appropriate methods
       return {
         isValid: true,
-        detectedType: hasKeywords ? 'credit_report' : 'other'
+        reason: this.getProcessingDescription(classification.detectedType, classification.processingMethod),
+        detectedType: classification.detectedType,
+        processingMethod: classification.processingMethod
       };
 
     } catch (error) {
-      console.error('PDF validation error:', error);
+      console.error('File validation error:', error);
       return {
         isValid: false,
-        reason: 'Unable to validate PDF file',
-        detectedType: 'other'
+        reason: 'Unable to validate file',
+        detectedType: 'unsupported',
+        processingMethod: 'not_supported'
       };
     }
+  }
+
+  /**
+   * Classify file type based on extension and MIME type
+   */
+  private static classifyFileType(file: File, fileName: string, fileType: string): {
+    detectedType: 'text_pdf' | 'image_pdf' | 'browser_pdf' | 'encrypted_pdf' | 'word_doc' | 'html_file' | 'image_file' | 'unsupported';
+    processingMethod: 'text_extraction' | 'ocr_processing' | 'document_conversion' | 'not_supported';
+  } {
+    // PDF files - assume image-based by default for OCR processing
+    if (fileType === 'application/pdf' || fileName.endsWith('.pdf')) {
+      return {
+        detectedType: 'image_pdf',
+        processingMethod: 'ocr_processing'
+      };
+    }
+
+    // Image files
+    if (fileType.startsWith('image/') || /\.(jpg|jpeg|png|gif|bmp|tiff|webp)$/i.test(fileName)) {
+      return {
+        detectedType: 'image_file',
+        processingMethod: 'ocr_processing'
+      };
+    }
+
+    // Word documents
+    if (fileType.includes('word') || 
+        fileType.includes('document') ||
+        fileName.endsWith('.doc') || 
+        fileName.endsWith('.docx')) {
+      return {
+        detectedType: 'word_doc',
+        processingMethod: 'document_conversion'
+      };
+    }
+
+    // HTML files
+    if (fileType === 'text/html' || fileName.endsWith('.html') || fileName.endsWith('.htm')) {
+      return {
+        detectedType: 'html_file',
+        processingMethod: 'document_conversion'
+      };
+    }
+
+    return {
+      detectedType: 'unsupported',
+      processingMethod: 'not_supported'
+    };
+  }
+
+  /**
+   * Get processing description for user
+   */
+  private static getProcessingDescription(detectedType: string, processingMethod: string): string {
+    switch (detectedType) {
+      case 'text_pdf':
+        return 'Text-based PDF ready for direct processing';
+      case 'image_pdf':
+        return 'PDF will be processed using OCR technology to extract text';
+      case 'browser_pdf':
+        return 'Browser-generated PDF will be processed using OCR technology';
+      case 'encrypted_pdf':
+        return 'Encrypted PDF detected - will attempt OCR processing';
+      case 'word_doc':
+        return 'Word document will be converted and processed';
+      case 'html_file':
+        return 'HTML file will be converted to text format';
+      case 'image_file':
+        return 'Image will be processed using OCR technology';
+      default:
+        return 'File ready for processing';
+    }
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   */
+  static async validatePDFFile(file: File) {
+    const result = await this.validateFile(file);
+    return {
+      isValid: result.isValid,
+      reason: result.reason,
+      suggestions: result.suggestions,
+      detectedType: result.detectedType.includes('pdf') ? 'credit_report' : 'other' as 'credit_report' | 'image_based' | 'encrypted' | 'empty' | 'other'
+    };
   }
 
   /**
@@ -159,16 +170,15 @@ export class PDFContentValidator {
   /**
    * Suggest actions based on validation result
    */
-  static getValidationActions(validation: Awaited<ReturnType<typeof PDFContentValidator.validatePDFFile>>): string[] {
+  static getValidationActions(validation: Awaited<ReturnType<typeof PDFContentValidator.validateFile>>): string[] {
     if (validation.isValid) {
       return ['File looks good! Ready to upload.'];
     }
 
     const baseActions = [
-      'Visit your credit bureau website directly',
-      'Log into your account and download a fresh PDF',
-      'Look for "Download PDF" or "PDF Report" options',
-      'Avoid "Print to PDF" or screenshot methods'
+      'Try uploading a different format (PDF, image, Word doc, or HTML)',
+      'Ensure the file contains credit report information',
+      'Download directly from credit bureau websites when possible'
     ];
 
     return validation.suggestions || baseActions;

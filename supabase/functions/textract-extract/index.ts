@@ -672,7 +672,6 @@ Deno.serve(async (req) => {
         message: 'PDF processed successfully',
         textLength: extractedText.length,
         extractionMethod: extractionMethod,
-        hadErrors: !!extractionError,
         timestamp: new Date().toISOString()
       }),
       {

@@ -72,11 +72,23 @@ console.log('=== REAL DATA ADVANCED PDF EXTRACTION STARTED ===');
         try {
           console.log('🔧 Attempting binary text extraction...');
           extractedText = await extractTextWithBinaryMethod(arrayBuffer);
-          if (extractedText && extractedText.length > 200) {
+          
+          // Check if this is raw PDF data
+          const isRawPdf = extractedText.includes('0 obj') || 
+                          extractedText.includes('endobj') || 
+                          extractedText.includes('stream') ||
+                          extractedText.includes('endstream');
+          
+          if (isRawPdf) {
+            console.log('⚠️ Binary extraction returned raw PDF data, not text content');
+            throw new Error('Binary extraction returned raw PDF data instead of readable text');
+          }
+          
+          if (extractedText && extractedText.length > 200 && isValidCreditReportContent(extractedText)) {
             extractionMethod = 'Binary Extraction';
             console.log('✅ Binary extraction successful');
           } else {
-            throw new Error('Binary extraction insufficient');
+            throw new Error('Binary extraction insufficient or invalid content');
           }
         } catch (binaryError) {
           console.log(`❌ Binary extraction failed: ${binaryError.message}`);
@@ -161,12 +173,15 @@ console.log('=== REAL DATA ADVANCED PDF EXTRACTION STARTED ===');
     console.error('Error:', error.message);
     console.error('Stack:', error.stack);
     
-    // Update report with error status
+    // Update report with error status (using existing supabase client and reportId)
     try {
-      const { reportId } = await req.json();
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseKey);
+      
+      // Get reportId from the request (parse it once at the beginning if not already done)
+      const body = await req.clone().json();
+      const { reportId } = body;
       
       await supabase
         .from('credit_reports')

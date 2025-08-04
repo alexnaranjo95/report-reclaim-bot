@@ -306,7 +306,7 @@ export const Dashboard = () => {
       setProcessingStep('Extracting text with advanced OCR...');
       setProcessingProgress(60);
       
-      const { data: extractionResult, error: extractError } = await supabase.functions.invoke('advanced-pdf-extract', {
+      const { data: extractionResult, error: extractError } = await supabase.functions.invoke('textract-extract', {
         body: {
           reportId: reportRecord.id,
           filePath: storagePath,

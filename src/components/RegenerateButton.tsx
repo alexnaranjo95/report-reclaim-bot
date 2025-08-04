@@ -66,13 +66,18 @@ export const RegenerateButton: React.FC<RegenerateButtonProps> = ({
         ? (roundData.regeneration_count || 0) + 1 
         : 1;
 
+      // Ensure we have a valid round ID
+      if (!roundData?.id) {
+        throw new Error('No round data available for regeneration');
+      }
+
       const { error } = await supabase
         .from('rounds')
         .update({
           regeneration_count: newCount,
           last_regeneration_date: today
         })
-        .eq('id', roundData?.id);
+        .eq('id', roundData.id);
 
       if (error) throw error;
 

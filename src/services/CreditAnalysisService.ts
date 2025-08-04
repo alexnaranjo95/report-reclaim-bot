@@ -50,6 +50,13 @@ export class CreditAnalysisService {
       console.log('Received data from edge function:', data);
       onProgress?.('parsing', 90);
 
+      // Check if the PDF analysis failed due to no extractable data
+      if (data.items && data.items.length === 0 && 
+          data.personalInfo && !data.personalInfo.name && !data.personalInfo.address &&
+          data.creditScores && data.creditScores.experian === 0 && data.creditScores.equifax === 0 && data.creditScores.transunion === 0) {
+        throw new Error('No credit report data found in the uploaded PDF. The file may be corrupted, password-protected, or not a valid credit report from a major bureau.');
+      }
+
       // Process and validate the results
       const items: CreditItem[] = (data.items || []).map((item: any, index: number) => ({
         id: `item-${index + 1}`,

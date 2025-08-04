@@ -153,6 +153,14 @@ export const Dashboard = () => {
         }
       );
       
+      // Check if we got valid data from the PDF
+      if (!results.items || results.items.length === 0) {
+        // Stay on processing screen and show error
+        setAnalysisError('No credit report data found in the uploaded PDF. Please ensure you uploaded a valid credit report from Experian, Equifax, or TransUnion.');
+        setProcessingStep('error');
+        return;
+      }
+      
       setAnalysisResults(results);
       setAnalysisComplete(true);
       setProcessingStep('completed');
@@ -569,18 +577,43 @@ export const Dashboard = () => {
 
           {/* Main Content Area */}
           <div className="lg:col-span-3 space-y-6">
-            {/* Upload Section */}
-            {!uploadedFile && !analysisComplete && <Card className="bg-gradient-card shadow-card animate-fade-in">
-                <CardHeader>
-                  <CardTitle>Upload Your Credit Report</CardTitle>
-                  <CardDescription>
-                    Upload your monthly credit report PDF to begin Round {currentRound} analysis
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <UploadZone onFileUpload={handleFileUpload} />
-                </CardContent>
-              </Card>}
+            {/* Show processing screen if analyzing or if there's an error during processing */}
+            {isAnalyzing || (uploadedFile && analysisError && !analysisComplete) ? (
+              <CreditReportProcessing
+                reportName={uploadedFile?.name || 'Unknown File'}
+                currentStep={processingStep}
+                progress={processingProgress}
+                error={analysisError}
+                onRetry={() => {
+                  if (uploadedFile) {
+                    setAnalysisError(null);
+                    handleFileUpload(uploadedFile);
+                  }
+                }}
+                onReupload={() => {
+                  setUploadedFile(null);
+                  setAnalysisError(null);
+                  setIsAnalyzing(false);
+                  setProcessingStep('');
+                  setProcessingProgress(0);
+                }}
+              />
+            ) : (
+              <>
+                {/* Upload Section */}
+                {!uploadedFile && !analysisComplete && <Card className="bg-gradient-card shadow-card animate-fade-in">
+                    <CardHeader>
+                      <CardTitle>Upload Your Credit Report</CardTitle>
+                      <CardDescription>
+                        Upload your monthly credit report PDF to begin Round {currentRound} analysis
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <UploadZone onFileUpload={handleFileUpload} />
+                    </CardContent>
+                  </Card>}
+              </>
+            )}
 
             {/* Analysis Section */}
             {(uploadedFile || analysisComplete) && <div className="space-y-6 animate-fade-in">

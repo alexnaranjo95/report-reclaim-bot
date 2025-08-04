@@ -480,54 +480,77 @@ async function analyzePDFFile(file: File) {
 
 async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
   const uint8Array = new Uint8Array(arrayBuffer);
-  const textDecoder = new TextDecoder('latin1');
-  const pdfString = textDecoder.decode(uint8Array);
-  
   let extractedText = '';
   
   console.log('=== PDF TEXT EXTRACTION ===');
   console.log('PDF size:', uint8Array.length);
   
-  // Method 1: Extract from text streams
-  console.log('Attempting text stream extraction...');
-  const streamPattern = /stream\s*([\s\S]*?)\s*endstream/g;
-  const streams = [];
+  // Method 1: Look for readable text patterns in PDF
+  console.log('Attempting direct text extraction...');
+  const textDecoder = new TextDecoder('utf-8', { fatal: false });
+  const pdfString = textDecoder.decode(uint8Array);
+  
+  // Extract text between BT (Begin Text) and ET (End Text) operators
+  const btEtPattern = /BT\s+([\s\S]*?)\s+ET/g;
+  const textObjects = [];
   let match;
   
-  while ((match = streamPattern.exec(pdfString)) !== null) {
-    streams.push(match[1]);
+  while ((match = btEtPattern.exec(pdfString)) !== null) {
+    textObjects.push(match[1]);
   }
   
-  console.log('Found', streams.length, 'streams');
+  console.log('Found', textObjects.length, 'text objects');
   
-  for (const stream of streams) {
-    const decodedText = decodeTextStream(stream);
-    if (decodedText && decodedText.length > 10) {
-      extractedText += decodedText + ' ';
+  if (textObjects.length > 0) {
+    // Process text objects to extract actual readable text
+    for (const textObj of textObjects) {
+      // Look for Tj (show text) operators with parentheses
+      const tjPattern = /\((.*?)\)\s*Tj/g;
+      let tjMatch;
+      while ((tjMatch = tjPattern.exec(textObj)) !== null) {
+        const text = tjMatch[1]
+          .replace(/\\n/g, '\n')
+          .replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t')
+          .replace(/\\\\/g, '\\')
+          .replace(/\\'/g, "'")
+          .replace(/\\"/g, '"');
+        extractedText += text + ' ';
+      }
+      
+      // Also look for TJ (show text with positioning) operators
+      const tjArrayPattern = /\[(.*?)\]\s*TJ/g;
+      let tjArrayMatch;
+      while ((tjArrayMatch = tjArrayPattern.exec(textObj)) !== null) {
+        const content = tjArrayMatch[1];
+        // Extract text from array elements (ignore numeric positioning)
+        const textElements = content.match(/\((.*?)\)/g);
+        if (textElements) {
+          for (const element of textElements) {
+            const text = element.slice(1, -1); // Remove parentheses
+            extractedText += text + ' ';
+          }
+        }
+      }
     }
   }
   
-  // Method 2: Extract from text objects if streams didn't work
-  if (extractedText.length < 100) {
+  // Method 2: If no text objects found, try stream extraction
+  if (!extractedText || extractedText.trim().length < 50) {
     console.log('Trying text object extraction...');
-    const textObjects = pdfString.match(/BT\s+[\s\S]*?ET/gs) || [];
-    console.log('Found', textObjects.length, 'text objects');
+    const streamPattern = /stream\s*([\s\S]*?)\s*endstream/g;
+    const streams = [];
     
-    for (const textObj of textObjects) {
-      const patterns = [
-        /\(([^)]*)\)\s*Tj/g,
-        /\[((?:[^\[\]]*(?:\[[^\]]*\])?)*)\]\s*TJ/g
-      ];
-      
-      for (const pattern of patterns) {
-        let match;
-        while ((match = pattern.exec(textObj)) !== null) {
-          const rawText = match[1];
-          const cleanText = decodePDFString(rawText);
-          if (cleanText && cleanText.trim().length > 2) {
-            extractedText += cleanText + ' ';
-          }
-        }
+    while ((match = streamPattern.exec(pdfString)) !== null) {
+      streams.push(match[1]);
+    }
+  
+    console.log('Found', streams.length, 'streams');
+  
+    for (const stream of streams) {
+      const decodedText = decodeTextStream(stream);
+      if (decodedText && decodedText.length > 10) {
+        extractedText += decodedText + ' ';
       }
     }
   }

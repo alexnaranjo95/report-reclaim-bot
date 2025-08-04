@@ -145,7 +145,7 @@ async function analyzeDocumentWithTextract(bytes: Uint8Array, accessKey: string,
   
   const payload = JSON.stringify({
     Document: {
-      Bytes: Array.from(bytes)
+      Bytes: btoa(String.fromCharCode(...bytes))
     },
     FeatureTypes: ['TABLES', 'FORMS']
   });

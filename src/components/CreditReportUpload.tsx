@@ -217,13 +217,13 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
   };
 
   const simulateProcessingSteps = async (fileId: string, reportId: string) => {
-    const steps = uploadProgressSteps;
+    const steps = uploadProgressSteps.slice(0, -3); // Only simulate up to text extraction, not completion
     
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       
       // Add realistic delays for each step
-      const delays = [500, 300, 800, 2000, 1500, 500, 800, 600, 400, 200];
+      const delays = [500, 300, 800, 1000, 1200]; // Shorter delays for UI feedback only
       await new Promise(resolve => setTimeout(resolve, delays[i] || 500));
       
       updateFileProgress(fileId, step.step, step.status);
@@ -232,25 +232,12 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
       if (step.step === 4) {
         showSuccessNotification(
           "Text Extraction Started",
-          "Google Document AI is processing your credit report..."
-        );
-      } else if (step.step === 7) {
-        showSuccessNotification(
-          "Data Analysis Complete",
-          "Credit accounts and personal information extracted successfully"
+          "Advanced PDF processing with OCR is analyzing your credit report..."
         );
       }
     }
     
-    // Add extracted data preview
-    const mockExtractedData = {
-      personalInfoCount: 5,
-      accountsCount: Math.floor(Math.random() * 8) + 2,
-      inquiriesCount: Math.floor(Math.random() * 5) + 1,
-      negativeItemsCount: Math.floor(Math.random() * 3)
-    };
-    
-    updateFileProgress(fileId, uploadProgressSteps.length, 'completed', undefined, mockExtractedData);
+    // Do NOT mark as completed here - let the actual extraction function handle completion
   };
 
   const uploadSingleFile = async (uploadFile: UploadFile): Promise<void> => {
@@ -304,10 +291,12 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
 
       // Start processing for PDF files
       if (uploadFile.file.type === 'application/pdf') {
-        // Simulate detailed processing steps
-        await simulateProcessingSteps(uploadFile.id, reportRecord.id);
+        // Start progress simulation (but don't complete)
+        const progressPromise = simulateProcessingSteps(uploadFile.id, reportRecord.id);
         
         // Trigger actual processing using advanced extraction with OCR
+        console.log('🚀 Starting advanced PDF extraction for report:', reportRecord.id);
+        
         try {
           const { data: extractionResult, error: extractError } = await supabase.functions.invoke('advanced-pdf-extract', {
             body: {
@@ -316,17 +305,42 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
             },
           });
 
+          console.log('📊 Extraction result:', extractionResult);
+          console.log('❌ Extraction error:', extractError);
+
           if (extractError || !extractionResult?.success) {
-            // Update file status to show extraction failed
             updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
             throw new Error(extractError?.message || extractionResult?.error || 'Failed to extract PDF content - file may be corrupted or image-based');
           }
+
+          // Wait for progress simulation to finish
+          await progressPromise;
+          
+          // Fetch actual extracted data counts from database
+          const [personalInfo, accounts, inquiries, negativeItems] = await Promise.all([
+            supabase.from('personal_information').select('*').eq('report_id', reportRecord.id),
+            supabase.from('credit_accounts').select('*').eq('report_id', reportRecord.id),
+            supabase.from('credit_inquiries').select('*').eq('report_id', reportRecord.id),
+            supabase.from('negative_items').select('*').eq('report_id', reportRecord.id)
+          ]);
+
+          const extractedDataPreview = {
+            personalInfoCount: personalInfo.data?.length || 0,
+            accountsCount: accounts.data?.length || 0,
+            inquiriesCount: inquiries.data?.length || 0,
+            negativeItemsCount: negativeItems.data?.length || 0
+          };
+
+          console.log('📈 Extracted data counts:', extractedDataPreview);
           
           // Show success with extraction method used
           showSuccessNotification(
             "Analysis Complete!",
             `${uploadFile.file.name} extracted using ${extractionResult.extractionMethod || 'Enhanced PDF Extraction'}`
           );
+
+          updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'completed', undefined, extractedDataPreview);
+          
         } catch (bgError) {
           console.error('PDF extraction failed:', bgError);
           updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
@@ -338,9 +352,8 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
           "Upload Complete!",
           `${uploadFile.file.name} has been uploaded successfully.`
         );
+        updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'completed');
       }
-      
-      updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'completed');
 
     } catch (error: any) {
       console.error('Upload failed:', error);

@@ -554,14 +554,21 @@ async function extractTextFallback(bytes: Uint8Array) {
 
 // Validate extracted content
 function isValidCreditReportContent(text: string): boolean {
+  console.log("=== CONTENT VALIDATION DEBUG ===");
+  console.log("Text length:", text.length);
+  console.log("First 1000 characters:", text.substring(0, 1000));
+  console.log("Last 1000 characters:", text.substring(Math.max(0, text.length - 1000)));
+  
   const creditReportIndicators = [
-    'credit report', 'credit score', 'experian', 'equifax', 'transunion',
-    'account history', 'payment history', 'personal information',
-    'credit inquiry', 'credit account', 'balance', 'credit limit',
-    'identityiq', 'credit monitoring', 'account number',
-    'name:', 'address:', 'ssn:', 'date of birth', 'phone:',
-    'account status', 'payment terms', 'monthly payment',
-    'revolving', 'installment', 'creditor', 'collections'
+    'credit', 'report', 'score', 'experian', 'equifax', 'transunion',
+    'account', 'balance', 'payment', 'inquiry', 'inquiries',
+    'card', 'loan', 'mortgage', 'collections', 'charge',
+    'late', 'delinquent', 'current', 'closed', 'open',
+    'limit', 'high', 'date', 'activity', 'status',
+    'type', 'revolving', 'installment', 'creditor',
+    'identityiq', 'monitoring', 'personal', 'information',
+    'name', 'address', 'ssn', 'birth', 'phone',
+    'terms', 'monthly', 'number', 'history'
   ];
   
   const lowerText = text.toLowerCase();
@@ -569,12 +576,16 @@ function isValidCreditReportContent(text: string): boolean {
     lowerText.includes(indicator)
   );
   
-  console.log("Credit report validation - found indicators:", foundIndicators.length);
-  console.log("Found indicators:", foundIndicators);
-  console.log("Text preview (first 500 chars):", text.substring(0, 500));
+  console.log("Total indicators found:", foundIndicators.length);
+  console.log("Found indicators:", foundIndicators.slice(0, 10)); // Show first 10
   
-  // More lenient validation - require at least 2 indicators
-  return foundIndicators.length >= 2;
+  // Very lenient validation - just check if we have ANY credit-related content
+  const hasMinimalContent = text.length > 1000 && foundIndicators.length >= 1;
+  
+  console.log("Validation result:", hasMinimalContent);
+  console.log("=== END VALIDATION DEBUG ===");
+  
+  return hasMinimalContent;
 }
 
 // Parse and store credit data

@@ -87,15 +87,37 @@ serve(async (req) => {
     
     console.log("✅ PDF validation passed");
 
-    // Extract text using Amazon Textract
-    console.log("🚀 Starting Amazon Textract analysis...");
-    const extractedData = await analyzeDocumentWithTextract(bytes);
-
-    if (!extractedData || !extractedData.text || extractedData.text.length < 50) {
-      throw new Error("Textract extraction failed - no meaningful text extracted");
+    // Extract text using multiple methods (fallback approach)
+    console.log("🚀 Starting multi-method text extraction...");
+    let extractedData;
+    let extractionMethod = '';
+    
+    try {
+      console.log("Attempting AWS Textract extraction...");
+      extractedData = await analyzeDocumentWithTextract(bytes);
+      extractionMethod = 'textract';
+      console.log("✅ Textract extraction successful");
+    } catch (textractError) {
+      console.warn("⚠️ Textract failed, trying fallback methods...");
+      console.warn("Textract error:", textractError.message);
+      
+      // Fallback to simple PDF text extraction
+      try {
+        console.log("Attempting fallback PDF text extraction...");
+        extractedData = await extractTextFallback(bytes);
+        extractionMethod = 'fallback';
+        console.log("✅ Fallback extraction successful");
+      } catch (fallbackError) {
+        console.error("❌ All extraction methods failed");
+        throw new Error(`Text extraction failed. Textract: ${textractError.message}. Fallback: ${fallbackError.message}`);
+      }
     }
 
-    console.log("✅ Textract extraction successful, text length:", extractedData.text.length);
+    if (!extractedData || !extractedData.text || extractedData.text.length < 50) {
+      throw new Error(`${extractionMethod} extraction failed - no meaningful text extracted (${extractedData?.text?.length || 0} characters)`);
+    }
+
+    console.log(`✅ ${extractionMethod} extraction successful, text length:`, extractedData.text.length);
 
     // Validate extracted content
     if (!isValidCreditReportContent(extractedData.text)) {
@@ -456,6 +478,78 @@ async function hmacSha256Raw(key: Uint8Array, message: string): Promise<Uint8Arr
   
   const signature = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message));
   return new Uint8Array(signature);
+}
+
+// Fallback PDF text extraction method
+async function extractTextFallback(bytes: Uint8Array) {
+  console.log("Starting fallback PDF text extraction...");
+  
+  // Convert bytes to string for basic PDF parsing
+  const pdfString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+  
+  // Extract text using basic PDF parsing patterns
+  const textLines: string[] = [];
+  
+  // Look for text objects in PDF stream
+  const streamPattern = /stream\s*(.*?)\s*endstream/gs;
+  const streamMatches = pdfString.match(streamPattern);
+  
+  if (streamMatches) {
+    for (const stream of streamMatches) {
+      // Look for text content patterns
+      const textPattern = /\((.*?)\)/g;
+      const binaryPattern = /BT\s+(.*?)\s+ET/gs;
+      
+      let match;
+      while ((match = textPattern.exec(stream)) !== null) {
+        const text = match[1];
+        if (text && text.length > 1 && /[a-zA-Z]/.test(text)) {
+          textLines.push(text);
+        }
+      }
+      
+      // Also look for binary text patterns
+      while ((match = binaryPattern.exec(stream)) !== null) {
+        const content = match[1];
+        const words = content.match(/\w+/g);
+        if (words) {
+          textLines.push(...words);
+        }
+      }
+    }
+  }
+  
+  // Fallback: scan for readable ASCII sequences
+  if (textLines.length === 0) {
+    console.log("No stream text found, scanning for ASCII sequences...");
+    const asciiPattern = /[a-zA-Z][a-zA-Z0-9\s]{3,}/g;
+    const asciiMatches = pdfString.match(asciiPattern);
+    
+    if (asciiMatches) {
+      // Filter for credit report-like content
+      const creditKeywords = ['credit', 'report', 'account', 'balance', 'payment', 'inquiry', 'experian', 'equifax', 'transunion'];
+      const filteredMatches = asciiMatches.filter(text => 
+        creditKeywords.some(keyword => text.toLowerCase().includes(keyword)) ||
+        text.length > 10
+      );
+      
+      textLines.push(...filteredMatches);
+    }
+  }
+  
+  const extractedText = textLines.join('\n').trim();
+  
+  console.log("Fallback extraction completed, text length:", extractedText.length);
+  
+  if (extractedText.length < 100) {
+    throw new Error("Fallback extraction failed - insufficient text extracted");
+  }
+  
+  return {
+    text: extractedText,
+    tables: [],
+    keyValues: []
+  };
 }
 
 // Validate extracted content

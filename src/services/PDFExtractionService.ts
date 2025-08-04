@@ -4,9 +4,11 @@ import { ComprehensiveCreditParser } from './ComprehensiveCreditParser';
 
 export class PDFExtractionService {
   /**
-   * Single extraction method using Amazon Textract
+   * STRICT extraction method - only real data extraction allowed
    */
   static async extractText(reportId: string): Promise<void> {
+    console.log('🚀 Starting STRICT PDF extraction for:', reportId);
+    
     // Get report details
     const { data: report, error: reportError } = await supabase
       .from('credit_reports')
@@ -36,9 +38,8 @@ export class PDFExtractionService {
       throw new Error(`Failed to update report status: ${updateError.message}`);
     }
 
-    // Single extraction method with robust error handling
     try {
-      console.log('🚀 Starting PDF extraction with Textract...');
+      console.log('🚀 Starting strict PDF extraction with Textract...');
       
       const { data: result, error: extractError } = await supabase.functions.invoke('textract-extract', {
         body: {
@@ -55,36 +56,47 @@ export class PDFExtractionService {
         throw new Error(result?.error || 'Extraction failed without specific error');
       }
 
-      console.log('✅ PDF extraction completed successfully');
-      console.log(`📊 Extracted text length: ${result.textLength || 0} characters`);
+      console.log('✅ PDF extraction completed, validating content...');
       
-      // Step 2: Parse the extracted text into structured credit data
-      console.log('🔍 Starting comprehensive credit data parsing...');
+      // CRITICAL: Validate extracted text before parsing
+      const isValidText = await this.validateExtractedText(reportId);
+      if (!isValidText) {
+        throw new Error('Extracted text contains no valid credit report data - only PDF metadata detected');
+      }
       
+      console.log('✅ Text validation passed, starting parsing...');
+      
+      // STEP 2: Parse ONLY if we have valid text
       try {
-        // First try the enhanced parser with better error handling
         const { EnhancedCreditParser } = await import('./EnhancedCreditParser');
         const success = await EnhancedCreditParser.parseWithFuzzyMatching(reportId);
         
-        if (success) {
-          console.log('✅ Enhanced credit data parsing completed successfully');
-        } else {
-          // Fallback to comprehensive parser
-          await ComprehensiveCreditParser.parseReport(reportId);
-          console.log('✅ Fallback credit data parsing completed successfully');
+        if (!success) {
+          throw new Error('Enhanced parser failed to extract any valid data');
         }
+        
+        // VALIDATION: Ensure we actually parsed data
+        const extractedData = await this.validateParsedData(reportId);
+        if (!extractedData.hasValidData) {
+          throw new Error('No valid credit data was parsed from the text');
+        }
+        
+        console.log('✅ Credit data parsing completed with validation:', extractedData);
+        
       } catch (parseError) {
         console.error('❌ Credit data parsing failed:', parseError);
         
-        // Try to call cleanup for stuck processing reports
-        try {
-          await supabase.rpc('cleanup_stuck_processing_reports');
-        } catch (cleanupError) {
-          console.error('Failed to call cleanup function:', cleanupError);
-        }
-        
-        // Don't throw here - we have the raw text, just log the parsing issue
-        console.log('Raw text extracted but parsing failed - this will be handled by validation');
+        // Mark as failed if parsing fails
+        await supabase
+          .from('credit_reports')
+          .update({ 
+            extraction_status: 'failed',
+            processing_errors: `Parsing failed: ${parseError.message}`,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', reportId);
+          
+        throw new Error(`Data parsing failed: ${parseError.message}`);
       }
       
     } catch (extractionError) {
@@ -101,6 +113,68 @@ export class PDFExtractionService {
         .eq('id', reportId);
         
       throw new Error(`PDF extraction failed: ${extractionError.message}`);
+    }
+  }
+
+  /**
+   * Validate that extracted text contains real credit report data
+   */
+  static async validateExtractedText(reportId: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase.rpc('validate_extracted_text', { report_id: reportId });
+      if (error) {
+        console.error('Validation error:', error);
+        return false;
+      }
+      return data || false;
+    } catch (error) {
+      console.error('Failed to validate text:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Validate that we actually parsed meaningful data
+   */
+  static async validateParsedData(reportId: string): Promise<{
+    hasValidData: boolean;
+    personalInfo: boolean;
+    accounts: number;
+    inquiries: number;
+    negativeItems: number;
+  }> {
+    try {
+      const [personalResponse, accountsResponse, inquiriesResponse, negativeResponse] = await Promise.all([
+        supabase.from('personal_information').select('*').eq('report_id', reportId).maybeSingle(),
+        supabase.from('credit_accounts').select('*').eq('report_id', reportId),
+        supabase.from('credit_inquiries').select('*').eq('report_id', reportId),
+        supabase.from('negative_items').select('*').eq('report_id', reportId)
+      ]);
+
+      const personalInfo = !!personalResponse.data?.full_name;
+      const accounts = accountsResponse.data?.length || 0;
+      const inquiries = inquiriesResponse.data?.length || 0;
+      const negativeItems = negativeResponse.data?.length || 0;
+
+      // Require at least personal info OR accounts to consider valid
+      const hasValidData = personalInfo || accounts > 0;
+
+      return {
+        hasValidData,
+        personalInfo,
+        accounts,
+        inquiries,
+        negativeItems
+      };
+    } catch (error) {
+      console.error('Error validating parsed data:', error);
+      return {
+        hasValidData: false,
+        personalInfo: false,
+        accounts: 0,
+        inquiries: 0,
+        negativeItems: 0
+      };
     }
   }
 

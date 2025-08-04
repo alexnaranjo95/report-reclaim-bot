@@ -8,7 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 export class UnifiedCreditProcessor {
   
   /**
-   * Process a credit report using Amazon Textract - main entry point
+   * STRICT processing - only real extracted data allowed
    */
   static async processReport(reportId: string): Promise<{
     success: boolean;
@@ -18,7 +18,7 @@ export class UnifiedCreditProcessor {
     negativeItems: any[];
     errors: string[];
   }> {
-    console.log('🚀 Starting unified credit report processing with Textract for:', reportId);
+    console.log('🚀 Starting STRICT unified credit report processing for:', reportId);
     
     const errors: string[] = [];
     let personalInfo = null;
@@ -38,62 +38,38 @@ export class UnifiedCreditProcessor {
         throw new Error('Report not found');
       }
       
-      // Step 2: Check if we need to extract text
-      if (!report.raw_text || report.extraction_status === 'pending') {
-        console.log('📄 No raw text found, triggering Textract extraction...');
-        await this.triggerTextractExtraction(reportId, report.file_path);
-        
-        // Wait for extraction to complete
-        await this.waitForExtraction(reportId);
-        
-        // Reload report with extracted text
-        const { data: updatedReport } = await supabase
-          .from('credit_reports')
-          .select('raw_text, extraction_status')
-          .eq('id', reportId)
-          .single();
-          
-        if (!updatedReport?.raw_text) {
-          throw new Error('Textract text extraction failed');
-        }
-        
-        report.raw_text = updatedReport.raw_text;
+      // Step 2: MANDATORY extraction - no bypassing
+      console.log('📄 Starting mandatory text extraction...');
+      await this.triggerStrictTextractExtraction(reportId, report.file_path);
+      
+      // Wait for extraction to complete with validation
+      await this.waitForStrictExtraction(reportId);
+      
+      // Step 3: Get ONLY validated parsed data  
+      const validatedData = await this.getValidatedData(reportId);
+      
+      if (!validatedData.hasValidData) {
+        throw new Error('No valid credit report data was extracted and parsed');
       }
       
-      // Step 3: Check if we already have parsed data
-      const existingData = await this.checkExistingData(reportId);
-      
-      if (existingData.hasData) {
-        console.log('✅ Using existing parsed data');
-        return {
-          success: true,
-          personalInfo: existingData.personalInfo,
-          accounts: existingData.accounts,
-          inquiries: existingData.inquiries,
-          negativeItems: existingData.negativeItems,
-          errors
-        };
-      }
-      
-      // Step 4: Parse the raw text (this may have already been done by Textract function)
-      console.log('🔍 Parsing raw text...');
-      const parsedData = this.parseRawText(report.raw_text);
-      
-      // Step 5: Store any additional parsed data if needed
-      console.log('💾 Storing any additional parsed data...');
-      await this.storeParsedData(reportId, parsedData);
+      console.log('✅ Processing successful:', {
+        personalInfo: validatedData.personalInfo,
+        accounts: validatedData.accounts,
+        inquiries: validatedData.inquiries,
+        negativeItems: validatedData.negativeItems
+      });
       
       return {
         success: true,
-        personalInfo: parsedData.personalInfo,
-        accounts: parsedData.accounts,
-        inquiries: parsedData.inquiries,
-        negativeItems: parsedData.negativeItems,
+        personalInfo: validatedData.personalInfo,
+        accounts: validatedData.accounts,
+        inquiries: validatedData.inquiries,
+        negativeItems: validatedData.negativeItems,
         errors
       };
       
     } catch (error) {
-      console.error('❌ Processing failed:', error);
+      console.error('❌ STRICT Processing failed:', error);
       errors.push(error.message);
       
       return {
@@ -108,70 +84,65 @@ export class UnifiedCreditProcessor {
   }
   
   /**
-   * Trigger Textract PDF text extraction
+   * Trigger STRICT Textract extraction with validation
    */
-  private static async triggerTextractExtraction(reportId: string, filePath: string): Promise<void> {
+  private static async triggerStrictTextractExtraction(reportId: string, filePath: string): Promise<void> {
     try {
-      console.log('🚀 Triggering Amazon Textract extraction...');
-      const { data, error } = await supabase.functions.invoke('textract-extract', {
-        body: { reportId, filePath }
-      });
+      console.log('🚀 Triggering STRICT Amazon Textract extraction...');
       
-      if (error) {
-        console.log('⚠️ Textract failed, trying fallback extraction...');
-        // Fallback to enhanced extraction
-        const { error: fallbackError } = await supabase.functions.invoke('enhanced-pdf-extract', {
-          body: { reportId, filePath }
-        });
-        
-        if (fallbackError) {
-          throw new Error(`Both Textract and fallback extraction failed: ${fallbackError.message}`);
-        }
-        
-        console.log('✅ Fallback extraction successful');
-      } else {
-        console.log('✅ Textract extraction triggered successfully');
-      }
+      // Import the strict extraction service
+      const { PDFExtractionService } = await import('./PDFExtractionService');
+      await PDFExtractionService.extractText(reportId);
+      
+      console.log('✅ Strict Textract extraction completed');
     } catch (error) {
-      console.error('❌ Failed to trigger extraction:', error);
-      throw error;
+      console.error('❌ Failed strict extraction:', error);
+      throw new Error(`Strict text extraction failed: ${error.message}`);
     }
   }
   
   /**
-   * Wait for extraction to complete
+   * Wait for STRICT extraction to complete with validation
    */
-  private static async waitForExtraction(reportId: string, maxWaitTime = 30000): Promise<void> {
+  private static async waitForStrictExtraction(reportId: string, maxWaitTime = 60000): Promise<void> {
     const startTime = Date.now();
     
     while (Date.now() - startTime < maxWaitTime) {
       const { data: report } = await supabase
         .from('credit_reports')
-        .select('extraction_status, raw_text')
+        .select('extraction_status, raw_text, processing_errors')
         .eq('id', reportId)
         .single();
         
       if (report?.extraction_status === 'completed' && report.raw_text) {
-        console.log('✅ Extraction completed');
-        return;
+        // Additional validation: Check if we have actual parsed data
+        const { PDFExtractionService } = await import('./PDFExtractionService');
+        const validatedData = await PDFExtractionService.validateParsedData(reportId);
+        
+        if (validatedData.hasValidData) {
+          console.log('✅ Strict extraction completed with valid data');
+          return;
+        } else {
+          throw new Error('Extraction completed but no valid credit data was parsed');
+        }
       }
       
       if (report?.extraction_status === 'failed') {
-        throw new Error('Text extraction failed');
+        throw new Error(`Text extraction failed: ${report.processing_errors || 'Unknown error'}`);
       }
       
-      // Wait 2 seconds before checking again
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Wait 3 seconds before checking again (longer for thorough processing)
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
     
-    throw new Error('Extraction timeout');
+    throw new Error('Strict extraction timeout - processing took too long');
   }
   
   /**
-   * Check if we already have parsed data
+   * Get VALIDATED data only - ensures data quality
    */
-  private static async checkExistingData(reportId: string): Promise<{
-    hasData: boolean;
+  private static async getValidatedData(reportId: string): Promise<{
+    hasValidData: boolean;
     personalInfo: any;
     accounts: any[];
     inquiries: any[];
@@ -191,19 +162,37 @@ export class UnifiedCreditProcessor {
       const inquiries = inquiriesResponse.data || [];
       const negativeItems = negativeResponse.data || [];
       
-      const hasData = !!personalInfo || accounts.length > 0 || inquiries.length > 0 || negativeItems.length > 0;
+      // STRICT validation: Must have meaningful personal info OR valid accounts
+      const hasValidPersonalInfo = !!(personalInfo?.full_name && personalInfo.full_name.length > 2);
+      const hasValidAccounts = accounts.length > 0 && accounts.some(acc => 
+        acc.creditor_name && 
+        acc.creditor_name.length > 2 && 
+        !acc.creditor_name.toLowerCase().includes('test') &&
+        !acc.creditor_name.toLowerCase().includes('sample')
+      );
+      
+      const hasValidData = hasValidPersonalInfo || hasValidAccounts;
+      
+      if (!hasValidData) {
+        console.log('❌ No valid data found:', {
+          personalInfoValid: hasValidPersonalInfo,
+          accountsValid: hasValidAccounts,
+          personalInfoName: personalInfo?.full_name,
+          accountsCount: accounts.length
+        });
+      }
       
       return {
-        hasData,
+        hasValidData,
         personalInfo,
         accounts,
         inquiries,
         negativeItems
       };
     } catch (error) {
-      console.error('Error checking existing data:', error);
+      console.error('Error getting validated data:', error);
       return {
-        hasData: false,
+        hasValidData: false,
         personalInfo: null,
         accounts: [],
         inquiries: [],

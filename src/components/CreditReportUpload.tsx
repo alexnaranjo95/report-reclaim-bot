@@ -307,58 +307,83 @@ const CreditReportUpload: React.FC<CreditReportUploadProps> = ({ onUploadSuccess
         // Simulate detailed processing steps
         await simulateProcessingSteps(uploadFile.id, reportRecord.id);
         
-        // Trigger actual processing in background
+        // Trigger actual processing using enhanced extraction
         try {
-          const { error: extractError } = await supabase.functions.invoke('enhanced-pdf-extract', {
+          const { data: extractionResult, error: extractError } = await supabase.functions.invoke('enhanced-pdf-extract', {
             body: {
               reportId: reportRecord.id,
               filePath: storagePath,
             },
           });
 
-          if (extractError) {
-            console.error('Background processing error:', extractError);
-            // Don't fail the upload, just log the error
+          if (extractError || !extractionResult?.success) {
+            // Update file status to show extraction failed
+            updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
+            throw new Error(extractError?.message || extractionResult?.error || 'Failed to extract PDF content - file may be corrupted or image-based');
           }
-        } catch (bgError) {
-          console.error('Background processing failed:', bgError);
-          // Continue with successful upload
-        }
-        
-        showSuccessNotification(
-          "Analysis Complete!",
-          `${uploadFile.file.name} has been successfully processed and analyzed.`
-        );
-      } else {
-        // For non-PDF files
-        await supabase
-          .from('credit_reports')
-          .update({
-            extraction_status: 'completed',
-            raw_text: 'Non-PDF file uploaded - manual extraction required',
-          })
-          .eq('id', reportRecord.id);
           
-        updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'completed');
-        
-        showWarningNotification(
-          "Manual Review Required",
-          `${uploadFile.file.name} uploaded successfully but requires manual text extraction.`
+          // Show success with extraction method used
+          showSuccessNotification(
+            "Analysis Complete!",
+            `${uploadFile.file.name} extracted using ${extractionResult.extractionMethod || 'Enhanced PDF Extraction'}`
+          );
+        } catch (bgError) {
+          console.error('PDF extraction failed:', bgError);
+          updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
+          throw bgError;
+        }
+      } else {
+        // For non-PDF files, just mark as completed
+        showSuccessNotification(
+          "Upload Complete!",
+          `${uploadFile.file.name} has been uploaded successfully.`
         );
       }
+      
+      updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'completed');
 
-    } catch (error) {
-      console.error('Upload error:', error);
+    } catch (error: any) {
+      console.error('Upload failed:', error);
+      updateFileProgress(uploadFile.id, uploadProgressSteps.length, 'error');
       
-      const errorMessage = error instanceof Error ? error.message : 'Upload failed';
-      updateFileProgress(uploadFile.id, 0, 'error', errorMessage);
-      
-      showErrorNotification(
-        "Upload Failed",
-        `Failed to upload ${uploadFile.file.name}: ${errorMessage}`
-      );
+      // Show specific error message based on error type
+      if (error.message.includes('extract') || error.message.includes('PDF')) {
+        showErrorNotification(
+          "PDF Processing Failed",
+          error.message || "The PDF could not be processed. It may be image-based, corrupted, or password protected."
+        );
+      } else {
+        showErrorNotification(
+          "Upload Failed",
+          error.message || "An unexpected error occurred during upload."
+        );
+      }
       
       throw error;
+    }
+  };
+
+  const retryFailedUpload = async (fileId: string) => {
+    const uploadFile = uploadFiles.find(f => f.id === fileId);
+    if (!uploadFile) return;
+
+    try {
+      // Reset file status
+      updateFileProgress(fileId, 0, 'uploading');
+      
+      // Retry the upload
+      await uploadSingleFile(uploadFile);
+      
+      showSuccessNotification(
+        "Retry Successful",
+        `${uploadFile.file.name} has been processed successfully.`
+      );
+    } catch (error) {
+      console.error('Retry failed:', error);
+      showErrorNotification(
+        "Retry Failed",
+        "The file still cannot be processed. Please try a different file or contact support."
+      );
     }
   };
 

@@ -295,8 +295,8 @@ function decodePDFString(text: string): string {
     .replace(/\\t/g, '\t')
     .replace(/\\b/g, '\b')
     .replace(/\\f/g, '\f')
-    .replace(/\\(/g, '(')
-    .replace(/\\)/g, ')')
+    .replace(/\\[(]/g, '(')
+    .replace(/\\[)]/g, ')')
     .replace(/\\\\/g, '\\')
     .replace(/\\(\d{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
 }

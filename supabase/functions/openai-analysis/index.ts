@@ -172,9 +172,8 @@ async function analyzePDFFile(file: File) {
     
     // Analyze with OpenAI
     console.log('🧠 Analyzing with OpenAI...');
-    const analysisResponse = await analyzeCreditReport(extractedText);
-    const analysisText = await analysisResponse.text();
-    const analysis = JSON.parse(analysisText);
+    const analysisJson = await analyzeCreditReport(extractedText);
+    const analysis = JSON.parse(analysisJson);
     
     return new Response(JSON.stringify({
       success: true,
@@ -621,9 +620,7 @@ Please provide your analysis in the following JSON format:
       throw new Error('OpenAI returned invalid JSON format');
     }
 
-    return new Response(cleanContent, {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return cleanContent;
 
   } catch (error) {
     console.error('Credit report analysis error:', error);

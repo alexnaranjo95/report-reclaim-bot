@@ -119,10 +119,19 @@ export class CreditAnalysisService {
       return result;
       
     } catch (error) {
-      console.error('Credit analysis error:', error);
-      // Instead of throwing, provide fallback analysis
-      console.log('Providing fallback analysis with mock data...');
-      return this.fallbackAnalysisWithMockData(request.file);
+      console.error('Credit analysis failed:', error);
+      onProgress?.('Error: Analysis failed', 0);
+      
+      // Check if it's a specific PDF processing error
+      if (error.message?.includes('extraction methods failed') || 
+          error.message?.includes('No readable text') ||
+          error.message?.includes('PDF extraction failed') ||
+          error.message?.includes('Failed to process PDF file')) {
+        throw new Error(`PDF Processing Failed: ${error.message}. Please ensure your PDF is text-based and not password protected.`);
+      }
+      
+      // For other errors, throw the original error
+      throw error;
     }
   }
 

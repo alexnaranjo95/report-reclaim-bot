@@ -437,40 +437,134 @@ async function analyzePDFFile(file: File) {
   try {
     console.log('Processing PDF file:', file.name, 'Size:', file.size);
     
-    // Use proper PDF text extraction
-    const arrayBuffer = await file.arrayBuffer();
-    let extractedText = '';
+    // Save file to Supabase storage first for processing
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     
-    try {
-      // Try multiple extraction methods
-      extractedText = await extractTextFromPDF(arrayBuffer);
-      
-      if (!extractedText || extractedText.length < 100) {
-        throw new Error('No readable text found in PDF');
-      }
-      
-      console.log('Successfully extracted text, length:', extractedText.length);
-      console.log('Text preview (first 500 chars):', extractedText.substring(0, 500));
-      
-      // Validate the extracted text contains credit report keywords
-      if (!containsCreditReportKeywords(extractedText)) {
-        console.warn('Extracted text may not be a valid credit report');
-        console.log('Text sample for debugging:', extractedText.substring(0, 1000));
-      }
-      
-    } catch (extractionError) {
-      console.error('PDF extraction failed:', extractionError);
-      throw new Error(`PDF extraction failed: ${extractionError.message}`);
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error('Supabase configuration not found');
     }
     
-    // Now analyze the extracted text with OpenAI
-    return await analyzeCreditReport(extractedText);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
+    // Create a temporary credit report record
+    const fileName = file.name;
+    const fileExtension = fileName.split('.').pop() || 'pdf';
+    const filePath = `temp/${crypto.randomUUID()}.${fileExtension}`;
+    
+    // Upload file to storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('credit-reports')
+      .upload(filePath, file);
+      
+    if (uploadError) {
+      console.error('File upload failed:', uploadError);
+      throw new Error(`File upload failed: ${uploadError.message}`);
+    }
+    
+    console.log('File uploaded to storage:', filePath);
+    
+    // Create temporary credit report record
+    const { data: reportData, error: reportError } = await supabase
+      .from('credit_reports')
+      .insert({
+        file_name: fileName,
+        file_path: filePath,
+        bureau_name: 'Unknown',
+        extraction_status: 'pending',
+        user_id: '00000000-0000-0000-0000-000000000000' // Temporary user for processing
+      })
+      .select()
+      .single();
+      
+    if (reportError) {
+      console.error('Failed to create report record:', reportError);
+      throw new Error(`Failed to create report record: ${reportError.message}`);
+    }
+    
+    const reportId = reportData.id;
+    console.log('Created report record:', reportId);
+    
+    // Try Adobe PDF extraction first
+    try {
+      console.log('Attempting Adobe PDF extraction...');
+      const { data: adobeResult, error: adobeError } = await supabase.functions.invoke('adobe-pdf-extract', {
+        body: { reportId, filePath }
+      });
+      
+      if (!adobeError && adobeResult?.success) {
+        console.log('Adobe extraction successful');
+        
+        // Get the extracted text from database
+        const { data: updatedReport } = await supabase
+          .from('credit_reports')
+          .select('raw_text')
+          .eq('id', reportId)
+          .single();
+          
+        if (updatedReport?.raw_text) {
+          console.log('Got extracted text, analyzing with OpenAI...');
+          const analysisResponse = await analyzeCreditReport(updatedReport.raw_text);
+          
+          // Clean up temporary record
+          await supabase.from('credit_reports').delete().eq('id', reportId);
+          await supabase.storage.from('credit-reports').remove([filePath]);
+          
+          return analysisResponse;
+        }
+      }
+      
+      console.warn('Adobe extraction failed, trying enhanced method...');
+    } catch (adobeError) {
+      console.warn('Adobe extraction error:', adobeError);
+    }
+    
+    // Fallback to enhanced PDF extraction
+    try {
+      console.log('Attempting enhanced PDF extraction...');
+      const { data: enhancedResult, error: enhancedError } = await supabase.functions.invoke('enhanced-pdf-extract', {
+        body: { reportId, filePath }
+      });
+      
+      if (!enhancedError && enhancedResult) {
+        console.log('Enhanced extraction completed');
+        
+        // Get the extracted text from database
+        const { data: updatedReport } = await supabase
+          .from('credit_reports')
+          .select('raw_text')
+          .eq('id', reportId)
+          .single();
+          
+        if (updatedReport?.raw_text && updatedReport.raw_text.length > 100) {
+          console.log('Got extracted text from enhanced method, analyzing...');
+          const analysisResponse = await analyzeCreditReport(updatedReport.raw_text);
+          
+          // Clean up temporary record
+          await supabase.from('credit_reports').delete().eq('id', reportId);
+          await supabase.storage.from('credit-reports').remove([filePath]);
+          
+          return analysisResponse;
+        }
+      }
+      
+      console.error('Enhanced extraction also failed');
+    } catch (enhancedError) {
+      console.error('Enhanced extraction error:', enhancedError);
+    }
+    
+    // Clean up failed attempt
+    await supabase.from('credit_reports').delete().eq('id', reportId);
+    await supabase.storage.from('credit-reports').remove([filePath]);
+    
+    throw new Error('All PDF extraction methods failed. The PDF may be encrypted, image-based, or corrupted.');
     
   } catch (error) {
     console.error('PDF processing error:', error);
     return new Response(JSON.stringify({ 
       error: 'Failed to process PDF file',
-      details: error.message 
+      details: error.message,
+      suggestion: 'Please ensure the PDF is text-based and not password protected. Image-only PDFs are not currently supported.'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

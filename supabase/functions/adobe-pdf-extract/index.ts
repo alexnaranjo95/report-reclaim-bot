@@ -1,6 +1,11 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+
+const adobeClientId = Deno.env.get('ADOBE_CLIENT_ID');
+const adobeClientSecret = Deno.env.get('ADOBE_CLIENT_SECRET');
+const supabaseUrl = Deno.env.get('SUPABASE_URL');
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,158 +19,292 @@ serve(async (req) => {
 
   try {
     const { reportId, filePath } = await req.json();
-    
-    console.log('Processing PDF extraction for:', reportId, filePath);
+    console.log(`Starting Adobe PDF extraction for report ${reportId}`);
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    if (!adobeClientId || !adobeClientSecret) {
+      throw new Error('Adobe API credentials not configured');
+    }
 
-    // Get the file from storage
-    const { data: fileData, error: fileError } = await supabase.storage
+    const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
+
+    // Update status to processing
+    await supabase
+      .from('credit_reports')
+      .update({ extraction_status: 'processing' })
+      .eq('id', reportId);
+
+    // Download the PDF from storage
+    const { data: fileData, error: downloadError } = await supabase.storage
       .from('credit-reports')
       .download(filePath);
 
-    if (fileError || !fileData) {
-      console.error('File download error:', fileError);
-      throw new Error('Cannot download file');
+    if (downloadError) {
+      throw new Error(`Failed to download PDF: ${downloadError.message}`);
     }
 
-    // Convert to base64 for Adobe API
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    console.log('Downloaded PDF, size:', arrayBuffer.byteLength);
 
-    console.log('File size:', arrayBuffer.byteLength, 'bytes');
+    // Get Adobe access token
+    const tokenResponse = await fetch('https://ims-na1.adobelogin.com/ims/token/v1', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        'client_id': adobeClientId,
+        'client_secret': adobeClientSecret,
+        'grant_type': 'client_credentials',
+        'scope': 'https://ims-na1.adobelogin.com/s/ent_dataservices_sdk'
+      })
+    });
 
-    // Use fallback PDF processing since Adobe integration requires complex setup
-    console.log('Using fallback PDF processing...');
-    
-    // Convert PDF to text using simple text extraction
-    let extractedText = '';
-    try {
-      // For now, use a simple text extraction approach
-      const textDecoder = new TextDecoder();
-      const text = textDecoder.decode(arrayBuffer);
-      
-      // Basic text extraction from PDF - look for readable text patterns
-      const textMatches = text.match(/BT.*?ET/g) || [];
-      extractedText = textMatches.join(' ').replace(/[^\w\s\$\.\,\-\/\(\)]/g, ' ').trim();
-      
-      if (!extractedText || extractedText.length < 50) {
-        // Fallback: try to extract any readable ASCII text
-        extractedText = text.replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim();
-      }
-    } catch (textError) {
-      console.error('Text extraction error:', textError);
-      extractedText = 'Sample credit report data extracted successfully';
+    if (!tokenResponse.ok) {
+      throw new Error(`Adobe token request failed: ${tokenResponse.status}`);
+    }
+
+    const tokenData = await tokenResponse.json();
+    const accessToken = tokenData.access_token;
+    console.log('Adobe access token obtained');
+
+    // Extract text using Adobe PDF Services
+    const extractResponse = await fetch('https://cpf-ue1.adobe.io/ops/:create?respondWith=%7B%22reltype%22%3A%22http%3A//ns.adobe.com/rel/primary%22%7D', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'x-api-key': adobeClientId,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        'assetID': 'urn:aaid:AS:UE1:' + crypto.randomUUID(),
+        'name': 'extractpdf.in',
+        'dc:format': 'application/pdf',
+        'cpf:inputs': {
+          'documentIn': {
+            'cpf:location': 'InputFile0',
+            'dc:format': 'application/pdf'
+          }
+        },
+        'cpf:engine': {
+          'repo:assetId': 'urn:aaid:cpf:Service-26c557db8b0940398f5ba7a87a85b11d'
+        },
+        'cpf:outputs': {
+          'documentOut': {
+            'cpf:location': 'multipartLabelOut',
+            'dc:format': 'application/json'
+          }
+        }
+      })
+    });
+
+    if (!extractResponse.ok) {
+      const errorText = await extractResponse.text();
+      console.error('Adobe extraction request failed:', errorText);
+      throw new Error(`Adobe PDF extraction failed: ${errorText}`);
+    }
+
+    const extractData = await extractResponse.json();
+    console.log('Adobe extraction completed');
+
+    // Process the extracted text and update database
+    const extractedText = extractData.elements
+      ?.filter((element: any) => element.Text)
+      ?.map((element: any) => element.Text)
+      ?.join(' ') || '';
+
+    if (!extractedText || extractedText.length < 100) {
+      throw new Error('No readable text extracted from PDF');
     }
 
     console.log('Extracted text length:', extractedText.length);
 
-    if (!extractedText) {
-      throw new Error('No text extracted from PDF');
-    }
-
-    // Save extracted text to database
+    // Update the database with extracted text
     const { error: updateError } = await supabase
       .from('credit_reports')
       .update({
         raw_text: extractedText,
-        extraction_status: 'completed',
-        processing_errors: null,
-        updated_at: new Date().toISOString()
+        extraction_status: 'completed'
       })
       .eq('id', reportId);
 
     if (updateError) {
-      console.error('Database update error:', updateError);
-      throw new Error('Failed to save extracted text');
+      console.error('Failed to update database:', updateError);
+      throw new Error(`Database update failed: ${updateError.message}`);
     }
 
-    // Simple parsing and storage
-    await parseAndStoreData(supabase, reportId, extractedText);
-
-    console.log('PDF processing completed successfully');
+    // Parse and store the credit data
+    await parseAndStoreCreditData(supabase, reportId, extractedText);
 
     return new Response(JSON.stringify({ 
-      success: true, 
-      textLength: extractedText.length 
+      success: true,
+      method: 'adobe',
+      textLength: extractedText.length
     }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
-    console.error('Processing error:', error);
+    console.error('Adobe PDF extraction error:', error);
     
-    // Update report with error status
-    try {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
+    // Update status to failed
+    if (supabaseUrl && supabaseServiceKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { reportId } = await req.json().catch(() => ({ reportId: null }));
       
-      const { reportId } = await req.json();
-      await supabase
-        .from('credit_reports')
-        .update({
-          extraction_status: 'failed',
-          processing_errors: error.message,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', reportId);
-    } catch (updateError) {
-      console.error('Failed to update error status:', updateError);
+      if (reportId) {
+        await supabase
+          .from('credit_reports')
+          .update({
+            extraction_status: 'failed',
+            processing_errors: error.message
+          })
+          .eq('id', reportId);
+      }
     }
 
     return new Response(JSON.stringify({ 
+      success: false,
       error: error.message 
     }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
 
-async function parseAndStoreData(supabase: any, reportId: string, text: string) {
+async function parseAndStoreCreditData(supabase: any, reportId: string, text: string) {
   try {
-    // Extract personal information
-    const nameMatch = text.match(/Name[:\s]+([A-Z][a-z]+\s+[A-Z][a-z]+)/i);
-    const dobMatch = text.match(/Date\s+of\s+Birth[:\s]+(\d{1,2}\/\d{1,2}\/\d{4})/i);
-    const addressMatch = text.match(/Address[:\s]+([A-Z0-9\s,.-]+)/i);
+    console.log('Parsing credit data for report:', reportId);
 
-    if (nameMatch || dobMatch || addressMatch) {
-      await supabase.from('personal_information').insert({
+    // Extract personal information
+    const personalInfo = extractPersonalInfo(text);
+    if (personalInfo) {
+      await supabase.from('personal_information').upsert({
         report_id: reportId,
-        full_name: nameMatch?.[1] || null,
-        date_of_birth: dobMatch?.[1] ? new Date(dobMatch[1]) : null,
-        current_address: addressMatch?.[1] ? { street: addressMatch[1] } : null
+        ...personalInfo
       });
     }
 
     // Extract credit accounts
-    const accountMatches = text.matchAll(/([A-Z][a-z]+\s+[A-Z][a-z]+).*?\$(\d+(?:,\d{3})*(?:\.\d{2})?)/g);
-    for (const match of accountMatches) {
-      await supabase.from('credit_accounts').insert({
+    const accounts = extractCreditAccounts(text);
+    for (const account of accounts) {
+      await supabase.from('credit_accounts').upsert({
         report_id: reportId,
-        creditor_name: match[1],
-        current_balance: parseFloat(match[2].replace(/,/g, '')),
-        account_status: 'open'
+        ...account
       });
     }
 
-    // Extract inquiries
-    const inquiryMatches = text.matchAll(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+(?:inquiry|credit)/gi);
-    for (const match of inquiryMatches) {
-      await supabase.from('credit_inquiries').insert({
+    // Extract credit inquiries
+    const inquiries = extractCreditInquiries(text);
+    for (const inquiry of inquiries) {
+      await supabase.from('credit_inquiries').upsert({
         report_id: reportId,
-        inquirer_name: match[1],
-        inquiry_date: new Date(match[2])
+        ...inquiry
       });
     }
 
-    console.log('Data parsing and storage completed');
-  } catch (parseError) {
-    console.error('Parsing error:', parseError);
-    // Don't throw - extraction was successful even if parsing fails
+    // Extract negative items
+    const negativeItems = extractNegativeItems(text);
+    for (const item of negativeItems) {
+      await supabase.from('negative_items').upsert({
+        report_id: reportId,
+        ...item
+      });
+    }
+
+    console.log('Credit data parsing completed');
+  } catch (error) {
+    console.error('Error parsing credit data:', error);
+    throw error;
+  }
+}
+
+function extractPersonalInfo(text: string) {
+  const nameMatch = text.match(/(?:Name|Consumer):\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
+  const dobMatch = text.match(/(?:Date of Birth|DOB|Born):\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+  const ssnMatch = text.match(/(?:SSN|Social Security):\s*(\*{3}-\*{2}-\d{4}|\d{3}-\d{2}-\d{4})/i);
+  
+  const addressMatch = text.match(/(?:Address|Residence):\s*([^,\n]+(?:,\s*[^,\n]+)*)/i);
+
+  return {
+    full_name: nameMatch?.[1] || null,
+    date_of_birth: dobMatch?.[1] ? formatDate(dobMatch[1]) : null,
+    ssn_partial: ssnMatch?.[1] || null,
+    current_address: addressMatch?.[1] ? { street: addressMatch[1] } : null
+  };
+}
+
+function extractCreditAccounts(text: string): any[] {
+  const accounts = [];
+  const accountPattern = /(?:Account|Acct):\s*([^\n]+)[\s\S]*?(?:Creditor|Company):\s*([^\n]+)/gi;
+  
+  let match;
+  while ((match = accountPattern.exec(text)) !== null) {
+    accounts.push({
+      account_number: match[1]?.trim(),
+      creditor_name: match[2]?.trim(),
+      account_type: determineAccountType(match[2]?.trim() || ''),
+      current_balance: 0,
+      account_status: 'unknown'
+    });
+  }
+  
+  return accounts;
+}
+
+function extractCreditInquiries(text: string): any[] {
+  const inquiries = [];
+  const inquiryPattern = /(?:Inquiry|Request).*?([A-Z][A-Z\s&]+).*?(\d{1,2}\/\d{1,2}\/\d{2,4})/gi;
+  
+  let match;
+  while ((match = inquiryPattern.exec(text)) !== null) {
+    inquiries.push({
+      inquirer_name: match[1]?.trim(),
+      inquiry_date: formatDate(match[2]),
+      inquiry_type: 'hard'
+    });
+  }
+  
+  return inquiries;
+}
+
+function extractNegativeItems(text: string): any[] {
+  const negativeItems = [];
+  const negativeKeywords = [
+    'late payment', 'collection', 'charge off', 'bankruptcy',
+    'repossession', 'foreclosure', 'past due'
+  ];
+  
+  for (const keyword of negativeKeywords) {
+    const regex = new RegExp(`(.*?${keyword}.*?)(?=\\n|$)`, 'gi');
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      negativeItems.push({
+        negative_type: keyword,
+        description: match[1]?.trim(),
+        severity_score: keyword.includes('bankruptcy') ? 10 : 
+                      keyword.includes('charge off') ? 8 : 6
+      });
+    }
+  }
+  
+  return negativeItems;
+}
+
+function determineAccountType(creditorName: string): string {
+  const name = creditorName.toLowerCase();
+  if (name.includes('card') || name.includes('visa') || name.includes('mastercard')) return 'credit_card';
+  if (name.includes('mortgage') || name.includes('home') || name.includes('real estate')) return 'mortgage';
+  if (name.includes('auto') || name.includes('car') || name.includes('vehicle')) return 'auto_loan';
+  if (name.includes('student') || name.includes('education')) return 'student_loan';
+  return 'other';
+}
+
+function formatDate(dateStr: string): string | null {
+  try {
+    const date = new Date(dateStr);
+    return date.toISOString().split('T')[0];
+  } catch {
+    return null;
   }
 }

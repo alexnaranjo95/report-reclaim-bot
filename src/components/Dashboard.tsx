@@ -153,10 +153,9 @@ export const Dashboard = () => {
         }
       );
       
-      // Check if we got valid data from the PDF
-      if (!results.items || results.items.length === 0) {
-        // Stay on processing screen and show error
-        setAnalysisError('No credit report data found in the uploaded PDF. Please ensure you uploaded a valid credit report from Experian, Equifax, or TransUnion.');
+      // Validate that we got meaningful results
+      if (!results || !results.items || results.items.length === 0) {
+        setAnalysisError('No data was extracted from the PDF. This could be because the PDF is image-based, encrypted, or not a valid credit report.');
         setProcessingStep('error');
         return;
       }

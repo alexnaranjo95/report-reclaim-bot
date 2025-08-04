@@ -1124,9 +1124,23 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      extraction_health_monitor: {
+        Row: {
+          avg_processing_time_seconds: number | null
+          count: number | null
+          extraction_status: string | null
+          newest_record: string | null
+          oldest_record: string | null
+          recent_count: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      cleanup_old_failed_reports: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       ensure_round_templates: {
         Args: Record<PropertyKey, never>
         Returns: undefined

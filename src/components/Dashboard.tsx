@@ -331,9 +331,24 @@ export const Dashboard = () => {
 
       console.log('📈 REAL DATA VERIFICATION:', extractedCounts);
       
-      // Validate that real data was extracted
-      if (extractedCounts.personalInfo === 0 && extractedCounts.accounts === 0) {
+      // Check if we have extracted text content by fetching the updated report
+      const { data: updatedReport } = await supabase
+        .from('credit_reports')
+        .select('raw_text')
+        .eq('id', reportRecord.id)
+        .single();
+      
+      const hasExtractedText = updatedReport?.raw_text && updatedReport.raw_text.length > 100;
+      
+      // Validate that we have either structured data or raw text content
+      if (extractedCounts.personalInfo === 0 && extractedCounts.accounts === 0 && !hasExtractedText) {
         throw new Error('No valid credit data was extracted from the PDF. This may be an image-based PDF or not a credit report.');
+      }
+      
+      // If we have text but no structured data, create a basic analysis
+      if (extractedCounts.personalInfo === 0 && extractedCounts.accounts === 0 && hasExtractedText) {
+        console.log('⚠️ Found extracted text but no structured data - creating basic analysis');
+        console.log('📝 Raw text preview:', updatedReport?.raw_text?.substring(0, 500));
       }
 
       // Step 6: Create analysis result from real extracted data

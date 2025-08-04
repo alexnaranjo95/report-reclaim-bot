@@ -1188,6 +1188,15 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: undefined
       }
+      get_extraction_summary: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          status: string
+          count: number
+          avg_text_length: number
+          common_errors: string[]
+        }[]
+      }
       get_user_profile: {
         Args: { profile_user_id: string }
         Returns: {
@@ -1254,6 +1263,10 @@ export type Database = {
           profile_organization_name?: string
         }
         Returns: string
+      }
+      validate_extracted_text: {
+        Args: { report_id: string }
+        Returns: boolean
       }
     }
     Enums: {

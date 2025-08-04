@@ -138,11 +138,8 @@ async function analyzePDFFile(file: File) {
       } catch (enhancedError) {
         console.log('❌ Enhanced extraction failed:', enhancedError.message);
         
-        // Method 3: Fallback with realistic content
-        console.log('Using fallback realistic content...');
-        extractedText = generateRealisticCreditReportContent();
-        extractionMethod = 'Fallback';
-        console.log('✅ Using fallback content');
+        // CRITICAL: NO MORE FALSE DATA FALLBACK
+        throw new Error('All PDF extraction methods failed. Unable to extract readable text from this PDF. Please ensure the PDF contains text (not just scanned images) and try again.');
       }
     }
     
@@ -151,7 +148,12 @@ async function analyzePDFFile(file: File) {
     
     // Validate extraction
     if (!extractedText || extractedText.length < 100) {
-      throw new Error('No readable text extracted from PDF');
+      throw new Error('No readable text extracted from PDF. Please ensure this is a text-based PDF, not a scanned image.');
+    }
+    
+    // Validate that extracted text contains credit report content
+    if (!containsCreditKeywords(extractedText)) {
+      throw new Error('Extracted text does not appear to be from a credit report. Please upload a valid credit report from Experian, Equifax, or TransUnion.');
     }
     
     // Store extracted text permanently
@@ -284,67 +286,6 @@ function containsCreditKeywords(text: string): boolean {
   
   const lowerText = text.toLowerCase();
   return keywords.some(keyword => lowerText.includes(keyword));
-}
-
-function generateRealisticCreditReportContent(): string {
-  return `CREDIT REPORT - SAMPLE DATA
-
-Consumer Information:
-Name: John Michael Smith
-Current Address: 1234 Oak Street, Anytown, CA 90210
-Phone: (555) 123-4567
-Date of Birth: 03/15/1985
-SSN: XXX-XX-1234
-
-Credit Summary:
-Total Open Accounts: 5
-Total Closed Accounts: 2
-Total Credit Lines: $45,000
-Payment History: 94% On Time
-
-Account Information:
-
-Capital One Platinum Credit Card
-Account Number: ****5678
-Account Type: Revolving Credit
-Current Balance: $1,250.00
-Credit Limit: $5,000.00
-Payment Status: Current
-Date Opened: 01/15/2020
-
-Chase Freedom Unlimited
-Account Number: ****9012
-Account Type: Revolving Credit
-Current Balance: $2,100.00
-Credit Limit: $10,000.00
-Payment Status: Current
-Date Opened: 05/20/2019
-
-Wells Fargo Auto Loan
-Account Number: ****3456
-Account Type: Installment
-Current Balance: $15,750.00
-Original Amount: $25,000.00
-Payment Status: Current
-Date Opened: 08/10/2021
-
-Credit Inquiries:
-
-Verizon Wireless
-Date: 11/15/2023
-Type: Hard Inquiry
-
-Capital One Bank
-Date: 05/10/2023
-Type: Hard Inquiry
-
-Collections/Negative Items:
-
-Medical Collection Services
-Original Creditor: City General Hospital
-Collection Amount: $350.00
-Status: Unpaid
-Date Assigned: 02/28/2023`;
 }
 
 async function parseAndStoreCreditData(supabase: any, reportId: string, text: string) {

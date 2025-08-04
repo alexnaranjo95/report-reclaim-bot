@@ -363,6 +363,11 @@ export const Dashboard = () => {
       setProcessingStep('Building analysis from real data...');
       setProcessingProgress(90);
       
+      // Only create analysis result if we have real data
+      if (extractedCounts.accounts === 0 && extractedCounts.negativeItems === 0 && extractedCounts.inquiries === 0) {
+        throw new Error('No credit data could be extracted from this PDF. Please ensure this is a valid credit report from Experian, Equifax, or TransUnion.');
+      }
+      
       const analysisResult: CreditAnalysisResult = {
         items: negativeItems.data?.map((item: any, index: number) => ({
           id: `real-${item.id}`,
@@ -371,7 +376,7 @@ export const Dashboard = () => {
           issue: item.description || 'Negative item',
           impact: item.severity_score > 7 ? 'high' : item.severity_score > 4 ? 'medium' : 'low',
           status: 'negative' as const,
-          bureau: ['Unknown'], // Would be extracted properly
+          bureau: ['Unknown'], // Will be extracted from real data in future
           dateOpened: item.date_occurred,
           balance: item.amount,
         })) || [],
@@ -379,27 +384,27 @@ export const Dashboard = () => {
           totalNegativeItems: extractedCounts.negativeItems,
           totalPositiveAccounts: Math.max(0, extractedCounts.accounts - extractedCounts.negativeItems),
           totalAccounts: extractedCounts.accounts,
-          estimatedScoreImpact: extractedCounts.negativeItems * 20, // Rough estimate
-          bureausAffected: ['Experian', 'Equifax', 'TransUnion'],
-          highImpactItems: 0, // Would be calculated from real data
-          mediumImpactItems: 0,
-          lowImpactItems: 0
+          estimatedScoreImpact: extractedCounts.negativeItems * 20, // Will be calculated from real data
+          bureausAffected: ['Experian', 'Equifax', 'TransUnion'], // Will be extracted from real data
+          highImpactItems: negativeItems.data?.filter((item: any) => item.severity_score > 7).length || 0,
+          mediumImpactItems: negativeItems.data?.filter((item: any) => item.severity_score > 4 && item.severity_score <= 7).length || 0,
+          lowImpactItems: negativeItems.data?.filter((item: any) => item.severity_score <= 4).length || 0
         },
         historicalData: {
-          lettersSent: 0,
-          itemsRemoved: 0,
+          lettersSent: 0, // Will come from database history
+          itemsRemoved: 0, // Will come from database history
           itemsPending: extractedCounts.negativeItems,
-          successRate: 0,
-          avgRemovalTime: 0
+          successRate: 0, // Will be calculated from database history
+          avgRemovalTime: 0 // Will be calculated from database history
         },
         accountBreakdown: {
-          creditCards: 0,
-          mortgages: 0,
-          autoLoans: 0,
-          studentLoans: 0,
-          personalLoans: 0,
+          creditCards: accounts.data?.filter((acc: any) => acc.account_type === 'Credit Card').length || 0,
+          mortgages: accounts.data?.filter((acc: any) => acc.account_type === 'Mortgage').length || 0,
+          autoLoans: accounts.data?.filter((acc: any) => acc.account_type === 'Auto Loan').length || 0,
+          studentLoans: accounts.data?.filter((acc: any) => acc.account_type === 'Student Loan').length || 0,
+          personalLoans: accounts.data?.filter((acc: any) => acc.account_type === 'Personal Loan').length || 0,
           collections: extractedCounts.negativeItems,
-          other: Math.max(0, extractedCounts.accounts - extractedCounts.negativeItems)
+          other: accounts.data?.filter((acc: any) => !['Credit Card', 'Mortgage', 'Auto Loan', 'Student Loan', 'Personal Loan'].includes(acc.account_type)).length || 0
         },
         personalInfo: personalInfo.data?.[0] ? {
           name: personalInfo.data[0].full_name || undefined,
@@ -410,9 +415,9 @@ export const Dashboard = () => {
           dateOfBirth: personalInfo.data[0].date_of_birth || undefined,
         } : {},
         creditScores: {
-          experian: 0, // Would be extracted from real data
-          equifax: 0,
-          transunion: 0
+          experian: 0, // Will be extracted from real data
+          equifax: 0, // Will be extracted from real data
+          transunion: 0 // Will be extracted from real data
         }
       };
       

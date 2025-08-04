@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
+import { TextractClient, DetectDocumentTextCommand } from 'https://esm.sh/@aws-sdk/client-textract@3.0.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -6,7 +7,7 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req) => {
-  console.log("=== TEXTRACT FUNCTION START ===");
+  console.log("=== AMAZON TEXTRACT FUNCTION START ===");
   console.log("Function called at:", new Date().toISOString());
   console.log("Request method:", req.method);
 
@@ -23,6 +24,20 @@ Deno.serve(async (req) => {
     console.log("Report ID:", body.reportId);
     console.log("File Path:", body.filePath);
 
+    // Validate AWS credentials
+    console.log("=== VALIDATING AWS CREDENTIALS ===");
+    const awsAccessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
+    const awsSecretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY');
+    const awsRegion = Deno.env.get('AWS_REGION') || 'us-east-1';
+    
+    console.log("AWS Access Key ID exists:", !!awsAccessKeyId);
+    console.log("AWS Secret Access Key exists:", !!awsSecretAccessKey);
+    console.log("AWS Region:", awsRegion);
+
+    if (!awsAccessKeyId || !awsSecretAccessKey) {
+      throw new Error('Missing AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set');
+    }
+
     // Initialize Supabase client
     console.log("=== CREATING SUPABASE CLIENT ===");
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -36,8 +51,18 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Initialize AWS Textract client
+    console.log("=== INITIALIZING AWS TEXTRACT CLIENT ===");
+    const textractClient = new TextractClient({
+      region: awsRegion,
+      credentials: {
+        accessKeyId: awsAccessKeyId,
+        secretAccessKey: awsSecretAccessKey,
+      },
+    });
+
     // Download PDF file
-    console.log("Downloading PDF file...");
+    console.log("=== DOWNLOADING PDF FILE ===");
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('credit-reports')
       .download(body.filePath);
@@ -60,39 +85,60 @@ Deno.serve(async (req) => {
 
     console.log("✅ PDF validation passed");
 
-    // Simple text extraction
-    console.log("🚀 Starting simple text extraction...");
-    const pdfString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
-    
-    // Extract text from PDF streams
-    let extractedText = '';
-    
-    // Method 1: Extract text in parentheses
-    const textMatches = pdfString.match(/\(([^)]+)\)/g);
-    if (textMatches) {
-      extractedText += textMatches
-        .map(match => match.slice(1, -1))
-        .filter(text => text.length > 2 && /[a-zA-Z]/.test(text))
-        .join(' ');
-    }
-    
-    // Method 2: Extract readable ASCII sequences
-    const asciiMatches = pdfString.match(/[A-Za-z][A-Za-z0-9\s]{5,}/g);
-    if (asciiMatches) {
-      extractedText += ' ' + asciiMatches
-        .filter(text => text.length > 3)
-        .join(' ');
+    // Convert to base64 for AWS Textract
+    console.log("=== CONVERTING TO BASE64 ===");
+    const base64String = btoa(String.fromCharCode(...bytes));
+    console.log("Base64 conversion completed, length:", base64String.length);
+
+    // Call Amazon Textract
+    console.log("=== CALLING AMAZON TEXTRACT ===");
+    const textractCommand = new DetectDocumentTextCommand({
+      Document: {
+        Bytes: bytes,
+      },
+    });
+
+    console.log("Sending request to AWS Textract...");
+    const textractResponse = await textractClient.send(textractCommand);
+    console.log("✅ AWS Textract response received");
+
+    if (!textractResponse.Blocks) {
+      throw new Error("No text blocks found in Textract response");
     }
 
+    // Extract text from Textract response
+    console.log("=== EXTRACTING TEXT FROM TEXTRACT RESPONSE ===");
+    const textBlocks = textractResponse.Blocks.filter(block => block.BlockType === 'LINE');
+    console.log(`Found ${textBlocks.length} text lines`);
+
+    let extractedText = '';
+    for (const block of textBlocks) {
+      if (block.Text) {
+        extractedText += block.Text + ' ';
+      }
+    }
+
+    extractedText = extractedText.trim();
     console.log("Text extraction completed, length:", extractedText.length);
-    console.log("Text preview:", extractedText.substring(0, 200));
+    console.log("Text preview:", extractedText.substring(0, 300));
 
     if (extractedText.length < 100) {
-      throw new Error("Insufficient text extracted from PDF");
+      throw new Error("Insufficient text extracted from PDF via Textract");
+    }
+
+    // Validate extracted text quality
+    console.log("=== VALIDATING EXTRACTED TEXT ===");
+    const hasCreditKeywords = /credit|account|balance|payment|inquiry|collection|name|address|phone|date|birth|social|security|experian|equifax|transunion|fico|score/i.test(extractedText);
+    
+    if (!hasCreditKeywords) {
+      console.warn("⚠️ Extracted text may not contain credit report content");
+      console.log("Text sample:", extractedText.substring(0, 500));
+    } else {
+      console.log("✅ Extracted text contains credit report keywords");
     }
 
     // Store in database
-    console.log("Storing extracted text in database...");
+    console.log("=== STORING IN DATABASE ===");
     const { error: updateError } = await supabase
       .from('credit_reports')
       .update({
@@ -113,8 +159,9 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: 'PDF processed successfully',
+        message: 'PDF processed successfully with Amazon Textract',
         textLength: extractedText.length,
+        textractBlocks: textBlocks.length,
         timestamp: new Date().toISOString()
       }),
       {

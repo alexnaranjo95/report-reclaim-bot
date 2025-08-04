@@ -77,9 +77,19 @@ serve(async (req) => {
     console.log("- Is valid PDF header:", isPDF)
     console.log("- PDF header bytes:", Array.from(pdfHeader))
 
-    // STEP E: Test base64 conversion
+    // STEP E: Test base64 conversion (FIXED METHOD)
     console.log("STEP E: Testing base64 conversion...")
-    const base64String = btoa(String.fromCharCode(...bytes))
+    
+    // Convert bytes to base64 in chunks to avoid call stack overflow
+    let base64String = ''
+    const chunkSize = 1024 // Process 1KB at a time
+    
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.slice(i, i + chunkSize)
+      const chunkString = String.fromCharCode(...chunk)
+      base64String += btoa(chunkString)
+    }
+    
     console.log("- Base64 string length:", base64String.length)
     console.log("- First 100 chars:", base64String.substring(0, 100))
     console.log("- Last 50 chars:", base64String.substring(base64String.length - 50))

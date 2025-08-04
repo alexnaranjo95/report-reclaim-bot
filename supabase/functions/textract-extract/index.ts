@@ -143,9 +143,19 @@ async function analyzeDocumentWithTextract(bytes: Uint8Array, accessKey: string,
   const timestamp = new Date().toISOString().replace(/[:\-]|\.\d{3}/g, '');
   const date = timestamp.substr(0, 8);
   
+  // Convert bytes to base64 in chunks to avoid call stack overflow
+  let base64String = ''
+  const chunkSize = 1024 // Process 1KB at a time
+  
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.slice(i, i + chunkSize)
+    const chunkString = String.fromCharCode(...chunk)
+    base64String += btoa(chunkString)
+  }
+  
   const payload = JSON.stringify({
     Document: {
-      Bytes: btoa(String.fromCharCode(...bytes))
+      Bytes: base64String
     },
     FeatureTypes: ['TABLES', 'FORMS']
   });

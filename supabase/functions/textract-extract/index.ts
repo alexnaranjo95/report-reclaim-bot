@@ -1,8 +1,7 @@
-
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
+// CORS headers for web requests
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -12,430 +11,312 @@ serve(async (req) => {
   console.log("=== TEXTRACT FUNCTION START ===");
   console.log("Function called at:", new Date().toISOString());
   console.log("Request method:", req.method);
-  console.log("Request headers:", Object.fromEntries(req.headers.entries()));
-  
+
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     console.log("CORS preflight request handled");
     return new Response(null, { headers: corsHeaders });
   }
 
-  let reportId: string = '';
-  let filePath: string = '';
-
   try {
-    // Test AWS credentials exist first
-    console.log("=== CHECKING AWS CREDENTIALS ===");
-    const awsAccessKey = Deno.env.get("AWS_ACCESS_KEY_ID");
-    const awsSecretKey = Deno.env.get("AWS_SECRET_ACCESS_KEY");
-    const awsRegion = Deno.env.get("AWS_REGION");
-    
-    console.log("AWS_ACCESS_KEY_ID exists:", !!awsAccessKey, awsAccessKey ? `(length: ${awsAccessKey.length})` : '');
-    console.log("AWS_SECRET_ACCESS_KEY exists:", !!awsSecretKey, awsSecretKey ? `(length: ${awsSecretKey.length})` : '');
-    console.log("AWS_REGION:", awsRegion);
-    
-    if (!awsAccessKey || !awsSecretKey || !awsRegion) {
-      throw new Error(`Missing AWS credentials: accessKey=${!!awsAccessKey}, secretKey=${!!awsSecretKey}, region=${!!awsRegion}`);
-    }
-    
-    // Parse request body with detailed error handling
+    // Parse request body
     console.log("=== PARSING REQUEST ===");
-    let requestBody: any;
-    try {
-      requestBody = await req.json();
-      console.log("Request body parsed successfully");
-      console.log("Request body keys:", Object.keys(requestBody));
-    } catch (e) {
-      console.error("Request parsing failed:", e);
-      throw new Error(`Request parsing failed: ${e.message}`);
+    const body = await req.json();
+    console.log("Request body keys:", Object.keys(body));
+    console.log("Report ID:", body.reportId);
+    console.log("File Path:", body.filePath);
+
+    if (!body.reportId || !body.filePath) {
+      throw new Error("Missing required parameters: reportId and filePath");
     }
-    
-    reportId = requestBody.reportId;
-    filePath = requestBody.filePath;
-    
-    console.log("Report ID:", reportId);
-    console.log("File Path:", filePath);
-    
-    if (!reportId || !filePath) {
-      throw new Error(`Missing required fields: reportId=${!!reportId}, filePath=${!!filePath}`);
-    }
-    
-    console.log('=== CREATING SUPABASE CLIENT ===');
+
+    // Initialize Supabase client
+    console.log("=== CREATING SUPABASE CLIENT ===");
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    console.log('Supabase URL exists:', !!supabaseUrl);
-    console.log('Supabase Service Key exists:', !!supabaseKey);
-    
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log("Supabase URL exists:", !!supabaseUrl);
+    console.log("Supabase Service Key exists:", !!supabaseServiceKey);
 
-    // Update status to processing
-    await supabase
-      .from('credit_reports')
-      .update({
-        extraction_status: 'processing',
-        processing_errors: null,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', reportId);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Download PDF file
-    console.log('Downloading PDF file...');
-    const { data: fileData, error: fileError } = await supabase.storage
+    // Download PDF from storage
+    console.log("Downloading PDF file...");
+    const { data: fileData, error: downloadError } = await supabase.storage
       .from('credit-reports')
-      .download(filePath);
+      .download(body.filePath);
 
-    if (fileError || !fileData) {
-      throw new Error(`Failed to download PDF: ${fileError?.message || 'File not found'}`);
+    if (downloadError) {
+      throw new Error(`Failed to download PDF: ${downloadError.message}`);
     }
 
-    console.log('PDF downloaded successfully, size:', fileData.size, 'bytes');
-
-    // Convert file to base64 for Textract
+    // Convert to bytes
     const arrayBuffer = await fileData.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
-    
-    // Use Textract to extract text and tables
-    console.log('🚀 Starting Amazon Textract analysis...');
-    const textractResult = await analyzeDocumentWithTextract(bytes, awsAccessKey, awsSecretKey, awsRegion);
-    
-    console.log('✅ Textract analysis completed');
-    console.log('Pages analyzed:', textractResult.pages.length);
-    console.log('Total text length:', textractResult.fullText.length);
-    console.log('Tables found:', textractResult.tables.length);
-    console.log('Key-value pairs found:', textractResult.keyValuePairs.length);
+    console.log("PDF downloaded successfully, size:", bytes.length, "bytes");
 
-    // Validate extraction quality
-    if (!isValidCreditReportContent(textractResult.fullText)) {
-      throw new Error('Textract extraction failed - no valid credit report content found');
+    // Validate file size (max 5MB for Textract)
+    if (bytes.length > 5000000) {
+      throw new Error(`File too large: ${bytes.length} bytes. Maximum supported size is 5MB.`);
     }
 
-    // Save extracted text and structured data
+    // Verify PDF header
+    const pdfHeader = Array.from(bytes.slice(0, 4), byte => String.fromCharCode(byte)).join('');
+    if (pdfHeader !== '%PDF') {
+      throw new Error("Invalid PDF file format");
+    }
+
+    // Extract text using Amazon Textract
+    console.log("🚀 Starting Amazon Textract analysis...");
+    const extractedData = await analyzeDocumentWithTextract(bytes);
+
+    if (!extractedData || !extractedData.text || extractedData.text.length < 50) {
+      throw new Error("Textract extraction failed - no meaningful text extracted");
+    }
+
+    console.log("✅ Textract extraction successful, text length:", extractedData.text.length);
+
+    // Validate extracted content
+    if (!isValidCreditReportContent(extractedData.text)) {
+      throw new Error("Extracted content does not appear to be a valid credit report");
+    }
+
+    // Store raw text in database
     const { error: updateError } = await supabase
       .from('credit_reports')
       .update({
-        raw_text: textractResult.fullText,
+        raw_text: extractedData.text,
         extraction_status: 'completed',
-        processing_errors: null,
         updated_at: new Date().toISOString()
       })
-      .eq('id', reportId);
+      .eq('id', body.reportId);
 
     if (updateError) {
-      throw new Error(`Failed to save extracted text: ${updateError.message}`);
+      throw new Error(`Failed to store extracted text: ${updateError.message}`);
     }
 
-    // Parse and store structured data using Textract's organized output
-    await parseAndStoreCreditData(supabase, reportId, textractResult);
+    // Parse and store structured data
+    await parseAndStoreCreditData(supabase, body.reportId, extractedData);
 
-    console.log('=== TEXTRACT EXTRACTION COMPLETED SUCCESSFULLY ===');
+    console.log("✅ PDF processing completed successfully");
 
-    return new Response(JSON.stringify({ 
-      success: true, 
-      textLength: textractResult.fullText.length,
-      tablesFound: textractResult.tables.length,
-      keyValuePairs: textractResult.keyValuePairs.length,
-      extractionMethod: 'Amazon Textract',
-      message: 'Credit report extracted and parsed successfully with Textract'
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        textLength: extractedData.text.length,
+        tables: extractedData.tables?.length || 0,
+        keyValues: extractedData.keyValues?.length || 0,
+        reportId: body.reportId
+      }),
+      { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200 
+      }
+    );
 
   } catch (error) {
-    console.error('=== TEXTRACT EXTRACTION ERROR ===');
-    console.error('Error type:', error.constructor.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('Full error object:', JSON.stringify(error, null, 2));
-    
-    // Update report with error status (use the reportId we already have)
-    if (reportId) {
-      try {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-        const supabase = createClient(supabaseUrl, supabaseKey);
-        
-        console.log('Updating report status to failed for:', reportId);
-        await supabase
-          .from('credit_reports')
-          .update({
-            extraction_status: 'failed',
-            processing_errors: error.message,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', reportId);
-        console.log('Report status updated to failed');
-      } catch (updateError) {
-        console.error('Failed to update error status:', updateError);
-      }
+    console.error("=== TEXTRACT EXTRACTION ERROR ===");
+    console.error("Error type:", error.constructor.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+
+    // Update report status to failed
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      
+      await supabase
+        .from('credit_reports')
+        .update({
+          extraction_status: 'failed',
+          processing_errors: error.message,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', body?.reportId);
+    } catch (updateError) {
+      console.error("Failed to update error status:", updateError);
     }
 
-    return new Response(JSON.stringify({ 
-      error: error.message,
-      errorType: error.constructor.name,
-      stack: error.stack,
-      timestamp: new Date().toISOString()
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+        success: false,
+        timestamp: new Date().toISOString()
+      }),
+      { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500 
+      }
+    );
   }
 });
 
-async function analyzeDocumentWithTextract(bytes: Uint8Array, accessKey: string, secretKey: string, region: string) {
-  const endpoint = `https://textract.${region}.amazonaws.com/`;
-  
-  // Create AWS signature
-  const timestamp = new Date().toISOString().replace(/[:\-]|\.\d{3}/g, '');
-  const date = timestamp.substr(0, 8);
-  
-  // Convert bytes to base64 using proper method for Deno
+// Amazon Textract integration
+async function analyzeDocumentWithTextract(bytes: Uint8Array) {
   console.log("Converting to base64...");
   console.log("File size in bytes:", bytes.length);
   
-  let base64String;
-  try {
-    if (bytes.length > 5000000) { // > 5MB files might have issues
-      throw new Error(`File too large: ${bytes.length} bytes. Maximum supported size is 5MB.`);
-    }
-    
-    // Use TextDecoder to convert bytes to binary string safely
-    const binaryString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
-    base64String = btoa(binaryString);
-    
-    console.log("Base64 conversion successful");
-    console.log("Base64 length:", base64String.length);
-    console.log("Base64 preview (first 100 chars):", base64String.substring(0, 100));
-    
-    // Validate the base64 string
-    if (!base64String || base64String.length === 0) {
-      throw new Error("Base64 conversion resulted in empty string");
-    }
-    
-    // Check if the base64 is valid by attempting to decode a sample
-    try {
-      const sample = base64String.substring(0, 100);
-      atob(sample.padEnd(Math.ceil(sample.length / 4) * 4, '='));
-    } catch (e) {
-      throw new Error("Generated base64 is invalid");
-    }
-    
-  } catch (e) {
-    console.error("Base64 conversion error:", e);
-    throw new Error(`Base64 conversion failed: ${e.message}`);
+  // Convert to base64 using proper method for Deno
+  const binaryString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+  const base64String = btoa(binaryString);
+  
+  console.log("Base64 conversion successful");
+  console.log("Base64 length:", base64String.length);
+  console.log("Base64 preview (first 100 chars):", base64String.substring(0, 100));
+
+  // Prepare AWS Textract request
+  const region = Deno.env.get("AWS_REGION") || "us-east-1";
+  const accessKeyId = Deno.env.get("AWS_ACCESS_KEY_ID")!;
+  const secretAccessKey = Deno.env.get("AWS_SECRET_ACCESS_KEY")!;
+
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("AWS credentials not configured");
   }
+
+  const service = "textract";
+  const host = `${service}.${region}.amazonaws.com`;
+  const endpoint = `https://${host}/`;
   
   const payload = JSON.stringify({
     Document: {
       Bytes: base64String
     },
-    FeatureTypes: ['TABLES', 'FORMS']
+    FeatureTypes: ["TABLES", "FORMS"]
   });
+
+  // Create AWS signature
+  const headers = await createAwsHeaders(payload, host, region, accessKeyId, secretAccessKey);
+
+  console.log("Calling Textract AnalyzeDocument API...");
   
-  const headers = await createAwsHeaders(accessKey, secretKey, region, 'textract', 'AnalyzeDocument', payload, timestamp);
-  
-  console.log('Calling Textract AnalyzeDocument API...');
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      ...headers,
-      'Content-Type': 'application/x-amz-json-1.1',
-      'X-Amz-Target': 'Textract.AnalyzeDocument'
-    },
-    body: payload
+    headers,
+    body: payload,
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Textract API error:', errorText);
+    console.error("Textract API error:", errorText);
     throw new Error(`Textract API error: ${response.status} - ${errorText}`);
   }
 
   const result = await response.json();
-  console.log('Raw Textract response received, blocks:', result.Blocks?.length || 0);
+  console.log("✅ Textract API call successful");
   
   return processTextractResponse(result);
 }
 
+// Process Textract response into structured data
 function processTextractResponse(textractResponse: any) {
   const blocks = textractResponse.Blocks || [];
-  const pages: any[] = [];
-  const tables: any[] = [];
-  const keyValuePairs: any[] = [];
+  
   let fullText = '';
-  
-  // Group blocks by type
-  const lineBlocks = blocks.filter((block: any) => block.BlockType === 'LINE');
-  const tableBlocks = blocks.filter((block: any) => block.BlockType === 'TABLE');
-  const keyValueBlocks = blocks.filter((block: any) => block.BlockType === 'KEY_VALUE_SET');
-  
-  // Extract text from LINE blocks (most reliable for credit reports)
-  console.log('Processing LINE blocks:', lineBlocks.length);
-  for (const block of lineBlocks) {
-    if (block.Text && block.Text.trim()) {
-      fullText += block.Text.trim() + '\n';
-    }
-  }
-  
-  // Process tables for structured account data
-  console.log('Processing TABLE blocks:', tableBlocks.length);
-  for (const tableBlock of tableBlocks) {
-    const table = extractTableFromBlock(tableBlock, blocks);
-    if (table.rows.length > 0) {
-      tables.push(table);
-    }
-  }
-  
-  // Process key-value pairs for personal information
-  console.log('Processing KEY-VALUE blocks:', keyValueBlocks.length);
-  const keyBlocks = keyValueBlocks.filter((block: any) => 
-    block.EntityTypes && block.EntityTypes.includes('KEY')
-  );
-  const valueBlocks = keyValueBlocks.filter((block: any) => 
-    block.EntityTypes && block.EntityTypes.includes('VALUE')
-  );
-  
-  for (const keyBlock of keyBlocks) {
-    const valueBlock = findLinkedValueBlock(keyBlock, valueBlocks, blocks);
-    if (keyBlock.Text && valueBlock?.Text) {
-      keyValuePairs.push({
-        key: keyBlock.Text.trim(),
-        value: valueBlock.Text.trim(),
-        confidence: Math.min(keyBlock.Confidence || 0, valueBlock.Confidence || 0)
-      });
-    }
-  }
-  
-  console.log('Textract processing complete:');
-  console.log('- Full text length:', fullText.length);
-  console.log('- Tables extracted:', tables.length);
-  console.log('- Key-value pairs:', keyValuePairs.length);
-  
-  return {
-    fullText: fullText.trim(),
-    pages,
-    tables,
-    keyValuePairs
-  };
-}
+  const tables: any[] = [];
+  const keyValues: any[] = [];
 
-function extractTableFromBlock(tableBlock: any, allBlocks: any[]) {
-  const rows: any[] = [];
-  const cellBlocks = allBlocks.filter((block: any) => 
-    block.BlockType === 'CELL' && 
-    block.Relationships?.some((rel: any) => rel.Type === 'CHILD')
-  );
-  
-  // Group cells by row and column
-  const cellMap = new Map();
-  for (const cell of cellBlocks) {
-    const rowIndex = cell.RowIndex || 1;
-    const colIndex = cell.ColumnIndex || 1;
-    const key = `${rowIndex}-${colIndex}`;
-    
-    // Get cell text from child word blocks
-    let cellText = '';
-    if (cell.Relationships) {
-      const childIds = cell.Relationships
-        .filter((rel: any) => rel.Type === 'CHILD')
-        .flatMap((rel: any) => rel.Ids);
-      
-      for (const childId of childIds) {
-        const childBlock = allBlocks.find((block: any) => block.Id === childId);
-        if (childBlock && childBlock.Text) {
-          cellText += childBlock.Text + ' ';
-        }
+  // Extract text blocks
+  const textBlocks = blocks.filter((block: any) => block.BlockType === 'LINE');
+  fullText = textBlocks.map((block: any) => block.Text).join('\n');
+
+  // Extract tables
+  const tableBlocks = blocks.filter((block: any) => block.BlockType === 'TABLE');
+  for (const table of tableBlocks) {
+    const tableData = extractTableFromBlock(table, blocks);
+    if (tableData.length > 0) {
+      tables.push(tableData);
+    }
+  }
+
+  // Extract key-value pairs
+  const keyValueBlocks = blocks.filter((block: any) => block.BlockType === 'KEY_VALUE_SET');
+  for (const kvBlock of keyValueBlocks) {
+    if (kvBlock.EntityTypes?.includes('KEY')) {
+      const valueBlock = findLinkedValueBlock(kvBlock, blocks);
+      if (valueBlock) {
+        keyValues.push({
+          key: kvBlock.Text || '',
+          value: valueBlock.Text || ''
+        });
       }
     }
-    
-    cellMap.set(key, {
-      row: rowIndex,
-      col: colIndex,
-      text: cellText.trim(),
-      confidence: cell.Confidence || 0
-    });
   }
-  
-  // Convert to structured rows
-  const maxRow = Math.max(...Array.from(cellMap.values()).map((cell: any) => cell.row), 0);
-  for (let r = 1; r <= maxRow; r++) {
-    const rowCells: any[] = [];
-    const rowEntries = Array.from(cellMap.entries())
-      .filter(([key, cell]: any) => cell.row === r)
-      .sort(([a]: any, [b]: any) => {
-        const colA = parseInt(a.split('-')[1]);
-        const colB = parseInt(b.split('-')[1]);
-        return colA - colB;
-      });
-    
-    for (const [key, cell] of rowEntries) {
-      rowCells.push(cell.text);
-    }
-    
-    if (rowCells.some(cell => cell.length > 0)) {
-      rows.push(rowCells);
-    }
-  }
-  
-  return { rows, confidence: tableBlock.Confidence || 0 };
-}
 
-function findLinkedValueBlock(keyBlock: any, valueBlocks: any[], allBlocks: any[]) {
-  if (!keyBlock.Relationships) return null;
-  
-  const valueRelation = keyBlock.Relationships.find((rel: any) => rel.Type === 'VALUE');
-  if (!valueRelation || !valueRelation.Ids) return null;
-  
-  const valueId = valueRelation.Ids[0];
-  return valueBlocks.find((block: any) => block.Id === valueId);
-}
-
-async function createAwsHeaders(accessKey: string, secretKey: string, region: string, service: string, action: string, payload: string, timestamp: string) {
-  const date = timestamp.substr(0, 8);
-  
-  // Create canonical request
-  const canonicalHeaders = [
-    `host:${service}.${region}.amazonaws.com`,
-    `x-amz-date:${timestamp}`,
-    `x-amz-target:Textract.${action}`
-  ].join('\n') + '\n';
-  
-  const signedHeaders = 'host;x-amz-date;x-amz-target';
-  const hashedPayload = await sha256(payload);
-  
-  const canonicalRequest = [
-    'POST',
-    '/',
-    '',
-    canonicalHeaders,
-    signedHeaders,
-    hashedPayload
-  ].join('\n');
-  
-  // Create string to sign
-  const algorithm = 'AWS4-HMAC-SHA256';
-  const credentialScope = `${date}/${region}/${service}/aws4_request`;
-  const hashedCanonicalRequest = await sha256(canonicalRequest);
-  
-  const stringToSign = [
-    algorithm,
-    timestamp,
-    credentialScope,
-    hashedCanonicalRequest
-  ].join('\n');
-  
-  // Calculate signature
-  const signature = await calculateSignature(secretKey, date, region, service, stringToSign);
-  
-  // Create authorization header
-  const authorization = `${algorithm} Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  
   return {
-    'Authorization': authorization,
-    'X-Amz-Date': timestamp,
-    'Host': `${service}.${region}.amazonaws.com`
+    text: fullText,
+    tables,
+    keyValues
   };
 }
 
+// Extract table data from Textract blocks
+function extractTableFromBlock(tableBlock: any, allBlocks: any[]) {
+  const cells = tableBlock.Relationships?.find((rel: any) => rel.Type === 'CHILD')?.Ids || [];
+  const tableData: string[][] = [];
+  
+  for (const cellId of cells) {
+    const cellBlock = allBlocks.find(block => block.Id === cellId);
+    if (cellBlock && cellBlock.BlockType === 'CELL') {
+      const rowIndex = cellBlock.RowIndex - 1;
+      const colIndex = cellBlock.ColumnIndex - 1;
+      
+      if (!tableData[rowIndex]) {
+        tableData[rowIndex] = [];
+      }
+      
+      tableData[rowIndex][colIndex] = cellBlock.Text || '';
+    }
+  }
+  
+  return tableData.filter(row => row.some(cell => cell && cell.trim()));
+}
+
+// Find linked value block for key-value pairs
+function findLinkedValueBlock(keyBlock: any, allBlocks: any[]) {
+  const valueIds = keyBlock.Relationships?.find((rel: any) => rel.Type === 'VALUE')?.Ids || [];
+  
+  for (const valueId of valueIds) {
+    const valueBlock = allBlocks.find(block => block.Id === valueId);
+    if (valueBlock && valueBlock.EntityTypes?.includes('VALUE')) {
+      return valueBlock;
+    }
+  }
+  
+  return null;
+}
+
+// Create AWS signature headers
+async function createAwsHeaders(payload: string, host: string, region: string, accessKeyId: string, secretAccessKey: string) {
+  const algorithm = 'AWS4-HMAC-SHA256';
+  const service = 'textract';
+  const date = new Date();
+  const amzDate = date.toISOString().replace(/[:\-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.substr(0, 8);
+  
+  const payloadHash = await sha256(payload);
+  
+  const canonicalHeaders = `host:${host}\nx-amz-date:${amzDate}\nx-amz-target:Textract.AnalyzeDocument\n`;
+  const signedHeaders = 'host;x-amz-date;x-amz-target';
+  const canonicalRequest = `POST\n/\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = `${algorithm}\n${amzDate}\n${credentialScope}\n${await sha256(canonicalRequest)}`;
+  
+  const signingKey = await calculateSignature(secretAccessKey, dateStamp, region, service);
+  const signature = await hmacSha256(signingKey, stringToSign);
+  
+  const authorizationHeader = `${algorithm} Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  
+  return {
+    'Authorization': authorizationHeader,
+    'Content-Type': 'application/x-amz-json-1.1',
+    'X-Amz-Date': amzDate,
+    'X-Amz-Target': 'Textract.AnalyzeDocument',
+  };
+}
+
+// Utility functions for AWS signing
 async function sha256(message: string): Promise<string> {
   const msgBuffer = new TextEncoder().encode(message);
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -443,163 +324,150 @@ async function sha256(message: string): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function calculateSignature(secretKey: string, date: string, region: string, service: string, stringToSign: string): Promise<string> {
-  const kDate = await hmacSha256(`AWS4${secretKey}`, date);
-  const kRegion = await hmacSha256(kDate, region);
-  const kService = await hmacSha256(kRegion, service);
-  const kSigning = await hmacSha256(kService, 'aws4_request');
-  const signature = await hmacSha256(kSigning, stringToSign);
-  
-  return Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-async function hmacSha256(key: string | ArrayBuffer, message: string): Promise<ArrayBuffer> {
+async function hmacSha256(key: Uint8Array, message: string): Promise<string> {
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    typeof key === 'string' ? new TextEncoder().encode(key) : key,
+    key,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
   
-  return await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message));
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message));
+  const hashArray = Array.from(new Uint8Array(signature));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function isValidCreditReportContent(text: string): boolean {
-  if (!text || text.length < 200) return false;
+async function calculateSignature(secretAccessKey: string, dateStamp: string, region: string, service: string): Promise<Uint8Array> {
+  const kDate = await hmacSha256Raw(new TextEncoder().encode(`AWS4${secretAccessKey}`), dateStamp);
+  const kRegion = await hmacSha256Raw(kDate, region);
+  const kService = await hmacSha256Raw(kRegion, service);
+  const kSigning = await hmacSha256Raw(kService, 'aws4_request');
+  return kSigning;
+}
+
+async function hmacSha256Raw(key: Uint8Array, message: string): Promise<Uint8Array> {
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    key,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
   
-  const requiredElements = [
-    /\b(?:credit|score|report|account|balance|payment)\b/i,
-    /\b(?:name|address|phone|date)\b/i,
-    /\b(?:equifax|experian|transunion)\b/i,
-    /\b(?:\$\d+|\d+\.\d{2})\b/ // Currency amounts
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message));
+  return new Uint8Array(signature);
+}
+
+// Validate extracted content
+function isValidCreditReportContent(text: string): boolean {
+  const creditReportIndicators = [
+    'credit report', 'credit score', 'experian', 'equifax', 'transunion',
+    'account history', 'payment history', 'personal information',
+    'credit inquiry', 'credit account', 'balance', 'credit limit'
   ];
   
-  const matchCount = requiredElements.filter(pattern => pattern.test(text)).length;
-  return matchCount >= 3;
+  const lowerText = text.toLowerCase();
+  const foundIndicators = creditReportIndicators.filter(indicator => 
+    lowerText.includes(indicator)
+  );
+  
+  return foundIndicators.length >= 3;
 }
 
-async function parseAndStoreCreditData(supabase: any, reportId: string, textractResult: any) {
-  try {
-    console.log('=== PARSING TEXTRACT DATA ===');
-    
-    // Extract personal information from key-value pairs and text
-    const personalInfo = extractPersonalInfoFromTextract(textractResult);
-    if (personalInfo.full_name || personalInfo.date_of_birth || personalInfo.current_address) {
-      await supabase.from('personal_information').upsert({
-        report_id: reportId,
-        ...personalInfo
-      });
-      console.log('Personal information stored successfully');
-    }
+// Parse and store credit data
+async function parseAndStoreCreditData(supabase: any, reportId: string, extractedData: any) {
+  const text = extractedData.text;
+  
+  // Extract personal information
+  const personalInfo = extractPersonalInfoFromTextract(text, extractedData);
+  if (personalInfo) {
+    await supabase.from('personal_information').upsert({
+      report_id: reportId,
+      ...personalInfo
+    });
+  }
 
-    // Extract accounts from tables and text
-    const accounts = extractAccountsFromTextract(textractResult);
-    for (const account of accounts) {
-      await supabase.from('credit_accounts').upsert({
+  // Extract accounts
+  const accounts = extractAccountsFromTextract(text, extractedData);
+  if (accounts.length > 0) {
+    await supabase.from('credit_accounts').upsert(
+      accounts.map(account => ({
         report_id: reportId,
         ...account
-      });
-    }
-    console.log(`Stored ${accounts.length} credit accounts`);
+      }))
+    );
+  }
 
-    // Extract inquiries
-    const inquiries = extractInquiriesFromTextract(textractResult);
-    for (const inquiry of inquiries) {
-      await supabase.from('credit_inquiries').upsert({
+  // Extract inquiries
+  const inquiries = extractInquiriesFromTextract(text, extractedData);
+  if (inquiries.length > 0) {
+    await supabase.from('credit_inquiries').upsert(
+      inquiries.map(inquiry => ({
         report_id: reportId,
         ...inquiry
-      });
-    }
-    console.log(`Stored ${inquiries.length} credit inquiries`);
+      }))
+    );
+  }
 
-    // Extract negative items
-    const negativeItems = extractNegativeItemsFromTextract(textractResult);
-    for (const item of negativeItems) {
-      await supabase.from('negative_items').upsert({
+  // Extract negative items
+  const negativeItems = extractNegativeItemsFromTextract(text, extractedData);
+  if (negativeItems.length > 0) {
+    await supabase.from('negative_items').upsert(
+      negativeItems.map(item => ({
         report_id: reportId,
         ...item
-      });
-    }
-    console.log(`Stored ${negativeItems.length} negative items`);
-
-    console.log('=== TEXTRACT DATA PARSING COMPLETED ===');
-  } catch (parseError) {
-    console.error('Parsing error:', parseError);
-    throw new Error(`Data parsing failed: ${parseError.message}`);
+      }))
+    );
   }
 }
 
-function extractPersonalInfoFromTextract(textractResult: any) {
-  const info: any = {};
-  const { keyValuePairs, fullText } = textractResult;
-  
-  // Check key-value pairs first (more accurate)
-  for (const pair of keyValuePairs) {
-    const key = pair.key.toLowerCase();
-    const value = pair.value;
-    
-    if (key.includes('name') && !info.full_name) {
-      info.full_name = value;
-    } else if (key.includes('date') && key.includes('birth') && !info.date_of_birth) {
-      const dateMatch = value.match(/\d{1,2}\/\d{1,2}\/\d{2,4}/);
-      if (dateMatch) info.date_of_birth = formatDate(dateMatch[0]);
-    } else if (key.includes('address') && !info.current_address) {
-      info.current_address = { street: value };
-    } else if (key.includes('ssn') && !info.ssn_partial) {
-      info.ssn_partial = value;
-    }
+// Extract personal information
+function extractPersonalInfoFromTextract(text: string, extractedData: any) {
+  const nameMatch = text.match(/(?:name|consumer)[\s:]*([A-Z][A-Z\s]+[A-Z])/i);
+  const ssnMatch = text.match(/(?:ssn|social security)[\s:]*(\*+\d{4}|\d{3}-?\d{2}-?\*+)/i);
+  const dobMatch = text.match(/(?:date of birth|dob|born)[\s:]*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+  const addressMatch = text.match(/(?:address|addr)[\s:]*([^\n]+(?:st|ave|rd|blvd|ln|dr|ct)[^\n]*)/i);
+
+  if (!nameMatch && !ssnMatch && !dobMatch) {
+    return null;
   }
-  
-  // Fallback to text parsing
-  if (!info.full_name) {
-    const nameMatch = fullText.match(/(?:Name|Consumer Name)[:\s]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i);
-    if (nameMatch) info.full_name = nameMatch[1].trim();
-  }
-  
-  if (!info.date_of_birth) {
-    const dobMatch = fullText.match(/(?:Date of Birth|DOB)[:\s]*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
-    if (dobMatch) info.date_of_birth = formatDate(dobMatch[1]);
-  }
-  
-  return info;
+
+  return {
+    full_name: nameMatch?.[1]?.trim(),
+    ssn_partial: ssnMatch?.[1]?.trim(),
+    date_of_birth: dobMatch?.[1] ? formatDate(dobMatch[1]) : null,
+    current_address: addressMatch?.[1]?.trim()
+  };
 }
 
-function extractAccountsFromTextract(textractResult: any) {
+// Extract accounts from text and tables
+function extractAccountsFromTextract(text: string, extractedData: any) {
   const accounts: any[] = [];
-  const { tables, fullText } = textractResult;
   
-  // Process tables first (most structured data)
-  for (const table of tables) {
-    if (table.rows.length < 2) continue;
-    
-    const headers = table.rows[0].map((h: string) => h.toLowerCase());
-    
-    // Look for account-related tables
-    if (headers.some((h: string) => h.includes('account') || h.includes('creditor') || h.includes('balance'))) {
-      for (let i = 1; i < table.rows.length; i++) {
-        const row = table.rows[i];
-        const account = parseAccountFromTableRow(headers, row);
-        if (account.creditor_name) {
+  // Extract from tables first
+  if (extractedData.tables) {
+    for (const table of extractedData.tables) {
+      for (const row of table) {
+        const account = parseAccountFromTableRow(row);
+        if (account) {
           accounts.push(account);
         }
       }
     }
   }
   
-  // Fallback to text parsing if no table data
+  // Fallback to regex parsing
   if (accounts.length === 0) {
-    const accountPattern = /([A-Z][a-z\s]+(?:Bank|Card|Credit|Loan|Financial))[\s\S]*?(?:Balance[:\s]*\$([0-9,]+))?[\s\S]*?(?:Limit[:\s]*\$([0-9,]+))?/gi;
+    const accountPattern = /([A-Z\s&]+)\s+(\d+[\*\d]*)\s+.*?(\$[\d,]+\.?\d*)/g;
     let match;
-    while ((match = accountPattern.exec(fullText)) !== null) {
+    
+    while ((match = accountPattern.exec(text)) !== null) {
       accounts.push({
         creditor_name: match[1].trim(),
-        current_balance: match[2] ? parseFloat(match[2].replace(/,/g, '')) : 0,
-        credit_limit: match[3] ? parseFloat(match[3].replace(/,/g, '')) : null,
-        account_type: determineAccountType(match[1]),
-        is_negative: false
+        account_number: match[2],
+        current_balance: parseFloat(match[3].replace(/[$,]/g, '')) || 0,
+        account_type: determineAccountType(match[1])
       });
     }
   }
@@ -607,127 +475,130 @@ function extractAccountsFromTextract(textractResult: any) {
   return accounts;
 }
 
-function parseAccountFromTableRow(headers: string[], row: string[]) {
-  const account: any = {
-    creditor_name: '',
-    account_type: 'Other',
-    current_balance: 0,
-    is_negative: false
-  };
-  
-  for (let i = 0; i < headers.length && i < row.length; i++) {
-    const header = headers[i];
-    const value = row[i];
-    
-    if (header.includes('creditor') || header.includes('name')) {
-      account.creditor_name = value;
-    } else if (header.includes('balance')) {
-      const balanceMatch = value.match(/\$?([0-9,]+)/);
-      if (balanceMatch) {
-        account.current_balance = parseFloat(balanceMatch[1].replace(/,/g, ''));
-      }
-    } else if (header.includes('limit')) {
-      const limitMatch = value.match(/\$?([0-9,]+)/);
-      if (limitMatch) {
-        account.credit_limit = parseFloat(limitMatch[1].replace(/,/g, ''));
-      }
-    } else if (header.includes('account') && header.includes('number')) {
-      account.account_number = value;
-    } else if (header.includes('status')) {
-      account.account_status = value;
-    }
-  }
-  
-  if (account.creditor_name) {
-    account.account_type = determineAccountType(account.creditor_name);
-  }
-  
-  return account;
-}
-
-function extractInquiriesFromTextract(textractResult: any) {
+// Extract inquiries
+function extractInquiriesFromTextract(text: string, extractedData: any) {
   const inquiries: any[] = [];
-  const { tables, fullText } = textractResult;
   
-  // Look for inquiry tables
-  for (const table of tables) {
-    if (table.rows.length < 2) continue;
-    
-    const headers = table.rows[0].map((h: string) => h.toLowerCase());
-    
-    if (headers.some((h: string) => h.includes('inquir') || h.includes('request'))) {
-      for (let i = 1; i < table.rows.length; i++) {
-        const row = table.rows[i];
-        const inquiry = parseInquiryFromTableRow(headers, row);
-        if (inquiry.inquirer_name) {
+  // Extract from tables
+  if (extractedData.tables) {
+    for (const table of extractedData.tables) {
+      for (const row of table) {
+        const inquiry = parseInquiryFromTableRow(row);
+        if (inquiry) {
           inquiries.push(inquiry);
         }
       }
     }
   }
   
-  return inquiries;
-}
-
-function parseInquiryFromTableRow(headers: string[], row: string[]) {
-  const inquiry: any = {
-    inquirer_name: '',
-    inquiry_type: 'hard'
-  };
-  
-  for (let i = 0; i < headers.length && i < row.length; i++) {
-    const header = headers[i];
-    const value = row[i];
+  // Fallback to regex
+  if (inquiries.length === 0) {
+    const inquiryPattern = /([A-Z\s&]+)\s+(\d{1,2}\/\d{1,2}\/\d{4})/g;
+    let match;
     
-    if (header.includes('name') || header.includes('company')) {
-      inquiry.inquirer_name = value;
-    } else if (header.includes('date')) {
-      const dateMatch = value.match(/\d{1,2}\/\d{1,2}\/\d{2,4}/);
-      if (dateMatch) {
-        inquiry.inquiry_date = formatDate(dateMatch[0]);
-      }
-    } else if (header.includes('type')) {
-      inquiry.inquiry_type = value.toLowerCase().includes('soft') ? 'soft' : 'hard';
+    while ((match = inquiryPattern.exec(text)) !== null) {
+      inquiries.push({
+        company_name: match[1].trim(),
+        inquiry_date: formatDate(match[2]),
+        inquiry_type: 'hard'
+      });
     }
   }
   
-  return inquiry;
+  return inquiries;
 }
 
-function extractNegativeItemsFromTextract(textractResult: any) {
+// Extract negative items
+function extractNegativeItemsFromTextract(text: string, extractedData: any) {
   const negativeItems: any[] = [];
-  const { fullText } = textractResult;
   
-  const collectionPattern = /([A-Z][a-z\s]*Collection[s]?)[\s\S]*?(?:Amount[:\s]*\$?([0-9,]+))?/gi;
-  let match;
-  while ((match = collectionPattern.exec(fullText)) !== null) {
-    negativeItems.push({
-      negative_type: 'Collection',
-      description: match[1],
-      amount: match[2] ? parseFloat(match[2].replace(/,/g, '')) : null
-    });
+  const negativeTerms = ['collection', 'charge off', 'late payment', 'default', 'delinquent'];
+  const lines = text.split('\n');
+  
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    for (const term of negativeTerms) {
+      if (lowerLine.includes(term)) {
+        const amountMatch = line.match(/\$[\d,]+\.?\d*/);
+        const dateMatch = line.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
+        
+        negativeItems.push({
+          description: line.trim(),
+          negative_type: term,
+          amount: amountMatch ? parseFloat(amountMatch[0].replace(/[$,]/g, '')) : null,
+          date_occurred: dateMatch ? formatDate(dateMatch[0]) : null,
+          severity_score: getSeverityScore(term)
+        });
+        break;
+      }
+    }
   }
   
   return negativeItems;
 }
 
+// Helper functions
+function parseAccountFromTableRow(row: string[]): any | null {
+  if (row.length < 3) return null;
+  
+  const creditorName = row[0]?.trim();
+  const accountNumber = row[1]?.trim();
+  const balance = row[2]?.replace(/[$,]/g, '');
+  
+  if (!creditorName || !accountNumber) return null;
+  
+  return {
+    creditor_name: creditorName,
+    account_number: accountNumber,
+    current_balance: parseFloat(balance) || 0,
+    account_type: determineAccountType(creditorName)
+  };
+}
+
+function parseInquiryFromTableRow(row: string[]): any | null {
+  if (row.length < 2) return null;
+  
+  const companyName = row[0]?.trim();
+  const date = row[1]?.trim();
+  
+  if (!companyName || !date.match(/\d{1,2}\/\d{1,2}\/\d{4}/)) return null;
+  
+  return {
+    company_name: companyName,
+    inquiry_date: formatDate(date),
+    inquiry_type: 'hard'
+  };
+}
+
 function determineAccountType(creditorName: string): string {
-  const lowerName = creditorName.toLowerCase();
-  if (lowerName.includes('credit card') || lowerName.includes('card')) return 'Credit Card';
-  if (lowerName.includes('auto') || lowerName.includes('car')) return 'Auto Loan';
-  if (lowerName.includes('mortgage')) return 'Mortgage';
-  if (lowerName.includes('student')) return 'Student Loan';
-  return 'Other';
+  const name = creditorName.toLowerCase();
+  
+  if (name.includes('card') || name.includes('visa') || name.includes('master')) return 'credit_card';
+  if (name.includes('mortgage') || name.includes('home')) return 'mortgage';
+  if (name.includes('auto') || name.includes('car')) return 'auto_loan';
+  if (name.includes('student') || name.includes('education')) return 'student_loan';
+  if (name.includes('personal') || name.includes('loan')) return 'personal_loan';
+  
+  return 'other';
 }
 
 function formatDate(dateStr: string): string | null {
   try {
     const date = new Date(dateStr);
-    if (!isNaN(date.getTime())) {
-      return date.toISOString().split('T')[0];
-    }
-  } catch (e) {
-    console.log('Invalid date format:', dateStr);
+    return date.toISOString().split('T')[0];
+  } catch {
+    return null;
   }
-  return null;
+}
+
+function getSeverityScore(negativeType: string): number {
+  const severityMap: { [key: string]: number } = {
+    'collection': 8,
+    'charge off': 9,
+    'late payment': 5,
+    'default': 9,
+    'delinquent': 6
+  };
+  
+  return severityMap[negativeType] || 5;
 }

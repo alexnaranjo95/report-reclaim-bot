@@ -1,13 +1,12 @@
 
 import { supabase } from '@/integrations/supabase/client';
-import { CreditReportParser } from './CreditReportParser';
 
 export class PDFExtractionService {
   /**
-   * Manually trigger text extraction for a credit report using Amazon Textract
+   * Single extraction method using Amazon Textract
    */
   static async extractText(reportId: string): Promise<void> {
-    // First, get the report details
+    // Get report details
     const { data: report, error: reportError } = await supabase
       .from('credit_reports')
       .select('file_path, extraction_status')
@@ -36,10 +35,11 @@ export class PDFExtractionService {
       throw new Error(`Failed to update report status: ${updateError.message}`);
     }
 
-    // Use Amazon Textract for professional-grade OCR and table extraction
+    // Single extraction method with robust error handling
     try {
-      console.log('🚀 Using Amazon Textract for PDF analysis...');
-      const { error: extractError } = await supabase.functions.invoke('textract-extract', {
+      console.log('🚀 Starting PDF extraction with Textract...');
+      
+      const { data: result, error: extractError } = await supabase.functions.invoke('textract-extract', {
         body: {
           reportId,
           filePath: report.file_path,
@@ -47,39 +47,30 @@ export class PDFExtractionService {
       });
 
       if (extractError) {
-        console.error('Textract extraction failed:', extractError);
-        
-        // Fallback to enhanced PDF extraction
-        console.log('⚠️ Falling back to enhanced PDF extraction...');
-        const { error: fallbackError } = await supabase.functions.invoke('enhanced-pdf-extract', {
-          body: {
-            reportId,
-            filePath: report.file_path,
-          },
-        });
-
-        if (fallbackError) {
-          throw new Error(`Both Textract and fallback extraction failed: ${fallbackError.message}`);
-        }
-        
-        console.log('✅ Fallback extraction completed successfully');
-      } else {
-        console.log('✅ Textract extraction completed successfully');
+        throw new Error(`Extraction failed: ${extractError.message}`);
       }
+
+      if (!result?.success) {
+        throw new Error(result?.error || 'Extraction failed without specific error');
+      }
+
+      console.log('✅ PDF extraction completed successfully');
+      console.log(`📊 Extracted text length: ${result.textLength || 0} characters`);
       
     } catch (extractionError) {
       console.error('PDF extraction error:', extractionError);
+      
+      // Update status to failed
+      await supabase
+        .from('credit_reports')
+        .update({ 
+          extraction_status: 'failed',
+          processing_errors: extractionError.message,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', reportId);
+        
       throw new Error(`PDF extraction failed: ${extractionError.message}`);
-    }
-
-    // Auto-trigger parsing after successful extraction
-    try {
-      console.log('Auto-triggering report parsing...');
-      await CreditReportParser.parseReport(reportId);
-      console.log('Auto-parsing completed successfully');
-    } catch (parseError) {
-      console.warn('Auto-parsing failed, but extraction was successful:', parseError);
-      // Don't throw here - extraction was successful, parsing can be done manually
     }
   }
 

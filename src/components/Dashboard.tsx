@@ -17,6 +17,7 @@ import { FileText, TrendingUp, Shield, Clock, Trash2, RefreshCw, Save, LogOut, C
 import { CreditAnalysisService } from '../services/CreditAnalysisService';
 import { CreditAnalysisResult } from '../types/CreditTypes';
 import { SessionService, Session, Round } from '../services/SessionService';
+import { PDFExtractionService } from '../services/PDFExtractionService';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useRole } from '@/hooks/useRole';
@@ -302,21 +303,16 @@ export const Dashboard = () => {
 
       if (updateError) throw updateError;
 
-      // Step 4: Extract text using advanced PDF extraction
+      // Step 4: Extract text using PDF extraction service
       setProcessingStep('Extracting text with advanced OCR...');
       setProcessingProgress(60);
       
-      const { data: extractionResult, error: extractError } = await supabase.functions.invoke('textract-extract', {
-        body: {
-          reportId: reportRecord.id,
-          filePath: storagePath,
-        },
-      });
-
-      console.log('📊 REAL DATA - Extraction result:', extractionResult);
-      
-      if (extractError || !extractionResult?.success) {
-        throw new Error(extractError?.message || 'Text extraction failed');
+      try {
+        await PDFExtractionService.extractText(reportRecord.id);
+        console.log('✅ REAL DATA - Extraction completed successfully');
+      } catch (extractionError) {
+        console.error('❌ Extraction failed:', extractionError);
+        throw new Error(`Text extraction failed: ${extractionError.message}`);
       }
 
       // Step 5: Verify data was actually extracted and stored

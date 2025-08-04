@@ -9,7 +9,6 @@ import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import Admin from "./pages/Admin";
 import TemplateEditorPage from "./pages/TemplateEditor";
-import CreditReports from "./pages/CreditReports";
 import NotFound from "./pages/NotFound";
 import { useAuth } from "@/hooks/useAuth";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
@@ -67,13 +66,7 @@ const App = () => {
                   <TemplateEditorPage />
                 </ProtectedRoute>
               } />
-              <Route path="/credit-reports" element={
-                <ProtectedRoute>
-                  <div className="min-h-screen w-full">
-                    <CreditReports />
-                  </div>
-                </ProtectedRoute>
-              } />
+              {/* Credit Reports route removed - functionality purged */}
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
               </Routes>

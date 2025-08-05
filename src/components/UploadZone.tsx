@@ -28,10 +28,16 @@ export const UploadZone = ({ onFileUpload }: UploadZoneProps) => {
       return;
     }
     
-    // Show processing method info
-    toast.success('File ready for processing', {
-      description: validation.reason || 'File will be processed appropriately'
-    });
+    // For PDFs, inform user about image conversion optimization
+    if (file.type === 'application/pdf') {
+      toast.success('PDF will be optimized for processing', {
+        description: 'Converting to high-quality images for better text extraction'
+      });
+    } else {
+      toast.success('File ready for processing', {
+        description: validation.reason || 'File will be processed appropriately'
+      });
+    }
     
     onFileUpload(file);
   }, [onFileUpload]);

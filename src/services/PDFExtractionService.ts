@@ -1,7 +1,6 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { ComprehensiveCreditParser } from './ComprehensiveCreditParser';
-import { EnhancedCreditParserV2 } from './EnhancedCreditParserV2';
 
 export class PDFExtractionService {
   /**
@@ -67,15 +66,18 @@ export class PDFExtractionService {
       
       console.log('✅ Text validation passed, starting parsing...');
       
-      // STEP 2: Parse ONLY if we have valid text using Enhanced Parser V2
+      // STEP 2: Parse ONLY if we have valid text using Comprehensive Parser
       try {
-        console.log('🔍 Starting enhanced parsing V2...');
-        const parseSuccess = await EnhancedCreditParserV2.parseReport(reportId);
+        console.log('🔍 Starting comprehensive credit report parsing...');
+        const parseResult = await ComprehensiveCreditParser.parseAndStoreCreditReport(
+          reportId, 
+          result.extractedText || ''
+        );
         
-        if (parseSuccess) {
-          console.log('✅ Enhanced parsing V2 completed successfully');
+        if (parseResult.success) {
+          console.log('✅ Comprehensive parsing completed successfully');
         } else {
-          console.log('⚠️ Enhanced parsing V2 had limited success - falling back to original parser');
+          console.log('⚠️ Comprehensive parsing had issues:', parseResult.error);
           
           // Fallback to original enhanced parser
           try {

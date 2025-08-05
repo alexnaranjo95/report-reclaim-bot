@@ -14,6 +14,118 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_summary: {
+        Row: {
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          closed_accounts: number | null
+          collection_accounts: number | null
+          created_at: string
+          delinquent_accounts: number | null
+          derogatory_accounts: number | null
+          id: string
+          inquiries_2_years: number | null
+          open_accounts: number | null
+          public_records: number | null
+          report_id: string
+          total_accounts: number | null
+          total_balance: number | null
+          total_payments: number | null
+          updated_at: string
+        }
+        Insert: {
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          closed_accounts?: number | null
+          collection_accounts?: number | null
+          created_at?: string
+          delinquent_accounts?: number | null
+          derogatory_accounts?: number | null
+          id?: string
+          inquiries_2_years?: number | null
+          open_accounts?: number | null
+          public_records?: number | null
+          report_id: string
+          total_accounts?: number | null
+          total_balance?: number | null
+          total_payments?: number | null
+          updated_at?: string
+        }
+        Update: {
+          bureau?: Database["public"]["Enums"]["bureau_enum"]
+          closed_accounts?: number | null
+          collection_accounts?: number | null
+          created_at?: string
+          delinquent_accounts?: number | null
+          derogatory_accounts?: number | null
+          id?: string
+          inquiries_2_years?: number | null
+          open_accounts?: number | null
+          public_records?: number | null
+          report_id?: string
+          total_accounts?: number | null
+          total_balance?: number | null
+          total_payments?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_summary_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      addresses: {
+        Row: {
+          address_type: Database["public"]["Enums"]["address_type_enum"]
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          city: string | null
+          created_at: string
+          date_reported: string | null
+          id: string
+          report_id: string
+          state: string | null
+          street_address: string | null
+          updated_at: string
+          zip_code: string | null
+        }
+        Insert: {
+          address_type: Database["public"]["Enums"]["address_type_enum"]
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          city?: string | null
+          created_at?: string
+          date_reported?: string | null
+          id?: string
+          report_id: string
+          state?: string | null
+          street_address?: string | null
+          updated_at?: string
+          zip_code?: string | null
+        }
+        Update: {
+          address_type?: Database["public"]["Enums"]["address_type_enum"]
+          bureau?: Database["public"]["Enums"]["bureau_enum"]
+          city?: string | null
+          created_at?: string
+          date_reported?: string | null
+          id?: string
+          report_id?: string
+          state?: string | null
+          street_address?: string | null
+          updated_at?: string
+          zip_code?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "addresses_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admin_example_documents: {
         Row: {
           category: string
@@ -255,17 +367,25 @@ export type Database = {
       credit_accounts: {
         Row: {
           account_number: string | null
+          account_number_masked: string | null
           account_status: string | null
+          account_subtype: string | null
           account_type: string | null
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          comments: string | null
           created_at: string | null
           credit_limit: number | null
           creditor_name: string
           current_balance: number | null
           date_closed: string | null
           date_opened: string | null
+          dispute_flag: boolean | null
           high_credit: number | null
           id: string
           is_negative: boolean | null
+          last_active: string | null
+          loan_term_months: number | null
+          monthly_payment: number | null
           past_due_amount: number | null
           payment_history: Json | null
           payment_status: string | null
@@ -274,17 +394,25 @@ export type Database = {
         }
         Insert: {
           account_number?: string | null
+          account_number_masked?: string | null
           account_status?: string | null
+          account_subtype?: string | null
           account_type?: string | null
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          comments?: string | null
           created_at?: string | null
           credit_limit?: number | null
           creditor_name: string
           current_balance?: number | null
           date_closed?: string | null
           date_opened?: string | null
+          dispute_flag?: boolean | null
           high_credit?: number | null
           id?: string
           is_negative?: boolean | null
+          last_active?: string | null
+          loan_term_months?: number | null
+          monthly_payment?: number | null
           past_due_amount?: number | null
           payment_history?: Json | null
           payment_status?: string | null
@@ -293,17 +421,25 @@ export type Database = {
         }
         Update: {
           account_number?: string | null
+          account_number_masked?: string | null
           account_status?: string | null
+          account_subtype?: string | null
           account_type?: string | null
+          bureau?: Database["public"]["Enums"]["bureau_enum"]
+          comments?: string | null
           created_at?: string | null
           credit_limit?: number | null
           creditor_name?: string
           current_balance?: number | null
           date_closed?: string | null
           date_opened?: string | null
+          dispute_flag?: boolean | null
           high_credit?: number | null
           id?: string
           is_negative?: boolean | null
+          last_active?: string | null
+          loan_term_months?: number | null
+          monthly_payment?: number | null
           past_due_amount?: number | null
           payment_history?: Json | null
           payment_status?: string | null
@@ -320,8 +456,57 @@ export type Database = {
           },
         ]
       }
+      credit_alerts: {
+        Row: {
+          alert_date: string | null
+          alert_text: string | null
+          alert_type: string
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          contact_phone: string | null
+          created_at: string
+          expiry_date: string | null
+          id: string
+          report_id: string
+          updated_at: string
+        }
+        Insert: {
+          alert_date?: string | null
+          alert_text?: string | null
+          alert_type: string
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          contact_phone?: string | null
+          created_at?: string
+          expiry_date?: string | null
+          id?: string
+          report_id: string
+          updated_at?: string
+        }
+        Update: {
+          alert_date?: string | null
+          alert_text?: string | null
+          alert_type?: string
+          bureau?: Database["public"]["Enums"]["bureau_enum"]
+          contact_phone?: string | null
+          created_at?: string
+          expiry_date?: string | null
+          id?: string
+          report_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_alerts_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_inquiries: {
         Row: {
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          business_type: string | null
           created_at: string | null
           id: string
           inquirer_name: string
@@ -331,6 +516,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          business_type?: string | null
           created_at?: string | null
           id?: string
           inquirer_name: string
@@ -340,6 +527,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          bureau?: Database["public"]["Enums"]["bureau_enum"]
+          business_type?: string | null
           created_at?: string | null
           id?: string
           inquirer_name?: string
@@ -462,6 +651,7 @@ export type Database = {
           id: string
           processing_errors: string | null
           raw_text: string | null
+          reference_number: string | null
           report_date: string | null
           table_extraction_status: string | null
           tables_extracted_count: number | null
@@ -477,6 +667,7 @@ export type Database = {
           id?: string
           processing_errors?: string | null
           raw_text?: string | null
+          reference_number?: string | null
           report_date?: string | null
           table_extraction_status?: string | null
           tables_extracted_count?: number | null
@@ -492,6 +683,7 @@ export type Database = {
           id?: string
           processing_errors?: string | null
           raw_text?: string | null
+          reference_number?: string | null
           report_date?: string | null
           table_extraction_status?: string | null
           tables_extracted_count?: number | null
@@ -499,6 +691,53 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      credit_scores: {
+        Row: {
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          created_at: string
+          id: string
+          report_id: string
+          risk_factors: Json | null
+          score: number | null
+          score_rank: string | null
+          score_scale_max: number | null
+          score_scale_min: number | null
+          updated_at: string
+        }
+        Insert: {
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          created_at?: string
+          id?: string
+          report_id: string
+          risk_factors?: Json | null
+          score?: number | null
+          score_rank?: string | null
+          score_scale_max?: number | null
+          score_scale_min?: number | null
+          updated_at?: string
+        }
+        Update: {
+          bureau?: Database["public"]["Enums"]["bureau_enum"]
+          created_at?: string
+          id?: string
+          report_id?: string
+          risk_factors?: Json | null
+          score?: number | null
+          score_rank?: string | null
+          score_scale_max?: number | null
+          score_scale_min?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_scores_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       creditor_addresses: {
         Row: {
@@ -538,6 +777,44 @@ export type Database = {
           zip?: string | null
         }
         Relationships: []
+      }
+      creditor_contacts: {
+        Row: {
+          address: string | null
+          created_at: string
+          creditor_name: string
+          id: string
+          phone_number: string | null
+          report_id: string
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          creditor_name: string
+          id?: string
+          phone_number?: string | null
+          report_id: string
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          creditor_name?: string
+          id?: string
+          phone_number?: string | null
+          report_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creditor_contacts_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       dispute_templates: {
         Row: {
@@ -728,8 +1005,48 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_history: {
+        Row: {
+          account_id: string
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          created_at: string
+          id: string
+          month: number
+          status: Database["public"]["Enums"]["payment_status_enum"] | null
+          year: number
+        }
+        Insert: {
+          account_id: string
+          bureau: Database["public"]["Enums"]["bureau_enum"]
+          created_at?: string
+          id?: string
+          month: number
+          status?: Database["public"]["Enums"]["payment_status_enum"] | null
+          year: number
+        }
+        Update: {
+          account_id?: string
+          bureau?: Database["public"]["Enums"]["bureau_enum"]
+          created_at?: string
+          id?: string
+          month?: number
+          status?: Database["public"]["Enums"]["payment_status_enum"] | null
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_history_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "credit_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       personal_information: {
         Row: {
+          also_known_as: Json | null
+          bureau: Database["public"]["Enums"]["bureau_enum"]
           created_at: string | null
           current_address: Json | null
           date_of_birth: string | null
@@ -738,10 +1055,13 @@ export type Database = {
           id: string
           previous_addresses: Json | null
           report_id: string
+          ssn_last_four: string | null
           ssn_partial: string | null
           updated_at: string | null
         }
         Insert: {
+          also_known_as?: Json | null
+          bureau: Database["public"]["Enums"]["bureau_enum"]
           created_at?: string | null
           current_address?: Json | null
           date_of_birth?: string | null
@@ -750,10 +1070,13 @@ export type Database = {
           id?: string
           previous_addresses?: Json | null
           report_id: string
+          ssn_last_four?: string | null
           ssn_partial?: string | null
           updated_at?: string | null
         }
         Update: {
+          also_known_as?: Json | null
+          bureau?: Database["public"]["Enums"]["bureau_enum"]
           created_at?: string | null
           current_address?: Json | null
           date_of_birth?: string | null
@@ -762,6 +1085,7 @@ export type Database = {
           id?: string
           previous_addresses?: Json | null
           report_id?: string
+          ssn_last_four?: string | null
           ssn_partial?: string | null
           updated_at?: string | null
         }
@@ -1370,7 +1694,13 @@ export type Database = {
       }
     }
     Enums: {
+      account_status_enum: "Open" | "Closed" | "Derogatory"
+      account_type_enum: "Revolving" | "Installment" | "Mortgage"
+      address_type_enum: "current" | "previous"
       app_role: "user" | "admin" | "superadmin"
+      bureau_enum: "TransUnion" | "Experian" | "Equifax"
+      inquiry_type_enum: "hard" | "soft"
+      payment_status_enum: "OK" | "30" | "60" | "90" | "120" | "CO" | "NA"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1498,7 +1828,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      account_status_enum: ["Open", "Closed", "Derogatory"],
+      account_type_enum: ["Revolving", "Installment", "Mortgage"],
+      address_type_enum: ["current", "previous"],
       app_role: ["user", "admin", "superadmin"],
+      bureau_enum: ["TransUnion", "Experian", "Equifax"],
+      inquiry_type_enum: ["hard", "soft"],
+      payment_status_enum: ["OK", "30", "60", "90", "120", "CO", "NA"],
     },
   },
 } as const

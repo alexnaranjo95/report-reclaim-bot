@@ -39,29 +39,60 @@ export class PDFExtractionService {
     }
 
     try {
-      console.log('🚀 Starting strict PDF extraction with Textract...');
+      console.log('🚀 Starting PDF extraction with enhanced error handling...');
       
-      const { data: result, error: extractError } = await supabase.functions.invoke('textract-extract', {
-        body: {
-          reportId,
-          filePath: report.file_path,
-        },
-      });
+      // Call the textract-extract edge function with retry logic
+      let result = null;
+      let extractError = null;
+      
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        console.log(`📤 Attempt ${attempt} to call textract-extract function...`);
+        
+        const response = await supabase.functions.invoke('textract-extract', {
+          body: {
+            reportId,
+            filePath: report.file_path,
+          },
+        });
+        
+        extractError = response.error;
+        result = response.data;
+        
+        if (!extractError && result?.success) {
+          console.log(`✅ Function call successful on attempt ${attempt}`);
+          break;
+        }
+        
+        console.log(`⚠️ Attempt ${attempt} failed:`, extractError?.message || result?.error);
+        
+        if (attempt < 3) {
+          console.log(`⏳ Waiting 2 seconds before retry...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
 
       if (extractError) {
-        throw new Error(`Extraction failed: ${extractError.message}`);
+        throw new Error(`Edge function error after 3 attempts: ${extractError.message}`);
       }
 
       if (!result?.success) {
-        throw new Error(result?.error || 'Extraction failed without specific error');
+        throw new Error(`Extraction failed: ${result?.error || 'Unknown error'} | Details: ${result?.details || 'No details'}`);
       }
 
-      console.log('✅ PDF extraction completed, validating content...');
+      console.log(`✅ PDF extraction completed using ${result.method}, validating content...`);
+      console.log(`📊 Extraction stats: ${result.textLength} characters, hasValidText: ${result.hasValidText}`);
       
       // CRITICAL: Validate extracted text before parsing
       const isValidText = await this.validateExtractedText(reportId);
       if (!isValidText) {
-        throw new Error('PDF contains no readable credit report text. Please upload a text-based credit report PDF from Experian, Equifax, or TransUnion.');
+        console.log('❌ Text validation failed - PDF may contain only images or corrupted text');
+        
+        // If using fallback method and validation failed, it's likely an image-based PDF
+        if (result.method === 'fallback') {
+          throw new Error('This appears to be an image-based PDF. Please upload a text-based credit report PDF from Experian, Equifax, or TransUnion, or ensure OCR processing is enabled.');
+        } else {
+          throw new Error('PDF text validation failed. Please verify this is a valid credit report.');
+        }
       }
       
       console.log('✅ Text validation passed, starting parsing...');

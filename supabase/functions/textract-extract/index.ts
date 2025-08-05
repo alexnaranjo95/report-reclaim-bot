@@ -1,37 +1,130 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
+import { getDocument, GlobalWorkerOptions } from 'https://esm.sh/pdfjs-dist@5.4.54';
+import { basicPDFExtraction, assessTextQuality, validateExtractedContent } from './helpers.ts';
+
+// Set up the PDF.js worker
+GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@5.4.54/build/pdf.worker.min.mjs`;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// PDF to Image conversion helper (browser-compatible)
-class PDFImageConverter {
-  static async convertPDFToImage(pdfBytes: Uint8Array): Promise<Uint8Array> {
-    console.log('🖼️ Converting PDF to image for better Textract processing...');
+/**
+ * PDF to Image Converter for Edge Functions
+ * Optimized for Textract processing
+ */
+class PDFToImageConverter {
+  static async convertPDFToImages(pdfBytes: Uint8Array): Promise<Uint8Array[]> {
+    console.log('🖼️ Converting PDF to images for better Textract processing...');
     
     try {
-      // Use pdf-lib to convert PDF to image
-      const { PDFDocument } = await import('https://esm.sh/pdf-lib@1.17.1');
-      const pdfDoc = await PDFDocument.load(pdfBytes);
-      const pages = pdfDoc.getPages();
+      const pdf = await getDocument(pdfBytes).promise;
+      const images: Uint8Array[] = [];
       
-      if (pages.length === 0) {
-        throw new Error('PDF has no pages');
+      console.log(`📄 PDF has ${pdf.numPages} pages`);
+      
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        console.log(`🔄 Converting page ${pageNum}/${pdf.numPages}`);
+        
+        const page = await pdf.getPage(pageNum);
+        const image = await this.convertPageToImage(page, pageNum);
+        images.push(image);
       }
       
-      console.log(`📄 PDF has ${pages.length} pages, converting to single image`);
-      
-      // For now, we'll work with the original PDF bytes since full image conversion
-      // requires canvas API which isn't available in edge functions
-      // The PDF will be processed directly by Textract which handles both formats well
-      console.log('📄 Proceeding with PDF processing (Textract handles PDF format efficiently)');
-      return pdfBytes;
+      console.log(`✅ Successfully converted ${images.length} pages to images`);
+      return images;
       
     } catch (error) {
-      console.error('⚠️ PDF analysis failed, proceeding with original format:', error.message);
-      return pdfBytes;
+      console.error('❌ PDF to image conversion failed:', error);
+      throw new Error(`PDF conversion failed: ${error.message}`);
     }
+  }
+  
+  private static async convertPageToImage(page: any, pageNumber: number): Promise<Uint8Array> {
+    // High DPI scale for better OCR results (2x optimal for Textract)
+    const scale = 2.0;
+    const viewport = page.getViewport({ scale });
+    
+    // Create canvas using OffscreenCanvas for Edge Functions
+    const canvas = new OffscreenCanvas(viewport.width, viewport.height);
+    const context = canvas.getContext('2d');
+    
+    if (!context) {
+      throw new Error('Could not create canvas context');
+    }
+    
+    // Render page to canvas
+    const renderContext = {
+      canvasContext: context,
+      viewport: viewport,
+    };
+    
+    await page.render(renderContext).promise;
+    
+    // Convert to PNG blob then to Uint8Array
+    const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
+    const arrayBuffer = await blob.arrayBuffer();
+    const imageBytes = new Uint8Array(arrayBuffer);
+    
+    console.log(`📷 Page ${pageNumber} converted to ${(imageBytes.length / 1024 / 1024).toFixed(2)}MB image`);
+    return imageBytes;
+  }
+  
+  static async mergeImagesToSingle(images: Uint8Array[]): Promise<Uint8Array> {
+    console.log('🔗 Merging images into single image...');
+    
+    if (images.length === 0) {
+      throw new Error('No images to merge');
+    }
+    
+    if (images.length === 1) {
+      return images[0];
+    }
+    
+    // Load all images as ImageBitmaps
+    const imageBitmaps = await Promise.all(
+      images.map(async (imageBytes) => {
+        const blob = new Blob([imageBytes], { type: 'image/png' });
+        return await createImageBitmap(blob);
+      })
+    );
+    
+    // Calculate total height and max width
+    let totalHeight = 0;
+    let maxWidth = 0;
+    
+    imageBitmaps.forEach(bitmap => {
+      totalHeight += bitmap.height;
+      maxWidth = Math.max(maxWidth, bitmap.width);
+    });
+    
+    // Create merged canvas
+    const canvas = new OffscreenCanvas(maxWidth, totalHeight);
+    const context = canvas.getContext('2d');
+    
+    if (!context) {
+      throw new Error('Could not create merge canvas context');
+    }
+    
+    // Set white background
+    context.fillStyle = '#FFFFFF';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw all images vertically
+    let currentY = 0;
+    imageBitmaps.forEach(bitmap => {
+      context.drawImage(bitmap, 0, currentY);
+      currentY += bitmap.height;
+    });
+    
+    // Convert to PNG
+    const blob = await canvas.convertToBlob({ type: 'image/png', quality: 1.0 });
+    const arrayBuffer = await blob.arrayBuffer();
+    const mergedBytes = new Uint8Array(arrayBuffer);
+    
+    console.log(`✅ Merged image created: ${(mergedBytes.length / 1024 / 1024).toFixed(2)}MB`);
+    return mergedBytes;
   }
 }
 
@@ -1008,71 +1101,199 @@ function calculateMetadataRatio(content: string): number {
 }
 
 /**
- * Process PDF files with table extraction
+ * Process PDF files with enhanced image conversion and extraction
  */
 async function processPDFFile(bytes: Uint8Array, reportId: string, supabase: any): Promise<string> {
+  console.log('=== PROCESSING PDF FILE ===');
+  
+  const analysis = analyzePDFStructure(bytes);
+  console.log('📊 PDF Analysis:', JSON.stringify(analysis, null, 2));
+  
+  const enhancedAnalysis = enhanceFileAnalysis(bytes);
+  console.log('🔍 Enhanced File Analysis:', JSON.stringify(enhancedAnalysis, null, 2));
+  console.log('🎯 Confidence:', enhancedAnalysis.confidence);
+  console.log('📄 PDF Type:', enhancedAnalysis.pdfType);
+  
+  // Step 1: Convert PDF to high-quality images first
+  console.log('=== STEP 1: CONVERTING PDF TO IMAGES ===');
+  let imageBytes: Uint8Array;
+  
+  try {
+    const images = await PDFToImageConverter.convertPDFToImages(bytes);
+    console.log(`📸 Converted PDF to ${images.length} image(s)`);
+    
+    // For multi-page PDFs, merge into single image for better Textract processing
+    if (images.length > 1) {
+      imageBytes = await PDFToImageConverter.mergeImagesToSingle(images);
+      console.log('🔗 Merged multiple pages into single image for processing');
+    } else {
+      imageBytes = images[0];
+    }
+    
+    console.log(`✅ Image ready for Textract: ${(imageBytes.length / 1024 / 1024).toFixed(2)}MB`);
+    
+  } catch (error) {
+    console.error('❌ PDF to image conversion failed:', error);
+    console.log('⚠️ Falling back to direct PDF processing');
+    imageBytes = bytes; // Fallback to original PDF
+  }
+
+  // Step 2: Try AWS Textract with the converted image
+  console.log('=== STEP 2: ATTEMPTING AWS TEXTRACT WITH CONVERTED IMAGE ===');
   let extractedText = '';
   let extractionMethod = 'none';
-  let extractionError = null;
   let tables: any[] = [];
-
-  // Try AWS Textract first if available
+  
   const awsAccessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
   const awsSecretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY');
   const awsRegion = Deno.env.get('AWS_REGION') || 'us-east-1';
 
   if (awsAccessKeyId && awsSecretAccessKey) {
     try {
-      console.log("=== ATTEMPTING AWS TEXTRACT TABLE EXTRACTION ===");
-      const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
-      const result = await textractClient.analyzeDocument(bytes);
-      extractedText = result.text;
-      tables = result.tables;
-      extractionMethod = 'aws_textract_tables';
-      console.log("✅ AWS Textract table extraction successful");
+      console.log(`📄 Processing converted image of size: ${(imageBytes.length / 1024 / 1024).toFixed(2)}MB`);
       
-      // Store table data
+      // Try table analysis first with converted image
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`🔄 AWS Textract table analysis attempt ${attempt}/3`);
+          const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
+          const result = await textractClient.analyzeDocument(imageBytes);
+          
+          if (result.text && result.text.length > 1000) {
+            extractedText = result.text;
+            tables = result.tables;
+            extractionMethod = 'aws_textract_table_from_image';
+            console.log(`✅ AWS Textract table analysis successful on attempt ${attempt}`);
+            console.log(`📊 Extracted text length: ${extractedText.length} characters`);
+            break;
+          }
+        } catch (error) {
+          console.log(`❌ AWS Textract table analysis attempt ${attempt} failed: ${error.message}`);
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          }
+        }
+      }
+      
+      // If table analysis failed, try basic text extraction
+      if (!extractedText) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            console.log(`🔄 AWS Textract text extraction attempt ${attempt}/3`);
+            const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
+            const textResult = await textractClient.detectDocumentText(imageBytes);
+            
+            if (textResult && textResult.length > 500) {
+              extractedText = textResult;
+              extractionMethod = 'aws_textract_text_from_image';
+              console.log(`✅ AWS Textract text extraction successful on attempt ${attempt}`);
+              console.log(`📊 Extracted text length: ${extractedText.length} characters`);
+              break;
+            }
+          } catch (error) {
+            console.log(`❌ AWS Textract text extraction attempt ${attempt} failed: ${error.message}`);
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
+          }
+        }
+      }
+      
+      // Store table data if found
       if (tables.length > 0) {
         await storeTableData(reportId, tables, supabase);
       }
-    } catch (textractError) {
-      console.error("❌ AWS Textract table extraction failed:", textractError);
-      extractionError = textractError.message;
       
-      // Fallback to basic text extraction
+    } catch (error) {
+      console.error('❌ AWS Textract processing with converted image failed:', error);
+    }
+  }
+
+  // Step 3: Enhanced fallback PDF extraction if Textract failed
+  if (!extractedText) {
+    console.log('=== STEP 3: ENHANCED PDF EXTRACTION FALLBACK ===');
+    
+    try {
+      extractedText = await enhancedPDFExtraction(bytes);
+      extractionMethod = 'enhanced_pdf_extraction';
+      console.log('✅ Enhanced PDF extraction completed');
+      console.log(`📊 Total extracted text length: ${extractedText.length}`);
+    } catch (error) {
+      console.error('❌ Enhanced PDF extraction failed:', error);
+      
+      // Step 4: Final fallback - try basic PDF.js extraction
+      console.log('=== STEP 4: BASIC PDF.JS FALLBACK ===');
       try {
-        console.log("=== ATTEMPTING AWS TEXTRACT TEXT EXTRACTION ===");
-        const textractClient = new TextractClient(awsAccessKeyId, awsSecretAccessKey, awsRegion);
-        extractedText = await textractClient.detectDocumentText(bytes);
-        extractionMethod = 'aws_textract';
-        console.log("✅ AWS Textract text extraction successful");
-      } catch (fallbackError) {
-        console.error("❌ AWS Textract text extraction also failed:", fallbackError);
+        const basicText = await basicPDFExtraction(bytes);
+        if (basicText && basicText.length > 100) {
+          extractedText = basicText;
+          extractionMethod = 'basic_pdf_extraction';
+          console.log('✅ Basic PDF extraction completed as last resort');
+          console.log(`📊 Basic extracted text length: ${extractedText.length}`);
+        } else {
+          throw new Error('Basic PDF extraction also failed');
+        }
+      } catch (basicError) {
+        console.error('❌ All extraction methods failed:', basicError);
+        throw new Error(`All extraction methods failed. Textract: failed, Enhanced: ${error.message}, Basic: ${basicError.message}`);
       }
     }
   }
 
-  // Fallback to enhanced PDF parsing if Textract fails
-  if (!extractedText || extractedText.length < 100) {
-    console.log("=== ATTEMPTING ENHANCED PDF EXTRACTION ===");
-    try {
-      extractedText = await enhancedPDFExtraction(bytes);
-      extractionMethod = 'pdf_processing';
-      console.log("✅ Enhanced PDF extraction completed");
-    } catch (pdfError) {
-      console.error("❌ Enhanced PDF extraction failed:", pdfError);
-      extractionError = pdfError.message;
-    }
+  // Step 5: Text quality assessment and validation
+  console.log('=== STEP 5: TEXT QUALITY ASSESSMENT ===');
+  
+  const originalLength = extractedText.length;
+  console.log(`Original extracted text length: ${originalLength}`);
+  
+  // Assess text quality before sanitization
+  const qualityScore = assessTextQuality(extractedText);
+  console.log(`📊 Text quality score: ${qualityScore}/100`);
+  
+  if (qualityScore < 30) {
+    console.log('⚠️ Low quality text detected - may need alternative extraction method');
+  }
+  
+  // Sanitize and clean the text
+  extractedText = sanitizeExtractedText(extractedText);
+  const sanitizedLength = extractedText.length;
+  console.log(`Sanitized text length: ${sanitizedLength}`);
+  console.log(`Characters removed during sanitization: ${originalLength - sanitizedLength}`);
+  
+  // Enhanced content validation
+  const contentValidation = validateExtractedContent(extractedText, extractionMethod);
+  
+  console.log('=== TEXT VALIDATION RESULTS ===');
+  console.log(`✅ Content validation details:`);
+  console.log(`- Extraction method: ${extractionMethod}`);
+  console.log(`- Quality score: ${qualityScore}/100`);
+  console.log(`- Credit keywords found: ${contentValidation.creditKeywords}`);
+  console.log(`- Content quality ratio: ${contentValidation.qualityRatio}`);
+  console.log(`- Has reasonable content: ${contentValidation.hasReasonableContent}`);
+  console.log(`- Detected type: ${contentValidation.detectedType}`);
+  console.log(`- Is IdentityIQ report: ${contentValidation.isIdentityIQ}`);
+  console.log(`- Has Mozilla markers: ${contentValidation.hasMozillaMarkers}`);
+  console.log(`- Large document: ${contentValidation.isLargeDocument}`);
+  console.log(`- Sample text: ${extractedText.substring(0, 100).replace(/\n/g, '\\n')}...`);
+  
+  if (!contentValidation.hasReasonableContent) {
+    console.log('⚠️ Warning: Extracted text may not contain readable credit report data');
   }
 
-  // Update database with table extraction status
+  // Update database with extraction status
   await supabase
     .from('credit_reports')
     .update({
       table_extraction_status: tables.length > 0 ? 'completed' : 'no_tables',
-      tables_extracted_count: tables.length
+      tables_extracted_count: tables.length,
+      text_quality_score: qualityScore,
+      extraction_method: extractionMethod
     })
     .eq('id', reportId);
+
+  console.log(`Final text length: ${extractedText.length}`);
+  console.log(`Final extraction method: ${extractionMethod}`);
+  console.log('✅ Processing completed successfully');
 
   return extractedText;
 }

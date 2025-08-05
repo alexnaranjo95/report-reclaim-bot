@@ -1,6 +1,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { ComprehensiveCreditParser } from './ComprehensiveCreditParser';
+import { EnhancedCreditParserV2 } from './EnhancedCreditParserV2';
 
 export class PDFExtractionService {
   /**
@@ -66,22 +67,34 @@ export class PDFExtractionService {
       
       console.log('✅ Text validation passed, starting parsing...');
       
-      // STEP 2: Parse ONLY if we have valid text
+      // STEP 2: Parse ONLY if we have valid text using Enhanced Parser V2
       try {
-        const { EnhancedCreditParser } = await import('./EnhancedCreditParser');
-        const success = await EnhancedCreditParser.parseWithFuzzyMatching(reportId);
+        console.log('🔍 Starting enhanced parsing V2...');
+        const parseSuccess = await EnhancedCreditParserV2.parseReport(reportId);
         
-        if (!success) {
-          throw new Error('Enhanced parser failed to extract any valid data');
+        if (parseSuccess) {
+          console.log('✅ Enhanced parsing V2 completed successfully');
+        } else {
+          console.log('⚠️ Enhanced parsing V2 had limited success - falling back to original parser');
+          
+          // Fallback to original enhanced parser
+          try {
+            const { EnhancedCreditParser } = await import('./EnhancedCreditParser');
+            await EnhancedCreditParser.parseWithFuzzyMatching(reportId);
+            console.log('✅ Fallback parsing completed');
+          } catch (fallbackError) {
+            console.error('❌ Fallback parsing also failed:', fallbackError);
+          }
         }
         
         // VALIDATION: Ensure we actually parsed data
         const extractedData = await this.validateParsedData(reportId);
         if (!extractedData.hasValidData) {
-          throw new Error('No valid credit data was parsed from the text');
+          console.log('⚠️ Warning: Limited data was parsed from the text', extractedData);
+          // Don't fail completely - some extraction is better than none
+        } else {
+          console.log('✅ Credit data parsing completed with validation:', extractedData);
         }
-        
-        console.log('✅ Credit data parsing completed with validation:', extractedData);
         
       } catch (parseError) {
         console.error('❌ Credit data parsing failed:', parseError);

@@ -152,13 +152,10 @@ export class PDFParsingService {
     if (data.personalInfo) {
       await supabase.from('personal_information').upsert({
         report_id: reportId,
-        ...data.personalInfo,
-        current_address: data.personalInfo.current_address ? 
-          JSON.stringify(data.personalInfo.current_address) : null,
-        phone_numbers: data.personalInfo.phone_numbers ? 
-          JSON.stringify(data.personalInfo.phone_numbers) : null,
-        employer_info: data.personalInfo.employer_info ? 
-          JSON.stringify(data.personalInfo.employer_info) : null
+        bureau: 'TransUnion',
+        full_name: data.personalInfo.full_name,
+        date_of_birth: data.personalInfo.date_of_birth,
+        ssn_last_four: data.personalInfo.ssn_partial
       });
     }
 
@@ -166,10 +163,19 @@ export class PDFParsingService {
     if (data.accounts && data.accounts.length > 0) {
       const accountsWithReportId = data.accounts.map(account => ({
         report_id: reportId,
-        ...account,
-        payment_history: account.payment_history ? 
-          JSON.stringify(account.payment_history) : null,
-        bureau_reporting: account.bureau_reporting || []
+        bureau: 'TransUnion' as const,
+        creditor_name: account.creditor_name,
+        account_number: account.account_number,
+        account_type: account.account_type,
+        account_status: account.account_status,
+        payment_status: account.payment_status,
+        date_opened: account.date_opened,
+        date_closed: account.date_closed,
+        credit_limit: account.credit_limit,
+        high_credit: account.high_credit,
+        current_balance: account.current_balance,
+        past_due_amount: account.past_due_amount,
+        monthly_payment: account.monthly_payment
       }));
       
       await supabase.from('credit_accounts').upsert(accountsWithReportId);
@@ -179,7 +185,11 @@ export class PDFParsingService {
     if (data.inquiries && data.inquiries.length > 0) {
       const inquiriesWithReportId = data.inquiries.map(inquiry => ({
         report_id: reportId,
-        ...inquiry
+        bureau: 'TransUnion' as const,
+        inquirer_name: inquiry.inquirer_name,
+        inquiry_date: inquiry.inquiry_date,
+        inquiry_type: inquiry.inquiry_type,
+        business_type: inquiry.purpose
       }));
       
       await supabase.from('credit_inquiries').upsert(inquiriesWithReportId);

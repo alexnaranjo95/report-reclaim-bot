@@ -69,7 +69,7 @@ export class PDFExtractionService {
       // STEP 2: Parse ONLY if we have valid text using Comprehensive Parser
       try {
         console.log('🔍 Starting comprehensive credit report parsing...');
-        const parseResult = await ComprehensiveCreditParser.parseAndStoreCreditReport(
+        const parseResult = await ComprehensiveCreditParser.parseReport(
           reportId, 
           result.extractedText || ''
         );

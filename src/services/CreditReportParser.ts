@@ -582,13 +582,11 @@ export class CreditReportParser {
         .from('personal_information')
         .upsert({
           report_id: reportId,
+          bureau: 'TransUnion',
           full_name: personalInfo.full_name,
-          ssn_partial: personalInfo.ssn_partial,
-          date_of_birth: personalInfo.date_of_birth ? personalInfo.date_of_birth : null,
-          current_address: personalInfo.current_address,
-          previous_addresses: personalInfo.previous_addresses || [],
-          employer_info: personalInfo.employer_info
-        }, { onConflict: 'report_id' });
+          ssn_last_four: personalInfo.ssn_partial,
+          date_of_birth: personalInfo.date_of_birth ? personalInfo.date_of_birth : null
+        });
     }
 
     // Store credit accounts
@@ -598,6 +596,7 @@ export class CreditReportParser {
           .from('credit_accounts')
           .insert({
             report_id: reportId,
+            bureau: 'TransUnion',
             creditor_name: account.creditor_name,
             account_number: account.account_number,
             account_type: account.account_type,
@@ -608,8 +607,6 @@ export class CreditReportParser {
             high_credit: account.high_credit,
             payment_status: account.payment_status,
             account_status: account.account_status,
-            payment_history: account.payment_history || {},
-            is_negative: account.is_negative,
             past_due_amount: account.past_due_amount || 0
           });
       }

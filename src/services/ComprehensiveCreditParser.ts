@@ -98,10 +98,24 @@ export interface CreditReportParsedData {
 export class ComprehensiveCreditParser {
   private static readonly BUREAUS = ['TransUnion', 'Experian', 'Equifax'] as const;
   
-  static async parseAndStoreCreditReport(
+  static async parseReport(
     reportId: string, 
-    extractedText: string
+    extractedText?: string
   ): Promise<{ success: boolean; error?: string; data?: CreditReportParsedData }> {
+    // If no extractedText provided, get it from the database
+    if (!extractedText) {
+      const { data: report } = await supabase
+        .from('credit_reports')
+        .select('raw_text')
+        .eq('id', reportId)
+        .single();
+      
+      if (!report?.raw_text) {
+        throw new Error('No raw text found for this report');
+      }
+      
+      extractedText = report.raw_text;
+    }
     try {
       console.log('🔍 Starting comprehensive credit report parsing...');
       

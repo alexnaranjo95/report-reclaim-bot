@@ -14,6 +14,7 @@ const awsRegion = Deno.env.get('AWS_REGION') || 'us-east-1';
 const googleCloudVisionApiKey = Deno.env.get('GOOGLE_CLOUD_VISION_API_KEY');
 const googleCloudProjectId = Deno.env.get('GOOGLE_CLOUD_PROJECT_ID');
 const googleCloudServiceAccountKey = Deno.env.get('GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY');
+const docuClipperApiKey = Deno.env.get('DOCUCLIPPER_API_KEY');
 
 serve(async (req) => {
   console.log(`📋 Request method: ${req.method}, URL: ${req.url}`);
@@ -82,6 +83,16 @@ serve(async (req) => {
       extractionPromises.push(
         extractWithGoogleVision(arrayBuffer)
           .catch(error => ({ error: error.message, text: '', method: 'google-vision' }))
+      );
+    }
+
+    // DocuClipper
+    if (docuClipperApiKey) {
+      console.log('🔄 Queuing DocuClipper extraction...');
+      extractionMethods.push('docuclipper');
+      extractionPromises.push(
+        extractWithDocuClipper(arrayBuffer)
+          .catch(error => ({ error: error.message, text: '', method: 'docuclipper' }))
       );
     }
 
@@ -332,6 +343,9 @@ function calculateConfidenceScore(text: string, method: string): number {
     case 'google-vision':
       baseScore = 0.8;
       break;
+    case 'docuclipper':
+      baseScore = 0.85;
+      break;
     case 'textract':
       baseScore = 0.7;
       break;
@@ -528,6 +542,108 @@ async function createJWT(serviceAccount: any): Promise<string> {
     return `${data}.${encodedSignature}`;
   } catch (error) {
     throw new Error(`JWT creation failed: ${error.message}`);
+  }
+}
+
+// DocuClipper extraction function
+async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
+  console.log('🔄 Starting DocuClipper extraction...');
+  
+  try {
+    const apiKey = Deno.env.get('DOCUCLIPPER_API_KEY');
+    if (!apiKey) {
+      throw new Error('DocuClipper API key not configured');
+    }
+
+    // Create form data for the PDF
+    const formData = new FormData();
+    const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
+    formData.append('document', pdfBlob, 'credit-report.pdf');
+
+    console.log('📤 Uploading PDF to DocuClipper...');
+
+    // Call DocuClipper API
+    const response = await fetch(
+      'https://www.docuclipper.com/api/v1/protected/document?asyncProcessing=false',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`DocuClipper API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ DocuClipper extraction completed successfully');
+
+    // Extract text from DocuClipper response
+    let extractedText = '';
+
+    if (result.data) {
+      const data = result.data;
+      const textSections = [];
+      
+      // Extract account holder information
+      if (data.accountHolderName) textSections.push(`Account Holder: ${data.accountHolderName}`);
+      if (data.accountNumber) textSections.push(`Account Number: ${data.accountNumber}`);
+      if (data.routingNumber) textSections.push(`Routing Number: ${data.routingNumber}`);
+      if (data.bankName) textSections.push(`Bank: ${data.bankName}`);
+      
+      // Extract transaction data
+      if (data.transactions && Array.isArray(data.transactions)) {
+        data.transactions.forEach((transaction: any, index: number) => {
+          const txText = [];
+          if (transaction.date) txText.push(`Date: ${transaction.date}`);
+          if (transaction.description) txText.push(`Description: ${transaction.description}`);
+          if (transaction.amount) txText.push(`Amount: ${transaction.amount}`);
+          if (transaction.balance) txText.push(`Balance: ${transaction.balance}`);
+          if (transaction.type) txText.push(`Type: ${transaction.type}`);
+          
+          if (txText.length > 0) {
+            textSections.push(`Transaction ${index + 1}: ${txText.join(', ')}`);
+          }
+        });
+      }
+      
+      // Extract summary information
+      if (data.summary) {
+        Object.entries(data.summary).forEach(([key, value]) => {
+          if (value && typeof value === 'string') {
+            textSections.push(`${key}: ${value}`);
+          }
+        });
+      }
+
+      // Extract any other text fields
+      if (data.extractedText) {
+        textSections.push(data.extractedText);
+      }
+      
+      extractedText = textSections.join('\n');
+    }
+
+    // If we got structured data back but no text, convert the JSON to text
+    if (!extractedText && result) {
+      extractedText = JSON.stringify(result, null, 2);
+    }
+
+    console.log(`📊 DocuClipper extracted ${extractedText.length} characters`);
+    
+    if (extractedText.length < 50) {
+      throw new Error('DocuClipper returned insufficient text data');
+    }
+
+    return extractedText;
+
+  } catch (error) {
+    console.error('❌ DocuClipper extraction error:', error);
+    throw error;
   }
 }
 

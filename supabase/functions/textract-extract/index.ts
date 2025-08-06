@@ -420,99 +420,88 @@ async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
       throw new Error('DocuClipper API key not configured');
     }
 
+    console.log('📤 Uploading PDF to DocuClipper for text extraction...');
+
     // Create form data for the PDF
     const formData = new FormData();
     const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
     formData.append('file', pdfBlob, 'credit-report.pdf');
-    
-    // Add OCR-specific parameters
-    formData.append('output_format', 'text');
-    formData.append('extract_type', 'full_text');
 
-    console.log('📤 Uploading PDF to DocuClipper for OCR extraction...');
-
-    // Try the OCR endpoint first
-    let response = await fetch(
-      'https://api.docuclipper.com/api/v1/ocr/extract',
+    // Try the correct DocuClipper endpoint for document processing
+    const response = await fetch(
+      'https://api.docuclipper.com/api/v1/documents/extract',
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          'X-API-Key': apiKey,
+          'Accept': 'application/json',
         },
         body: formData,
       }
     );
 
-    // If OCR endpoint fails, try the general document processing endpoint
-    if (!response.ok) {
-      console.log('🔄 OCR endpoint failed, trying general document endpoint...');
-      
-      // Reset FormData for second attempt
-      const formData2 = new FormData();
-      formData2.append('document', pdfBlob, 'credit-report.pdf');
-      
-      response = await fetch(
-        'https://www.docuclipper.com/api/v1/protected/document?asyncProcessing=false',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: formData2,
-        }
-      );
-    }
-
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`DocuClipper API error: ${response.status} ${response.statusText} - ${errorText}`);
+      console.error(`❌ DocuClipper API error: ${response.status} ${response.statusText}`);
+      console.error(`❌ Error details: ${errorText}`);
+      
+      // Try fallback extraction if DocuClipper fails
+      console.log('🔄 DocuClipper failed, attempting fallback PDF extraction...');
+      return await fallbackTextExtraction(pdfBuffer);
     }
 
     const result = await response.json();
-    console.log('✅ DocuClipper extraction completed successfully');
+    console.log('✅ DocuClipper response received');
 
-    // Extract text from various possible response formats
+    // Log response structure for debugging
+    console.log('📋 DocuClipper response keys:', Object.keys(result));
+
     let extractedText = '';
 
-    // Try multiple extraction paths for different API responses
+    // Extract text from DocuClipper response
     if (result.text) {
       extractedText = result.text;
     } else if (result.data?.text) {
       extractedText = result.data.text;
-    } else if (result.data?.ocrText) {
-      extractedText = result.data.ocrText;
-    } else if (result.data?.extractedText) {
-      extractedText = result.data.extractedText;
     } else if (result.data?.content) {
       extractedText = result.data.content;
-    } else if (result.ocrText) {
-      extractedText = result.ocrText;
-    } else if (result.extractedText) {
-      extractedText = result.extractedText;
     } else if (result.content) {
       extractedText = result.content;
-    } else if (result.fullText) {
-      extractedText = result.fullText;
+    } else if (result.extractedText) {
+      extractedText = result.extractedText;
+    } else if (result.data?.extractedText) {
+      extractedText = result.data.extractedText;
     } else if (result.pages && Array.isArray(result.pages)) {
-      // Try to extract text from pages array
+      // Extract text from pages array
       extractedText = result.pages
-        .map((page: any) => page.text || page.content || page.ocrText || '')
+        .map((page: any) => page.text || page.content || '')
         .filter((text: string) => text.length > 0)
         .join('\n');
-    } else if (result.data && typeof result.data === 'object') {
-      // Look for any text-like fields in the data object
-      const dataText = [];
-      for (const [key, value] of Object.entries(result.data)) {
-        if (typeof value === 'string' && value.length > 20 && 
-            (key.toLowerCase().includes('text') || 
-             key.toLowerCase().includes('content') || 
-             key.toLowerCase().includes('ocr'))) {
-          dataText.push(value);
+    } else {
+      // Log full response for debugging
+      console.log('📋 Full DocuClipper response:', JSON.stringify(result, null, 2));
+      
+      // Try to find any text in the response
+      const findTextInObject = (obj: any, path = ''): string[] => {
+        const texts: string[] = [];
+        
+        if (typeof obj === 'string' && obj.length > 20) {
+          texts.push(obj);
+        } else if (obj && typeof obj === 'object') {
+          for (const [key, value] of Object.entries(obj)) {
+            if (typeof value === 'string' && value.length > 20) {
+              texts.push(value);
+            } else if (value && typeof value === 'object') {
+              texts.push(...findTextInObject(value, `${path}.${key}`));
+            }
+          }
         }
-      }
-      extractedText = dataText.join('\n');
-    } else if (typeof result === 'string') {
-      extractedText = result;
+        
+        return texts;
+      };
+      
+      const foundTexts = findTextInObject(result);
+      extractedText = foundTexts.join('\n');
     }
 
     // Clean up the extracted text
@@ -520,8 +509,7 @@ async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
       extractedText = extractedText
         .trim()
         .replace(/\s+/g, ' ')
-        .replace(/\n\s*\n/g, '\n')
-        .replace(/[\r\n]+/g, '\n');
+        .replace(/\n\s*\n/g, '\n');
     }
 
     console.log(`📊 DocuClipper extracted ${extractedText.length} characters`);
@@ -532,35 +520,24 @@ async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
       console.log(`📝 Text sample: "${sample}${extractedText.length > 200 ? '...' : ''}"`);
     }
     
-    if (extractedText.length < 50) {
-      console.log('⚠️ DocuClipper returned minimal text, checking for other data formats...');
-      
-      // If we have minimal text, log the full response structure for debugging
-      console.log('📋 Full DocuClipper response structure:', JSON.stringify(result, null, 2));
-      
-      // Try to extract any readable content from the response
-      if (result.data) {
-        const fallbackText = JSON.stringify(result.data, null, 2)
-          .replace(/[{}",\[\]]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        
-        if (fallbackText.length > extractedText.length) {
-          extractedText = fallbackText;
-          console.log(`📊 Using fallback extraction: ${extractedText.length} characters`);
-        }
-      }
-      
-      if (extractedText.length < 50) {
-        throw new Error('DocuClipper returned insufficient text data for OCR extraction');
-      }
+    if (extractedText.length < 100) {
+      console.log('⚠️ DocuClipper returned insufficient text, trying fallback extraction...');
+      return await fallbackTextExtraction(pdfBuffer);
     }
 
     return extractedText;
 
   } catch (error) {
     console.error('❌ DocuClipper extraction error:', error);
-    throw error;
+    
+    // Try fallback extraction if DocuClipper completely fails
+    console.log('🔄 DocuClipper failed completely, attempting fallback PDF extraction...');
+    try {
+      return await fallbackTextExtraction(pdfBuffer);
+    } catch (fallbackError) {
+      console.error('❌ Fallback extraction also failed:', fallbackError);
+      throw new Error(`DocuClipper extraction failed: ${error.message}`);
+    }
   }
 }
 

@@ -364,6 +364,56 @@ export type Database = {
           },
         ]
       }
+      consolidation_metadata: {
+        Row: {
+          confidence_level: number | null
+          conflict_count: number | null
+          consolidation_notes: string | null
+          consolidation_strategy: string
+          created_at: string | null
+          field_sources: Json | null
+          id: string
+          primary_source: string
+          processed_at: string | null
+          report_id: string
+          requires_human_review: boolean | null
+        }
+        Insert: {
+          confidence_level?: number | null
+          conflict_count?: number | null
+          consolidation_notes?: string | null
+          consolidation_strategy: string
+          created_at?: string | null
+          field_sources?: Json | null
+          id?: string
+          primary_source: string
+          processed_at?: string | null
+          report_id: string
+          requires_human_review?: boolean | null
+        }
+        Update: {
+          confidence_level?: number | null
+          conflict_count?: number | null
+          consolidation_notes?: string | null
+          consolidation_strategy?: string
+          created_at?: string | null
+          field_sources?: Json | null
+          id?: string
+          primary_source?: string
+          processed_at?: string | null
+          report_id?: string
+          requires_human_review?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consolidation_metadata_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_accounts: {
         Row: {
           account_number: string | null
@@ -644,11 +694,14 @@ export type Database = {
       credit_reports: {
         Row: {
           bureau_name: string
+          consolidation_confidence: number | null
+          consolidation_status: string | null
           created_at: string | null
           extraction_status: string | null
           file_name: string | null
           file_path: string | null
           id: string
+          primary_extraction_method: string | null
           processing_errors: string | null
           raw_text: string | null
           reference_number: string | null
@@ -660,11 +713,14 @@ export type Database = {
         }
         Insert: {
           bureau_name: string
+          consolidation_confidence?: number | null
+          consolidation_status?: string | null
           created_at?: string | null
           extraction_status?: string | null
           file_name?: string | null
           file_path?: string | null
           id?: string
+          primary_extraction_method?: string | null
           processing_errors?: string | null
           raw_text?: string | null
           reference_number?: string | null
@@ -676,11 +732,14 @@ export type Database = {
         }
         Update: {
           bureau_name?: string
+          consolidation_confidence?: number | null
+          consolidation_status?: string | null
           created_at?: string | null
           extraction_status?: string | null
           file_name?: string | null
           file_path?: string | null
           id?: string
+          primary_extraction_method?: string | null
           processing_errors?: string | null
           raw_text?: string | null
           reference_number?: string | null
@@ -857,6 +916,59 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      extraction_results: {
+        Row: {
+          character_count: number | null
+          confidence_score: number | null
+          created_at: string | null
+          extracted_text: string | null
+          extraction_metadata: Json | null
+          extraction_method: string
+          has_structured_data: boolean | null
+          id: string
+          processing_time_ms: number | null
+          report_id: string
+          updated_at: string | null
+          word_count: number | null
+        }
+        Insert: {
+          character_count?: number | null
+          confidence_score?: number | null
+          created_at?: string | null
+          extracted_text?: string | null
+          extraction_metadata?: Json | null
+          extraction_method: string
+          has_structured_data?: boolean | null
+          id?: string
+          processing_time_ms?: number | null
+          report_id: string
+          updated_at?: string | null
+          word_count?: number | null
+        }
+        Update: {
+          character_count?: number | null
+          confidence_score?: number | null
+          created_at?: string | null
+          extracted_text?: string | null
+          extraction_metadata?: Json | null
+          extraction_method?: string
+          has_structured_data?: boolean | null
+          id?: string
+          processing_time_ms?: number | null
+          report_id?: string
+          updated_at?: string | null
+          word_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extraction_results_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       letters: {
         Row: {

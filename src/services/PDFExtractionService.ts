@@ -4,15 +4,15 @@ import { ComprehensiveCreditParser } from './ComprehensiveCreditParser';
 
 export class PDFExtractionService {
   /**
-   * STRICT extraction method - only real data extraction allowed
+   * Enhanced extraction method with parallel OCR and data consolidation
    */
   static async extractText(reportId: string): Promise<void> {
-    console.log('🚀 Starting STRICT PDF extraction for:', reportId);
+    console.log('🚀 Starting parallel PDF extraction for:', reportId);
     
     // Get report details
     const { data: report, error: reportError } = await supabase
       .from('credit_reports')
-      .select('file_path, extraction_status')
+      .select('file_path, extraction_status, consolidation_status')
       .eq('id', reportId)
       .single();
 
@@ -29,6 +29,7 @@ export class PDFExtractionService {
       .from('credit_reports')
       .update({ 
         extraction_status: 'processing',
+        consolidation_status: 'processing',
         processing_errors: null,
         updated_at: new Date().toISOString()
       })
@@ -39,14 +40,14 @@ export class PDFExtractionService {
     }
 
     try {
-      console.log('🚀 Starting PDF extraction with enhanced error handling...');
+      console.log('🚀 Starting parallel PDF extraction with consolidation...');
       
-      // Call the textract-extract edge function with retry logic
+      // Call the enhanced textract-extract edge function
       let result = null;
       let extractError = null;
       
       for (let attempt = 1; attempt <= 3; attempt++) {
-        console.log(`📤 Attempt ${attempt} to call textract-extract function...`);
+        console.log(`📤 Attempt ${attempt} to call parallel textract-extract function...`);
         
         const response = await supabase.functions.invoke('textract-extract', {
           body: {
@@ -59,7 +60,9 @@ export class PDFExtractionService {
         result = response.data;
         
         if (!extractError && result?.success) {
-          console.log(`✅ Function call successful on attempt ${attempt}`);
+          console.log(`✅ Parallel extraction successful on attempt ${attempt}`);
+          console.log(`📊 Results: Primary method: ${result.primaryMethod}, Confidence: ${result.consolidationConfidence}`);
+          console.log(`📊 All methods: ${result.extractionResults?.map((r: any) => `${r.method}(${r.confidence})`).join(', ')}`);
           break;
         }
         
@@ -79,27 +82,36 @@ export class PDFExtractionService {
         throw new Error(`Extraction failed: ${result?.error || 'Unknown error'} | Details: ${result?.details || 'No details'}`);
       }
 
-      console.log(`✅ PDF extraction completed using ${result.method}, validating content...`);
-      console.log(`📊 Extraction stats: ${result.textLength} characters, hasValidText: ${result.hasValidText}`);
+      console.log(`✅ Parallel extraction completed using primary method: ${result.primaryMethod}`);
+      console.log(`📊 Consolidation stats: ${result.textLength} characters, confidence: ${result.consolidationConfidence}`);
       
-      // CRITICAL: Validate extracted text before parsing
+      // CRITICAL: Validate consolidated text before parsing
       const isValidText = await this.validateExtractedText(reportId);
       if (!isValidText) {
-        console.log('❌ Text validation failed - PDF may contain only images or corrupted text');
+        console.log('❌ Consolidated text validation failed');
         
-        // If using fallback method and validation failed, it's likely an image-based PDF
-        if (result.method === 'fallback') {
-          throw new Error('This appears to be an image-based PDF. Please upload a text-based credit report PDF from Experian, Equifax, or TransUnion, or ensure OCR processing is enabled.');
+        // Check if we have alternative extraction results to try
+        const extractionResults = await this.getAlternativeExtractionResults(reportId);
+        if (extractionResults.length > 1) {
+          console.log('🔄 Trying alternative consolidation strategy...');
+          const { DataConsolidationService } = await import('./DataConsolidationService');
+          const reconsolidated = await DataConsolidationService.reconsolidate(reportId, 'majority_vote');
+          
+          // Re-validate with new consolidation
+          const revalidated = await this.validateExtractedText(reportId);
+          if (!revalidated) {
+            throw new Error('All consolidation strategies failed validation. This may be an image-based PDF requiring OCR.');
+          }
         } else {
-          throw new Error('PDF text validation failed. Please verify this is a valid credit report.');
+          throw new Error('Text validation failed and no alternative extraction results available.');
         }
       }
       
-      console.log('✅ Text validation passed, starting parsing...');
+      console.log('✅ Consolidated text validation passed, starting parsing...');
       
-      // STEP 2: Parse ONLY if we have valid text using Comprehensive Parser
+      // STEP 2: Parse using the consolidated text
       try {
-        console.log('🔍 Starting comprehensive credit report parsing...');
+        console.log('🔍 Starting comprehensive credit report parsing with consolidated data...');
         const parseResult = await ComprehensiveCreditParser.parseReport(
           reportId, 
           result.extractedText || ''
@@ -123,8 +135,13 @@ export class PDFExtractionService {
         // VALIDATION: Ensure we actually parsed data
         const extractedData = await this.validateParsedData(reportId);
         if (!extractedData.hasValidData) {
-          console.log('⚠️ Warning: Limited data was parsed from the text', extractedData);
-          // Don't fail completely - some extraction is better than none
+          console.log('⚠️ Warning: Limited data was parsed from consolidated text', extractedData);
+          
+          // Try parsing alternative extraction results individually
+          const alternativeResults = await this.tryAlternativeParsing(reportId);
+          if (alternativeResults.hasValidData) {
+            console.log('✅ Alternative parsing strategy succeeded');
+          }
         } else {
           console.log('✅ Credit data parsing completed with validation:', extractedData);
         }
@@ -137,6 +154,7 @@ export class PDFExtractionService {
           .from('credit_reports')
           .update({ 
             extraction_status: 'failed',
+            consolidation_status: 'failed',
             processing_errors: `Parsing failed: ${parseError.message}`,
             updated_at: new Date().toISOString()
           })
@@ -146,20 +164,87 @@ export class PDFExtractionService {
       }
       
     } catch (extractionError) {
-      console.error('PDF extraction error:', extractionError);
+      console.error('Parallel PDF extraction error:', extractionError);
       
       // Update status to failed
       await supabase
         .from('credit_reports')
         .update({ 
           extraction_status: 'failed',
+          consolidation_status: 'failed',
           processing_errors: extractionError.message,
           updated_at: new Date().toISOString()
         })
         .eq('id', reportId);
         
-      throw new Error(`PDF extraction failed: ${extractionError.message}`);
+      throw new Error(`Parallel PDF extraction failed: ${extractionError.message}`);
     }
+  }
+
+  /**
+   * Get alternative extraction results for fallback processing
+   */
+  private static async getAlternativeExtractionResults(reportId: string) {
+    const { data, error } = await supabase
+      .from('extraction_results')
+      .select('*')
+      .eq('report_id', reportId)
+      .order('confidence_score', { ascending: false });
+
+    if (error) {
+      console.error('Failed to get extraction results:', error);
+      return [];
+    }
+
+    return data || [];
+  }
+
+  /**
+   * Try parsing with alternative extraction results
+   */
+  private static async tryAlternativeParsing(reportId: string) {
+    const results = await this.getAlternativeExtractionResults(reportId);
+    
+    for (const result of results) {
+      if (result.extracted_text && result.extracted_text.length > 500) {
+        try {
+          console.log(`🔄 Trying parsing with ${result.extraction_method}...`);
+          
+          const parseResult = await ComprehensiveCreditParser.parseReport(
+            reportId, 
+            result.extracted_text
+          );
+          
+          if (parseResult.success) {
+            const validationResult = await this.validateParsedData(reportId);
+            if (validationResult.hasValidData) {
+              console.log(`✅ Alternative parsing successful with ${result.extraction_method}`);
+              
+              // Update the primary extraction method
+              await supabase
+                .from('credit_reports')
+                .update({
+                  raw_text: result.extracted_text,
+                  primary_extraction_method: result.extraction_method
+                })
+                .eq('id', reportId);
+              
+              return validationResult;
+            }
+          }
+        } catch (parseError) {
+          console.log(`❌ Alternative parsing with ${result.extraction_method} failed:`, parseError);
+        }
+      }
+    }
+    
+    return {
+      hasValidData: false,
+      personalInfo: false,
+      accounts: 0,
+      inquiries: 0,
+      negativeItems: 0
+    };
   }
 
   /**

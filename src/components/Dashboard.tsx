@@ -735,7 +735,7 @@ export const Dashboard = () => {
                              <span className={`text-sm w-20 ${accessibility.isCurrentRound ? 'font-medium text-primary' : accessibility.isAccessible ? '' : 'text-muted-foreground'}`}>
                                Round {roundNumber}
                              </span>
-                             {!accessibility.isAccessible ? <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
+                             {!accessibility.isAccessible ? <div className="w-4 h-4 rounded-full flex items-center justify-center bg-white/[0.31]">
                                  
                                </div> : getRoundIcon(roundNumber, status)}
                           </div>

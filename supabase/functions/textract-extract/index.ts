@@ -410,9 +410,9 @@ async function createJWT(serviceAccount: any): Promise<string> {
   }
 }
 
-// DocuClipper extraction function
+// DocuClipper extraction function for general OCR
 async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
-  console.log('🔄 Starting DocuClipper extraction...');
+  console.log('🔄 Starting DocuClipper OCR extraction...');
   
   try {
     const apiKey = Deno.env.get('DOCUCLIPPER_API_KEY');
@@ -423,13 +423,17 @@ async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
     // Create form data for the PDF
     const formData = new FormData();
     const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
-    formData.append('document', pdfBlob, 'credit-report.pdf');
+    formData.append('file', pdfBlob, 'credit-report.pdf');
+    
+    // Add OCR-specific parameters
+    formData.append('output_format', 'text');
+    formData.append('extract_type', 'full_text');
 
-    console.log('📤 Uploading PDF to DocuClipper...');
+    console.log('📤 Uploading PDF to DocuClipper for OCR extraction...');
 
-    // Call DocuClipper API
-    const response = await fetch(
-      'https://www.docuclipper.com/api/v1/protected/document?asyncProcessing=false',
+    // Try the OCR endpoint first
+    let response = await fetch(
+      'https://api.docuclipper.com/api/v1/ocr/extract',
       {
         method: 'POST',
         headers: {
@@ -439,6 +443,26 @@ async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
       }
     );
 
+    // If OCR endpoint fails, try the general document processing endpoint
+    if (!response.ok) {
+      console.log('🔄 OCR endpoint failed, trying general document endpoint...');
+      
+      // Reset FormData for second attempt
+      const formData2 = new FormData();
+      formData2.append('document', pdfBlob, 'credit-report.pdf');
+      
+      response = await fetch(
+        'https://www.docuclipper.com/api/v1/protected/document?asyncProcessing=false',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: formData2,
+        }
+      );
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`DocuClipper API error: ${response.status} ${response.statusText} - ${errorText}`);
@@ -447,61 +471,89 @@ async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
     const result = await response.json();
     console.log('✅ DocuClipper extraction completed successfully');
 
-    // Extract text from DocuClipper response
+    // Extract text from various possible response formats
     let extractedText = '';
 
-    if (result.data) {
-      const data = result.data;
-      const textSections = [];
-      
-      // Extract account holder information
-      if (data.accountHolderName) textSections.push(`Account Holder: ${data.accountHolderName}`);
-      if (data.accountNumber) textSections.push(`Account Number: ${data.accountNumber}`);
-      if (data.routingNumber) textSections.push(`Routing Number: ${data.routingNumber}`);
-      if (data.bankName) textSections.push(`Bank: ${data.bankName}`);
-      
-      // Extract transaction data
-      if (data.transactions && Array.isArray(data.transactions)) {
-        data.transactions.forEach((transaction: any, index: number) => {
-          const txText = [];
-          if (transaction.date) txText.push(`Date: ${transaction.date}`);
-          if (transaction.description) txText.push(`Description: ${transaction.description}`);
-          if (transaction.amount) txText.push(`Amount: ${transaction.amount}`);
-          if (transaction.balance) txText.push(`Balance: ${transaction.balance}`);
-          if (transaction.type) txText.push(`Type: ${transaction.type}`);
-          
-          if (txText.length > 0) {
-            textSections.push(`Transaction ${index + 1}: ${txText.join(', ')}`);
-          }
-        });
+    // Try multiple extraction paths for different API responses
+    if (result.text) {
+      extractedText = result.text;
+    } else if (result.data?.text) {
+      extractedText = result.data.text;
+    } else if (result.data?.ocrText) {
+      extractedText = result.data.ocrText;
+    } else if (result.data?.extractedText) {
+      extractedText = result.data.extractedText;
+    } else if (result.data?.content) {
+      extractedText = result.data.content;
+    } else if (result.ocrText) {
+      extractedText = result.ocrText;
+    } else if (result.extractedText) {
+      extractedText = result.extractedText;
+    } else if (result.content) {
+      extractedText = result.content;
+    } else if (result.fullText) {
+      extractedText = result.fullText;
+    } else if (result.pages && Array.isArray(result.pages)) {
+      // Try to extract text from pages array
+      extractedText = result.pages
+        .map((page: any) => page.text || page.content || page.ocrText || '')
+        .filter((text: string) => text.length > 0)
+        .join('\n');
+    } else if (result.data && typeof result.data === 'object') {
+      // Look for any text-like fields in the data object
+      const dataText = [];
+      for (const [key, value] of Object.entries(result.data)) {
+        if (typeof value === 'string' && value.length > 20 && 
+            (key.toLowerCase().includes('text') || 
+             key.toLowerCase().includes('content') || 
+             key.toLowerCase().includes('ocr'))) {
+          dataText.push(value);
+        }
       }
-      
-      // Extract summary information
-      if (data.summary) {
-        Object.entries(data.summary).forEach(([key, value]) => {
-          if (value && typeof value === 'string') {
-            textSections.push(`${key}: ${value}`);
-          }
-        });
-      }
-
-      // Extract any other text fields
-      if (data.extractedText) {
-        textSections.push(data.extractedText);
-      }
-      
-      extractedText = textSections.join('\n');
+      extractedText = dataText.join('\n');
+    } else if (typeof result === 'string') {
+      extractedText = result;
     }
 
-    // If we got structured data back but no text, convert the JSON to text
-    if (!extractedText && result) {
-      extractedText = JSON.stringify(result, null, 2);
+    // Clean up the extracted text
+    if (extractedText) {
+      extractedText = extractedText
+        .trim()
+        .replace(/\s+/g, ' ')
+        .replace(/\n\s*\n/g, '\n')
+        .replace(/[\r\n]+/g, '\n');
     }
 
     console.log(`📊 DocuClipper extracted ${extractedText.length} characters`);
     
+    // Log a sample of the extracted text for debugging
+    if (extractedText.length > 0) {
+      const sample = extractedText.substring(0, 200);
+      console.log(`📝 Text sample: "${sample}${extractedText.length > 200 ? '...' : ''}"`);
+    }
+    
     if (extractedText.length < 50) {
-      throw new Error('DocuClipper returned insufficient text data');
+      console.log('⚠️ DocuClipper returned minimal text, checking for other data formats...');
+      
+      // If we have minimal text, log the full response structure for debugging
+      console.log('📋 Full DocuClipper response structure:', JSON.stringify(result, null, 2));
+      
+      // Try to extract any readable content from the response
+      if (result.data) {
+        const fallbackText = JSON.stringify(result.data, null, 2)
+          .replace(/[{}",\[\]]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        if (fallbackText.length > extractedText.length) {
+          extractedText = fallbackText;
+          console.log(`📊 Using fallback extraction: ${extractedText.length} characters`);
+        }
+      }
+      
+      if (extractedText.length < 50) {
+        throw new Error('DocuClipper returned insufficient text data for OCR extraction');
+      }
     }
 
     return extractedText;

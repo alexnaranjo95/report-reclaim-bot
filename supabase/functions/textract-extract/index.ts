@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.53.0';
 
@@ -11,6 +12,9 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const awsAccessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
 const awsSecretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY');
 const awsRegion = Deno.env.get('AWS_REGION') || 'us-east-1';
+const googleCloudVisionApiKey = Deno.env.get('GOOGLE_CLOUD_VISION_API_KEY');
+const googleCloudProjectId = Deno.env.get('GOOGLE_CLOUD_PROJECT_ID');
+const googleCloudServiceAccountKey = Deno.env.get('GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY');
 
 serve(async (req) => {
   console.log(`📋 Request method: ${req.method}, URL: ${req.url}`);
@@ -25,10 +29,6 @@ serve(async (req) => {
     // Validate environment variables
     if (!supabaseUrl || !supabaseServiceKey) {
       throw new Error('Supabase configuration missing');
-    }
-    
-    if (!awsAccessKeyId || !awsSecretAccessKey) {
-      console.log('⚠️ AWS credentials missing, will use fallback extraction');
     }
 
     const requestBody = await req.json();
@@ -64,8 +64,32 @@ serve(async (req) => {
     let extractedText = '';
     let extractionMethod = 'fallback';
     
-    // Try AWS Textract first if credentials are available
-    if (awsAccessKeyId && awsSecretAccessKey) {
+    // Try Google Document AI first if credentials are available
+    if (googleCloudProjectId && googleCloudServiceAccountKey) {
+      try {
+        console.log('🔍 Attempting Google Document AI extraction...');
+        extractedText = await extractWithGoogleDocumentAI(arrayBuffer);
+        extractionMethod = 'google-document-ai';
+        console.log(`✅ Google Document AI extraction successful: ${extractedText.length} characters`);
+      } catch (googleError) {
+        console.log('⚠️ Google Document AI failed, trying next method:', googleError.message);
+      }
+    }
+    
+    // Try Google Cloud Vision if Document AI failed and Vision API key is available
+    if ((!extractedText || extractedText.length < 100) && googleCloudVisionApiKey) {
+      try {
+        console.log('🔍 Attempting Google Cloud Vision extraction...');
+        extractedText = await extractWithGoogleVision(arrayBuffer);
+        extractionMethod = 'google-vision';
+        console.log(`✅ Google Vision extraction successful: ${extractedText.length} characters`);
+      } catch (visionError) {
+        console.log('⚠️ Google Vision failed, trying next method:', visionError.message);
+      }
+    }
+    
+    // Try AWS Textract if Google services failed and AWS credentials are available
+    if ((!extractedText || extractedText.length < 100) && awsAccessKeyId && awsSecretAccessKey) {
       try {
         console.log('🔍 Attempting AWS Textract extraction...');
         extractedText = await extractWithTextract(arrayBuffer);
@@ -76,7 +100,7 @@ serve(async (req) => {
       }
     }
     
-    // Fallback to simple extraction if Textract failed or unavailable
+    // Fallback to simple extraction if all cloud services failed
     if (!extractedText || extractedText.length < 100) {
       try {
         console.log('🔄 Using fallback text extraction...');
@@ -90,8 +114,7 @@ serve(async (req) => {
     }
 
     if (!extractedText || extractedText.length < 100) {
-      // If simple extraction fails, provide a basic placeholder
-      // This allows the parsing to continue with manual data entry
+      // If all extraction fails, provide a basic placeholder
       extractedText = `Credit Report Extract - Manual Review Required
 Report ID: ${reportId}
 File: ${filePath}
@@ -99,7 +122,7 @@ Status: Extraction completed but requires manual review
 Please review the original document for complete data.`;
     }
 
-    console.log('Extracted text length:', extractedText.length);
+    console.log(`Final extraction method: ${extractionMethod}, text length: ${extractedText.length}`);
 
     // Update the database with extracted text
     const { error: updateError } = await supabase
@@ -159,6 +182,138 @@ Please review the original document for complete data.`;
   }
 });
 
+// Google Document AI extraction function
+async function extractWithGoogleDocumentAI(pdfBuffer: ArrayBuffer): Promise<string> {
+  const serviceAccountKey = JSON.parse(Deno.env.get('GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY') || '{}');
+  const projectId = Deno.env.get('GOOGLE_CLOUD_PROJECT_ID');
+  
+  // Convert PDF to base64
+  const base64Data = btoa(String.fromCharCode(...new Uint8Array(pdfBuffer)));
+  
+  // Get access token using service account
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: await createJWT(serviceAccountKey),
+    }),
+  });
+  
+  if (!tokenResponse.ok) {
+    throw new Error(`Token request failed: ${tokenResponse.status}`);
+  }
+  
+  const tokenData = await tokenResponse.json();
+  const accessToken = tokenData.access_token;
+  
+  // Process document with Document AI
+  const documentAIResponse = await fetch(
+    `https://documentai.googleapis.com/v1/projects/${projectId}/locations/us/processors/general:process`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        rawDocument: {
+          content: base64Data,
+          mimeType: 'application/pdf'
+        }
+      }),
+    }
+  );
+  
+  if (!documentAIResponse.ok) {
+    throw new Error(`Document AI request failed: ${documentAIResponse.status}`);
+  }
+  
+  const result = await documentAIResponse.json();
+  return result.document?.text || '';
+}
+
+// Google Cloud Vision API extraction function
+async function extractWithGoogleVision(pdfBuffer: ArrayBuffer): Promise<string> {
+  const apiKey = Deno.env.get('GOOGLE_CLOUD_VISION_API_KEY');
+  
+  // Convert PDF to base64
+  const base64Data = btoa(String.fromCharCode(...new Uint8Array(pdfBuffer)));
+  
+  const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      requests: [{
+        image: {
+          content: base64Data
+        },
+        features: [{
+          type: 'TEXT_DETECTION',
+          maxResults: 1
+        }]
+      }]
+    }),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Vision API error: ${response.status} ${response.statusText}`);
+  }
+  
+  const result = await response.json();
+  return result.responses?.[0]?.fullTextAnnotation?.text || '';
+}
+
+// Create JWT for Google service account authentication
+async function createJWT(serviceAccount: any): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = {
+    alg: 'RS256',
+    typ: 'JWT'
+  };
+  
+  const payload = {
+    iss: serviceAccount.client_email,
+    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now
+  };
+  
+  const encodedHeader = btoa(JSON.stringify(header)).replace(/[+/=]/g, (m) => ({'+': '-', '/': '_', '=': ''}[m] || m));
+  const encodedPayload = btoa(JSON.stringify(payload)).replace(/[+/=]/g, (m) => ({'+': '-', '/': '_', '=': ''}[m] || m));
+  
+  const data = `${encodedHeader}.${encodedPayload}`;
+  
+  // Import the private key
+  const privateKey = await crypto.subtle.importKey(
+    'pkcs8',
+    new TextEncoder().encode(serviceAccount.private_key.replace(/\\n/g, '\n')),
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      hash: 'SHA-256',
+    },
+    false,
+    ['sign']
+  );
+  
+  // Sign the data
+  const signature = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    privateKey,
+    new TextEncoder().encode(data)
+  );
+  
+  const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
+    .replace(/[+/=]/g, (m) => ({'+': '-', '/': '_', '=': ''}[m] || m));
+  
+  return `${data}.${encodedSignature}`;
+}
+
 // AWS Textract extraction function
 async function extractWithTextract(pdfBuffer: ArrayBuffer): Promise<string> {
   const textractUrl = `https://textract.${awsRegion}.amazonaws.com/`;
@@ -211,7 +366,7 @@ async function createAwsSignature(payload: string, dateString: string, amzDate: 
   return `${algorithm} Credential=${awsAccessKeyId}/${credentialScope}, SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature=placeholder`;
 }
 
-// Fallback text extraction using the helper functions
+// Fallback text extraction using basic PDF parsing
 async function fallbackTextExtraction(arrayBuffer: ArrayBuffer): Promise<string> {
   console.log('🔄 Attempting basic PDF.js text extraction...');
   
@@ -257,49 +412,4 @@ async function fallbackTextExtraction(arrayBuffer: ArrayBuffer): Promise<string>
     console.error('❌ Basic PDF extraction failed:', error);
     throw error;
   }
-}
-
-// Assess text quality to determine if extraction was successful
-function assessTextQuality(text: string): number {
-  if (!text || text.length < 100) return 0;
-  
-  let score = 0;
-  const length = text.length;
-  
-  // Check for readable characters (letters, numbers, spaces, punctuation)
-  const readableChars = (text.match(/[a-zA-Z0-9\s.,!?;:\-()]/g) || []).length;
-  const readableRatio = readableChars / length;
-  score += readableRatio * 40;
-  
-  // Check for credit-related keywords
-  const creditKeywords = [
-    'credit', 'report', 'account', 'balance', 'payment', 'history',
-    'inquiry', 'experian', 'equifax', 'transunion', 'fico', 'score',
-    'creditor', 'tradeline', 'collection', 'dispute', 'address',
-    'social security', 'date of birth', 'ssn'
-  ];
-  
-  const foundKeywords = creditKeywords.filter(keyword => 
-    text.toLowerCase().includes(keyword.toLowerCase())
-  ).length;
-  
-  score += (foundKeywords / creditKeywords.length) * 30;
-  
-  // Check for structured data patterns
-  const hasSSN = /\d{3}-?\d{2}-?\d{4}/.test(text);
-  const hasAccount = /account|acct/i.test(text);
-  const hasAmount = /\$\d+|\d+\.\d{2}/.test(text);
-  const hasDate = /\d{1,2}\/\d{1,2}\/\d{2,4}|\d{2}-\d{2}-\d{4}/.test(text);
-  
-  if (hasSSN) score += 7.5;
-  if (hasAccount) score += 7.5;
-  if (hasAmount) score += 7.5;
-  if (hasDate) score += 7.5;
-  
-  // Penalize for too many special characters (corrupted text)
-  const specialChars = (text.match(/[^\w\s.,!?;:\-()]/g) || []).length;
-  const specialRatio = specialChars / length;
-  if (specialRatio > 0.3) score -= 20;
-  
-  return Math.max(0, Math.min(100, score));
 }

@@ -62,142 +62,78 @@ serve(async (req) => {
     const arrayBuffer = await fileData.arrayBuffer();
     console.log('📄 Downloaded PDF, size:', arrayBuffer.byteLength);
 
-    // PARALLEL EXTRACTION: Run all OCR services simultaneously
-    const extractionPromises = [];
-    const extractionMethods = [];
-
-    // Google Document AI
-    if (googleCloudProjectId && googleCloudServiceAccountKey) {
-      console.log('🔄 Queuing Google Document AI extraction...');
-      extractionMethods.push('google-document-ai');
-      extractionPromises.push(
-        extractWithGoogleDocumentAI(arrayBuffer)
-          .catch(error => ({ error: error.message, text: '', method: 'google-document-ai' }))
-      );
-    }
-
-    // Google Cloud Vision  
-    if (googleCloudVisionApiKey) {
-      console.log('🔄 Queuing Google Cloud Vision extraction...');
-      extractionMethods.push('google-vision');
-      extractionPromises.push(
-        extractWithGoogleVision(arrayBuffer)
-          .catch(error => ({ error: error.message, text: '', method: 'google-vision' }))
-      );
-    }
-
-    // DocuClipper
-    if (docuClipperApiKey) {
-      console.log('🔄 Queuing DocuClipper extraction...');
-      extractionMethods.push('docuclipper');
-      extractionPromises.push(
-        extractWithDocuClipper(arrayBuffer)
-          .catch(error => ({ error: error.message, text: '', method: 'docuclipper' }))
-      );
-    }
-
-    // AWS Textract
-    if (awsAccessKeyId && awsSecretAccessKey) {
-      console.log('🔄 Queuing AWS Textract extraction...');
-      extractionMethods.push('textract');
-      extractionPromises.push(
-        extractWithTextract(arrayBuffer)
-          .catch(error => ({ error: error.message, text: '', method: 'textract' }))
-      );
-    }
-
-    // Fallback extraction (always run)
-    console.log('🔄 Queuing fallback extraction...');
-    extractionMethods.push('fallback');
-    extractionPromises.push(
-      fallbackTextExtraction(arrayBuffer)
-        .catch(error => ({ error: error.message, text: '', method: 'fallback' }))
-    );
-
-    console.log(`⚡ Running ${extractionPromises.length} extraction methods in parallel...`);
+    // DOCUCLIPPER ONLY EXTRACTION
+    console.log('🔄 Starting DocuClipper-only extraction...');
     
-    // Execute all extractions in parallel
+    if (!docuClipperApiKey) {
+      throw new Error('DocuClipper API key not configured');
+    }
+
+    // Extract using DocuClipper only
     const startTime = Date.now();
-    const extractionResults = await Promise.all(extractionPromises);
+    const extractionResult = await extractWithDocuClipper(arrayBuffer);
     const totalTime = Date.now() - startTime;
 
-    console.log(`✅ All extractions completed in ${totalTime}ms`);
+    console.log(`✅ DocuClipper extraction completed in ${totalTime}ms`);
 
-    // Process and store individual extraction results
-    const validResults = [];
-    
-    for (let i = 0; i < extractionResults.length; i++) {
-      const result = extractionResults[i];
-      const method = extractionMethods[i];
-      
-      let extractedText = '';
-      let hasError = false;
-      
-      if (result.error) {
-        console.log(`❌ ${method} failed:`, result.error);
-        hasError = true;
-      } else if (typeof result === 'string') {
-        extractedText = result;
-      } else if (result.text) {
-        extractedText = result.text;
-      }
+    // Process and validate the extraction result
+    const characterCount = extractionResult.length;
+    const wordCount = extractionResult.split(/\s+/).filter(w => w.length > 0).length;
+    const confidence = calculateConfidenceScore(extractionResult, 'docuclipper');
+    const hasStructuredData = hasExtractableData(extractionResult);
 
-      const characterCount = extractedText.length;
-      const wordCount = extractedText.split(/\s+/).filter(w => w.length > 0).length;
-      const confidence = calculateConfidenceScore(extractedText, method);
-      const hasStructuredData = hasExtractableData(extractedText);
+    // Store extraction result
+    await supabase
+      .from('extraction_results')
+      .insert({
+        report_id: reportId,
+        extraction_method: 'docuclipper',
+        extracted_text: extractionResult,
+        processing_time_ms: totalTime,
+        character_count: characterCount,
+        word_count: wordCount,
+        confidence_score: confidence,
+        has_structured_data: hasStructuredData,
+        extraction_metadata: {
+          hasError: false,
+          errorMessage: null,
+          processingTime: totalTime
+        }
+      });
 
-      // Store each extraction result
-      await supabase
-        .from('extraction_results')
-        .insert({
-          report_id: reportId,
-          extraction_method: method,
-          extracted_text: extractedText || null,
-          processing_time_ms: Math.round(totalTime / extractionPromises.length),
-          character_count: characterCount,
-          word_count: wordCount,
-          confidence_score: confidence,
-          has_structured_data: hasStructuredData,
-          extraction_metadata: {
-            hasError,
-            errorMessage: result.error || null,
-            processingTime: totalTime
-          }
-        });
+    console.log(`📊 DocuClipper: ${characterCount} chars, confidence: ${confidence}, structured: ${hasStructuredData}`);
 
-      if (!hasError && extractedText.length > 100) {
-        validResults.push({
-          method,
-          text: extractedText,
-          confidence,
-          characterCount,
-          wordCount,
-          hasStructuredData
-        });
-      }
-
-      console.log(`📊 ${method}: ${characterCount} chars, confidence: ${confidence}, structured: ${hasStructuredData}`);
+    if (extractionResult.length < 100) {
+      throw new Error('DocuClipper extraction returned insufficient text data');
     }
 
-    if (validResults.length === 0) {
-      throw new Error('All extraction methods failed to produce valid text');
-    }
+    // Store consolidation metadata (simplified for single method)
+    await supabase
+      .from('consolidation_metadata')
+      .insert({
+        report_id: reportId,
+        primary_source: 'docuclipper',
+        consolidation_strategy: 'single_source',
+        confidence_level: confidence,
+        field_sources: {
+          primary_text: 'docuclipper',
+          total_sources: 1,
+          methods_used: ['docuclipper']
+        },
+        conflict_count: 0,
+        requires_human_review: confidence < 0.7,
+        consolidation_notes: `DocuClipper-only extraction. Confidence: ${confidence}`
+      });
 
-    // CONSOLIDATION: Choose the best result and create consolidated text
-    const consolidationResult = await consolidateExtractionResults(validResults, reportId, supabase);
-    
-    console.log(`🎯 Selected primary method: ${consolidationResult.primaryMethod} with confidence: ${consolidationResult.confidence}`);
-
-    // Update the database with consolidated result
+    // Update the database with extraction result
     const { error: updateError } = await supabase
       .from('credit_reports')
       .update({
-        raw_text: consolidationResult.consolidatedText,
+        raw_text: extractionResult,
         extraction_status: 'completed',
         consolidation_status: 'completed',
-        consolidation_confidence: consolidationResult.confidence,
-        primary_extraction_method: consolidationResult.primaryMethod,
+        consolidation_confidence: confidence,
+        primary_extraction_method: 'docuclipper',
         updated_at: new Date().toISOString()
       })
       .eq('id', reportId);
@@ -207,21 +143,21 @@ serve(async (req) => {
       throw new Error(`Database update failed: ${updateError.message}`);
     }
 
-    console.log(`✅ Parallel extraction completed successfully with consolidation`);
+    console.log(`✅ DocuClipper extraction completed successfully`);
 
     return new Response(JSON.stringify({ 
       success: true,
-      extractedText: consolidationResult.consolidatedText,
-      textLength: consolidationResult.consolidatedText.length,
-      primaryMethod: consolidationResult.primaryMethod,
-      consolidationConfidence: consolidationResult.confidence,
-      extractionResults: validResults.map(r => ({
-        method: r.method,
-        confidence: r.confidence,
-        characterCount: r.characterCount,
-        hasStructuredData: r.hasStructuredData
-      })),
-      hasValidText: consolidationResult.consolidatedText.length > 100
+      extractedText: extractionResult,
+      textLength: extractionResult.length,
+      primaryMethod: 'docuclipper',
+      consolidationConfidence: confidence,
+      extractionResult: {
+        method: 'docuclipper',
+        confidence: confidence,
+        characterCount: characterCount,
+        hasStructuredData: hasStructuredData
+      },
+      hasValidText: extractionResult.length > 100
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -257,77 +193,6 @@ serve(async (req) => {
     });
   }
 });
-
-// Consolidation logic to choose best result and create consolidated text
-async function consolidateExtractionResults(
-  results: Array<{
-    method: string;
-    text: string;
-    confidence: number;
-    characterCount: number;
-    wordCount: number;
-    hasStructuredData: boolean;
-  }>,
-  reportId: string,
-  supabase: any
-) {
-  console.log('🔄 Starting consolidation process...');
-  
-  // Sort by confidence score (descending)
-  const sortedResults = [...results].sort((a, b) => b.confidence - a.confidence);
-  
-  // Choose primary source (highest confidence with structured data preference)
-  let primaryResult = sortedResults[0];
-  
-  // Prefer results with structured data if confidence is close
-  for (const result of sortedResults) {
-    if (result.hasStructuredData && 
-        (result.confidence >= primaryResult.confidence - 0.1)) {
-      primaryResult = result;
-      break;
-    }
-  }
-
-  // Simple consolidation strategy: use primary result as base
-  let consolidatedText = primaryResult.text;
-  let consolidationStrategy = 'highest_confidence';
-  let conflictCount = 0;
-  
-  // For advanced consolidation, we could merge data from multiple sources
-  // but for now, we'll use the single best result
-  
-  // Calculate overall confidence
-  const overallConfidence = Math.min(0.99, 
-    primaryResult.confidence * 0.8 + 
-    (results.length > 1 ? 0.1 : 0) + 
-    (primaryResult.hasStructuredData ? 0.1 : 0)
-  );
-
-  // Store consolidation metadata
-  await supabase
-    .from('consolidation_metadata')
-    .insert({
-      report_id: reportId,
-      primary_source: primaryResult.method,
-      consolidation_strategy,
-      confidence_level: overallConfidence,
-      field_sources: {
-        primary_text: primaryResult.method,
-        total_sources: results.length,
-        methods_used: results.map(r => r.method)
-      },
-      conflict_count: conflictCount,
-      requires_human_review: overallConfidence < 0.7,
-      consolidation_notes: `Selected ${primaryResult.method} with ${results.length} total sources. Confidence: ${overallConfidence}`
-    });
-
-  return {
-    consolidatedText,
-    primaryMethod: primaryResult.method,
-    confidence: overallConfidence,
-    strategy: consolidationStrategy
-  };
-}
 
 // Calculate confidence score based on text quality and extraction method
 function calculateConfidenceScore(text: string, method: string): number {

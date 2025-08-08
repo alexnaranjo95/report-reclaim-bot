@@ -47,6 +47,7 @@ serve(async (req) => {
           headers: {
             'apikey': docsumoApiKey!,
             'x-api-key': docsumoApiKey!,
+            'Authorization': `Apikey ${docsumoApiKey!}`,
             'Accept': 'application/json',
           },
         });
@@ -90,6 +91,7 @@ serve(async (req) => {
           headers: {
             'apikey': docsumoApiKey!,
             'x-api-key': docsumoApiKey!,
+            'Authorization': `Apikey ${docsumoApiKey!}`,
             'Accept': 'application/json',
           },
         });
@@ -438,6 +440,7 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: strin
       headers: {
         'apikey': apiKey,
         'x-api-key': apiKey,
+        'Authorization': `Apikey ${apiKey}`,
         'Accept': 'application/json',
       },
       body: formData,
@@ -475,6 +478,7 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: strin
           headers: {
             'apikey': apiKey,
             'x-api-key': apiKey,
+            'Authorization': `Apikey ${apiKey}`,
             'Accept': 'application/json',
           },
         });

@@ -17,6 +17,23 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Test-mode: quick JSON heartbeat without touching DB or external APIs
+  const url = new URL(req.url);
+  const testParam = url.searchParams.get('test');
+  if (testParam) {
+    console.log('🧪 Test ping received, returning JSON heartbeat');
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: 'docsumo-extract is alive and returning JSON',
+        method: req.method,
+        url: req.url,
+        timestamp: new Date().toISOString()
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
   let reportId: string | null = null;
 
   try {

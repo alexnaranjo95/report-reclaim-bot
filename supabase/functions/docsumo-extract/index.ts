@@ -42,17 +42,40 @@ serve(async (req) => {
     let connectivity: { status?: number; ok?: boolean; bodySnippet?: string; error?: string } | null = null;
     if (keyPresent) {
       try {
-        const resp = await fetch('https://app.docsumo.com/api/v1/mew/documents/types/', {
-          method: 'GET',
-          headers: {
-            'apikey': docsumoApiKey!,
-            'x-api-key': docsumoApiKey!,
-            'Authorization': `Apikey ${docsumoApiKey!}`,
-            'Accept': 'application/json',
-          },
-        });
-        const body = await resp.text();
-        connectivity = { status: resp.status, ok: resp.ok, bodySnippet: body.slice(0, 300) };
+        const bases = ['https://app.docsumo.com/api/v1', 'https://api.docsumo.com/v1'];
+        const paths = ['/mew/documents/types/', '/user/enabled_doc_types/'];
+        let foundUrl: string | null = null;
+        let lastErr: string | undefined;
+        for (const base of bases) {
+          for (const path of paths) {
+            const checkUrl = `${base}${path}`;
+            try {
+              const resp = await fetch(checkUrl, {
+                method: 'GET',
+                headers: {
+                  'apikey': docsumoApiKey!,
+                  'x-api-key': docsumoApiKey!,
+                  'Authorization': `Apikey ${docsumoApiKey!}`,
+                  'Accept': 'application/json',
+                },
+              });
+              const body = await resp.text();
+              if (resp.ok) {
+                connectivity = { status: resp.status, ok: true, bodySnippet: body.slice(0, 300) };
+                foundUrl = checkUrl;
+                break;
+              } else {
+                lastErr = `${resp.status} ${body.slice(0, 200)}`;
+              }
+            } catch (e) {
+              lastErr = String(e);
+            }
+          }
+          if (foundUrl) break;
+        }
+        if (!foundUrl && lastErr) {
+          connectivity = { ok: false, error: lastErr } as any;
+        }
       } catch (e) {
         connectivity = { error: String(e).slice(0, 300) };
       }
@@ -86,17 +109,40 @@ serve(async (req) => {
     let connectivity: { status?: number; ok?: boolean; bodySnippet?: string; error?: string } | null = null;
     if (keyPresent) {
       try {
-        const resp = await fetch('https://app.docsumo.com/api/v1/mew/documents/types/', {
-          method: 'GET',
-          headers: {
-            'apikey': docsumoApiKey!,
-            'x-api-key': docsumoApiKey!,
-            'Authorization': `Apikey ${docsumoApiKey!}`,
-            'Accept': 'application/json',
-          },
-        });
-        const body = await resp.text();
-        connectivity = { status: resp.status, ok: resp.ok, bodySnippet: body.slice(0, 300) };
+        const bases = ['https://app.docsumo.com/api/v1', 'https://api.docsumo.com/v1'];
+        const paths = ['/mew/documents/types/', '/user/enabled_doc_types/'];
+        let foundUrl: string | null = null;
+        let lastErr: string | undefined;
+        for (const base of bases) {
+          for (const path of paths) {
+            const checkUrl = `${base}${path}`;
+            try {
+              const resp = await fetch(checkUrl, {
+                method: 'GET',
+                headers: {
+                  'apikey': docsumoApiKey!,
+                  'x-api-key': docsumoApiKey!,
+                  'Authorization': `Apikey ${docsumoApiKey!}`,
+                  'Accept': 'application/json',
+                },
+              });
+              const body = await resp.text();
+              if (resp.ok) {
+                connectivity = { status: resp.status, ok: true, bodySnippet: body.slice(0, 300) };
+                foundUrl = checkUrl;
+                break;
+              } else {
+                lastErr = `${resp.status} ${body.slice(0, 200)}`;
+              }
+            } catch (e) {
+              lastErr = String(e);
+            }
+          }
+          if (foundUrl) break;
+        }
+        if (!foundUrl && lastErr) {
+          connectivity = { ok: false, error: lastErr } as any;
+        }
       } catch (e) {
         connectivity = { error: String(e).slice(0, 300) };
       }
@@ -423,7 +469,8 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: strin
   console.log('🔄 Starting Docsumo OCR extraction...');
   const attempts: { endpoint: string; status: number; ok: boolean; error?: string }[] = [];
   const actualDocTypeId = documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID;
-  
+  let baseHost = '';
+
   try {
     const apiKey = Deno.env.get('DOCSUMO_API_KEY');
     if (!apiKey) throw new Error('Docsumo API key not configured');
@@ -435,27 +482,49 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: strin
     formData.append('file', pdfBlob, 'credit-report.pdf');
     formData.append('type', actualDocTypeId);
 
-    const uploadResp = await fetch('https://app.docsumo.com/api/v1/eevee/apikey/upload/', {
-      method: 'POST',
-      headers: {
-        'apikey': apiKey,
-        'x-api-key': apiKey,
-        'Authorization': `Apikey ${apiKey}`,
-        'Accept': 'application/json',
-      },
-      body: formData,
-    });
+    const baseCandidates = ['https://app.docsumo.com/api/v1', 'https://api.docsumo.com/v1'];
+    let uploadResult: any = null;
+    let documentId: string | null = null;
+    let lastUploadError: string | null = null;
 
-    if (!uploadResp.ok) {
-      const errorText = await uploadResp.text();
-      attempts.push({ endpoint: 'upload', status: uploadResp.status, ok: false, error: errorText?.slice(0, 500) });
-      console.error(`❌ Docsumo upload failed: ${uploadResp.status} ${uploadResp.statusText}`);
-      throw new Error(`Upload failed: ${uploadResp.status} - ${errorText?.slice(0, 200)}`);
+    for (const base of baseCandidates) {
+      try {
+        const url = `${base}/eevee/apikey/upload/`;
+        const uploadResp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'apikey': apiKey,
+            'x-api-key': apiKey,
+            'Authorization': `Apikey ${apiKey}`,
+            'Accept': 'application/json',
+          },
+          body: formData,
+        });
+        const rawText = await uploadResp.text();
+        if (!uploadResp.ok) {
+          attempts.push({ endpoint: url, status: uploadResp.status, ok: false, error: rawText?.slice(0, 500) });
+          console.error(`❌ Docsumo upload failed @ ${url}: ${uploadResp.status} ${uploadResp.statusText}`);
+          lastUploadError = `Upload ${uploadResp.status}: ${rawText?.slice(0, 200)}`;
+          continue;
+        }
+        // Parse JSON from rawText on success
+        uploadResult = JSON.parse(rawText);
+        documentId = uploadResult?.data?.document_id || uploadResult?.document_id;
+        attempts.push({ endpoint: url, status: uploadResp.status, ok: true });
+        baseHost = base;
+        break;
+      } catch (e) {
+        lastUploadError = String(e);
+        attempts.push({ endpoint: `${base}/eevee/apikey/upload/`, status: 0, ok: false, error: String(e).slice(0, 500) });
+        console.error(`❌ Upload error @ ${base}:`, e);
+        continue;
+      }
     }
 
-    attempts.push({ endpoint: 'upload', status: uploadResp.status, ok: true });
-    const uploadResult = await uploadResp.json();
-    const documentId = uploadResult?.data?.document_id || uploadResult?.document_id;
+    if (!documentId) {
+      throw new Error(lastUploadError || 'No document ID returned from upload');
+    }
+
     
     if (!documentId) {
       throw new Error('No document ID returned from upload');
@@ -473,7 +542,7 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: strin
       pollAttempts++;
 
       try {
-        const pollResp = await fetch(`https://app.docsumo.com/api/v1/eevee/apikey/documents/detail/${documentId}/`, {
+        const pollResp = await fetch(`${baseHost}/eevee/apikey/documents/detail/${documentId}/`, {
           method: 'GET',
           headers: {
             'apikey': apiKey,
@@ -558,7 +627,7 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: strin
       text: extractedText, 
       diagnostics: { 
         attempts, 
-        endpoint: 'upload/poll', 
+        endpoint: baseHost, 
         usedFallback: false, 
         documentTypeId: actualDocTypeId,
         pollAttempts,

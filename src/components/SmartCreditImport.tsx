@@ -41,6 +41,9 @@ export const SmartCreditImport: React.FC = () => {
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(false);
 
+  // NEW: store parameter keys from admin_settings for display/help
+  const [robotParams, setRobotParams] = useState<string[]>([]);
+
   const canStart = useMemo(() => {
     return !!robotId && !!email && !!password && !isSubmitting;
   }, [robotId, email, password, isSubmitting]);
@@ -62,6 +65,81 @@ export const SmartCreditImport: React.FC = () => {
 
   useEffect(() => {
     fetchRuns();
+  }, []);
+
+  // NEW: fetch defaults (Robot ID and parameter keys) from admin_settings
+  useEffect(() => {
+    const fetchDefaults = async () => {
+      console.log("[SmartCreditImport] Fetching admin defaults...");
+      const { data, error } = await supabase
+        .from("admin_settings")
+        .select("setting_key, setting_value, is_encrypted")
+        .in("setting_key", ["browseai.robot_id", "browseai.robot_parameters"])
+        .order("setting_key", { ascending: true });
+
+      if (error) {
+        // Likely RLS if current user isn't superadmin - just log and continue
+        console.warn("[SmartCreditImport] Could not load admin defaults (RLS or other):", error);
+        return;
+      }
+
+      // Helper to normalize setting_value into a string
+      const toStringVal = (val: unknown): string => {
+        if (typeof val === "string") return val;
+        if (val && typeof val === "object" && "value" in (val as any) && typeof (val as any).value === "string") {
+          return (val as any).value as string;
+        }
+        return "";
+      };
+
+      // Helper to normalize setting_value into a string[]
+      const toStringArray = (val: unknown): string[] => {
+        if (Array.isArray(val)) {
+          return val.filter((v) => typeof v === "string") as string[];
+        }
+        if (typeof val === "string") {
+          try {
+            const parsed = JSON.parse(val);
+            return Array.isArray(parsed) ? (parsed.filter((v: unknown) => typeof v === "string") as string[]) : [];
+          } catch {
+            return [];
+          }
+        }
+        if (val && typeof val === "object" && "value" in (val as any)) {
+          const inner = (val as any).value;
+          if (Array.isArray(inner)) {
+            return inner.filter((v) => typeof v === "string") as string[];
+          }
+          if (typeof inner === "string") {
+            try {
+              const parsed = JSON.parse(inner);
+              return Array.isArray(parsed) ? (parsed.filter((v: unknown) => typeof v === "string") as string[]) : [];
+            } catch {
+              return [];
+            }
+          }
+        }
+        return [];
+      };
+
+      const robotIdRow = data?.find((d) => d.setting_key === "browseai.robot_id");
+      const robotIdVal = robotIdRow ? toStringVal((robotIdRow as any).setting_value) : "";
+
+      if (robotIdVal && !robotId) {
+        console.log("[SmartCreditImport] Pre-filling Robot ID from admin settings");
+        setRobotId(robotIdVal);
+      }
+
+      const paramsRow = data?.find((d) => d.setting_key === "browseai.robot_parameters");
+      const paramsList = paramsRow ? toStringArray((paramsRow as any).setting_value) : [];
+      if (paramsList.length > 0) {
+        setRobotParams(paramsList);
+      }
+    };
+
+    fetchDefaults();
+    // Only auto-fill robotId if it was empty at mount; no need to re-run if user edits it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -180,6 +258,14 @@ export const SmartCreditImport: React.FC = () => {
             <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
         </div>
+
+        {/* Show stored robot parameter keys if available */}
+        {robotParams.length > 0 && (
+          <div className="text-xs text-muted-foreground">
+            Stored robot parameters:{" "}
+            <span className="font-mono break-all">{robotParams.join(", ")}</span>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>

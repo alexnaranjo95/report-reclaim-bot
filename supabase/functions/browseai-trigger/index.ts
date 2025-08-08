@@ -60,9 +60,17 @@ serve(async (req: Request) => {
     });
   }
 
-  // Sanitize inputs for storage - avoid saving sensitive values like passwords
+  // Normalize keys (convert hyphens to underscores) and sanitize for storage - avoid saving sensitive values like passwords
+  const finalInput: Record<string, unknown> = { ...(inputParameters || {}) };
+  for (const k of Object.keys(inputParameters || {})) {
+    const normalized = k.replace(/-/g, "_");
+    if (normalized !== k && !(normalized in finalInput)) {
+      // deno-lint-ignore no-explicit-any
+      (finalInput as any)[normalized] = (inputParameters as any)[k];
+    }
+  }
   const sanitizedInput: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(inputParameters)) {
+  for (const [k, v] of Object.entries(finalInput)) {
     const lower = k.toLowerCase();
     if (lower.includes("password") || lower.includes("pass")) continue;
     sanitizedInput[k] = v;
@@ -71,15 +79,34 @@ serve(async (req: Request) => {
   const apiBase = "https://api.browse.ai/v2";
   const authHeaderVal = getAuthHeaderFromKey(BROWSEAI_API_KEY);
 
-  console.log("Triggering Browse.ai task for robot:", robotId);
+  // Load optional Workspace ID from admin_settings
+  let workspaceId: string | null = null;
+  try {
+    const { data: wsRow } = await supabaseAdmin
+      .from("admin_settings")
+      .select("setting_value")
+      .eq("setting_key", "browseai.workspace_id")
+      .limit(1)
+      .single();
+    const raw = wsRow?.setting_value as unknown;
+    workspaceId = typeof raw === "string" ? raw : (raw && typeof raw === "object" && "value" in (raw as Record<string, unknown>) ? String((raw as Record<string, unknown>).value) : null);
+  } catch (_err) {
+    workspaceId = null;
+  }
+
+  // Build headers
+  const headers: Record<string, string> = {
+    Authorization: authHeaderVal,
+    "Content-Type": "application/json",
+  };
+  if (workspaceId) headers["X-Workspace-Id"] = workspaceId;
+
+  console.log("Triggering Browse.ai task for robot:", robotId, "workspace:", workspaceId || "(none)");
   const res = await fetch(`${apiBase}/robots/${encodeURIComponent(robotId)}/tasks`, {
     method: "POST",
-    headers: {
-      Authorization: authHeaderVal,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
-      inputParameters,
+      inputParameters: finalInput,
       tags,
     }),
   });

@@ -81,7 +81,10 @@ serve(async (req) => {
 
     const sanitizedText = sanitizeTextForPostgres(extractionResult);
 
-    await supabase
+    // Insert extraction_results with explicit error handling
+    let extractionStored = false;
+    let extractionInsertErrorMsg: string | null = null;
+    const { error: extractionInsertError } = await supabase
       .from('extraction_results')
       .insert({
         report_id: reportId,
@@ -101,12 +104,19 @@ serve(async (req) => {
           usedFallback: extraction.diagnostics.usedFallback,
         }
       });
+    if (extractionInsertError) {
+      extractionInsertErrorMsg = extractionInsertError.message || 'Unknown error inserting extraction_results';
+      console.error('Failed to insert extraction_results:', extractionInsertError);
+    } else {
+      extractionStored = true;
+    }
 
     console.log(`📊 Docsumo: ${characterCount} chars, confidence: ${confidence}, structured: ${hasStructuredData}`);
 
     if (extractionResult.length < 100) throw new Error('Docsumo extraction returned insufficient text data');
 
-    await supabase
+    // Best-effort insert for consolidation_metadata (non-critical)
+    const { error: consolidationError } = await supabase
       .from('consolidation_metadata')
       .insert({
         report_id: reportId,
@@ -118,15 +128,52 @@ serve(async (req) => {
         requires_human_review: confidence < 0.7,
         consolidation_notes: `${usedMethod}-only extraction. Confidence: ${confidence}`
       });
+    if (consolidationError) {
+      console.error('Failed to insert consolidation_metadata:', consolidationError);
+    }
 
-    // First update: set status only
+    // Attempt to persist raw_text with retry on serialization issues
+    let textUpdated = false;
+    let rawTextErrorMsg: string | null = null;
+    const tryUpdateRawText = async (textToUse: string) => {
+      const { error } = await supabase
+        .from('credit_reports')
+        .update({ raw_text: textToUse })
+        .eq('id', reportId);
+      return error;
+    };
+
+    let textError = await tryUpdateRawText(sanitizedText);
+    if (textError) {
+      // Retry with an ASCII-only fallback and aggressive truncation
+      console.error('Failed to update raw_text (first attempt):', textError);
+      const asciiSafe = String(sanitizedText)
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+        .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+        .trim();
+      const asciiTruncated = asciiSafe.length > 200000 ? asciiSafe.substring(0, 200000) + '... [truncated]' : asciiSafe;
+      const retryError = await tryUpdateRawText(asciiTruncated);
+      if (retryError) {
+        rawTextErrorMsg = retryError.message || 'Unknown error updating raw_text';
+        console.error('Failed to update raw_text (retry ASCII fallback):', retryError);
+      } else {
+        textUpdated = true;
+      }
+    } else {
+      textUpdated = true;
+    }
+
+    // Final status based on persistence success
+    const finalStatus = (textUpdated || extractionStored) ? 'completed' : 'failed';
+
     const { error: statusError } = await supabase
       .from('credit_reports')
       .update({
-        extraction_status: 'completed',
-        consolidation_status: 'completed',
+        extraction_status: finalStatus,
+        consolidation_status: finalStatus,
         consolidation_confidence: confidence,
         primary_extraction_method: usedMethod,
+        processing_errors: finalStatus === 'failed' ? (rawTextErrorMsg || extractionInsertErrorMsg || 'Persistence failed') : null,
         updated_at: new Date().toISOString()
       })
       .eq('id', reportId);
@@ -134,20 +181,6 @@ serve(async (req) => {
     if (statusError) {
       console.error('Failed to update status:', statusError);
       throw new Error(`Status update failed: ${statusError.message}`);
-    }
-
-    // Second update: set raw_text separately with extra sanitization
-    const { error: textError } = await supabase
-      .from('credit_reports')
-      .update({
-        raw_text: sanitizedText
-      })
-      .eq('id', reportId);
-
-    if (textError) {
-      console.error('Failed to update raw_text:', textError);
-      // Don't throw - we have the text in our response
-      console.log('⚠️ Raw text update failed but extraction succeeded');
     }
 
     console.log(`✅ Docsumo extraction completed successfully`);
@@ -165,7 +198,18 @@ serve(async (req) => {
           characterCount: characterCount,
           hasStructuredData: hasStructuredData,
         },
-        diagnostics: extraction.diagnostics,
+        diagnostics: {
+          ...extraction.diagnostics,
+          db: {
+            extractionStored,
+            textUpdated,
+            errors: {
+              extractionInsertError: extractionInsertErrorMsg,
+              rawTextError: rawTextErrorMsg,
+              consolidationError: consolidationError?.message || null,
+            }
+          }
+        },
         hasValidText: extractionResult.length > 100,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

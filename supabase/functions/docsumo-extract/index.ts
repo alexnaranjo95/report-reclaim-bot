@@ -93,10 +93,10 @@ serve(async (req) => {
         consolidation_notes: `Docsumo-only extraction. Confidence: ${confidence}`
       });
 
-    const { error: updateError } = await supabase
+    // First update: set status only
+    const { error: statusError } = await supabase
       .from('credit_reports')
       .update({
-        raw_text: sanitizedText,
         extraction_status: 'completed',
         consolidation_status: 'completed',
         consolidation_confidence: confidence,
@@ -105,9 +105,23 @@ serve(async (req) => {
       })
       .eq('id', reportId);
 
-    if (updateError) {
-      console.error('Failed to update database:', updateError);
-      throw new Error(`Database update failed: ${updateError.message}`);
+    if (statusError) {
+      console.error('Failed to update status:', statusError);
+      throw new Error(`Status update failed: ${statusError.message}`);
+    }
+
+    // Second update: set raw_text separately with extra sanitization
+    const { error: textError } = await supabase
+      .from('credit_reports')
+      .update({
+        raw_text: sanitizedText
+      })
+      .eq('id', reportId);
+
+    if (textError) {
+      console.error('Failed to update raw_text:', textError);
+      // Don't throw - we have the text in our response
+      console.log('⚠️ Raw text update failed but extraction succeeded');
     }
 
     console.log(`✅ Docsumo extraction completed successfully`);
@@ -198,13 +212,25 @@ function hasExtractableData(text: string): boolean {
 function sanitizeTextForPostgres(text: string): string {
   if (!text) return text;
   try {
-    let safe = text.replace(/\u0000/g, '');
-    safe = safe.replace(/[\uD800-\uDFFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
-    safe = safe.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
-    safe = safe.replace(/[\u0001-\u0009\u000B-\u001F]/g, ' ');
+    // More aggressive sanitization for PostgreSQL JSON storage
+    let safe = text.replace(/\u0000/g, ''); // Remove null bytes
+    safe = safe.replace(/[\uD800-\uDFFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ''); // Remove unpaired surrogates
+    safe = safe.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u'); // Fix invalid unicode escapes
+    safe = safe.replace(/[\u0001-\u0009\u000B-\u001F]/g, ' '); // Replace control chars with spaces
+    safe = safe.replace(/[\u007F-\u009F]/g, ' '); // Replace additional control chars
+    safe = safe.replace(/"/g, '\\"'); // Escape quotes for JSON safety
+    safe = safe.replace(/\\/g, '\\\\'); // Escape backslashes
+    safe = safe.trim();
+    
+    // Truncate if too long (PostgreSQL text limit safety)
+    if (safe.length > 1000000) {
+      safe = safe.substring(0, 1000000) + '... [truncated]';
+    }
+    
     return safe;
-  } catch {
-    return text;
+  } catch (error) {
+    console.error('Sanitization error:', error);
+    return text.replace(/[^\x20-\x7E\n\r\t]/g, ' ').trim(); // Fallback: ASCII only
   }
 }
 
@@ -218,9 +244,13 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<string> {
     const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
     formData.append('file', pdfBlob, 'credit-report.pdf');
 
-    const response = await fetch('https://app.docsumo.com/api/v1/ocr/extract', {
+    // Try Docsumo Document AI endpoint (correct endpoint)
+    const response = await fetch('https://app.docsumo.com/api/v1/documents/extract', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      headers: {
+        'Authorization': `Token ${apiKey}`,
+        'Accept': 'application/json',
+      },
       body: formData,
     });
 

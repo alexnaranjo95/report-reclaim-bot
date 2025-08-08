@@ -14,6 +14,7 @@ import { CreditChartsOverview } from './CreditChartsOverview';
 import { ActionItemsPanel } from './ActionItemsPanel';
 import { InquiriesTimeline } from './InquiriesTimeline';
 import { PersonalInfoCard } from './PersonalInfoCard';
+import { TriBureauReportViewer } from './TriBureauReportViewer';
 
 export interface CreditReportData {
   reportHeader: {
@@ -202,13 +203,14 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
 
       {/* Main Dashboard Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="payment-history">Payment History</TabsTrigger>
           <TabsTrigger value="inquiries">Inquiries</TabsTrigger>
           <TabsTrigger value="personal">Personal Info</TabsTrigger>
           <TabsTrigger value="bureau-comparison">Bureau Compare</TabsTrigger>
+          <TabsTrigger value="tri-bureau">Tri-Bureau Viewer</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -294,6 +296,11 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
 
         <TabsContent value="bureau-comparison">
           <BureauComparisonView data={data} />
+        </TabsContent>
+
+        <TabsContent value="tri-bureau">
+          {/* Pass Docsumo JSON when available; for now, component renders gracefully without it */}
+          <TriBureauReportViewer />
         </TabsContent>
       </Tabs>
     </div>

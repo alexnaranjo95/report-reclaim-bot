@@ -114,6 +114,76 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
     return totalLimit > 0 ? (totalBalance / totalLimit) * 100 : 0;
   }, [data.accounts]);
 
+  const triBureauDocsumo = useMemo(() => {
+    const formatMoney = (n?: number) => (typeof n === 'number' ? `$${n.toLocaleString()}` : '—');
+    const s = data.accountSummary;
+    const summaryLine = `Total Accounts : ${s.totalAccounts} Open Accounts : ${s.openAccounts} Closed Accounts : ${s.closedAccounts} Delinquent : ${s.delinquentAccounts} Derogatory : ${s.collectionsAccounts} Collection : ${s.collectionsAccounts} Balances : ${formatMoney(s.totalBalances)} Payments : ${formatMoney(s.monthlyPayments)} Public Records : 0 Inquiries(2 years) : ${s.inquiries2Years}`;
+
+    const toAddr = (a: { address: string; dates?: string }) => ({
+      'Street Line 1': { value: a.address },
+      'City': { value: '' },
+      'State': { value: '' },
+      'Zip Code': { value: '' },
+      'Date Reported': { value: a.dates || '' },
+    });
+
+    const currentAddrs = (data.personalInfo.addresses || [])
+      .filter(a => a.type === 'current')
+      .map(toAddr);
+    const previousAddrs = (data.personalInfo.addresses || [])
+      .filter(a => a.type === 'previous')
+      .map(toAddr);
+
+    const alertsByBureau: Record<string, any[]> = {
+      'TransUnion Alerts': [],
+      'Experian Alerts': [],
+      'Equifax Alerts': [],
+    };
+    (data.reportHeader.alerts || []).forEach(al => {
+      const key = `${al.bureau ?? ''} Alerts`;
+      if (alertsByBureau[key]) {
+        alertsByBureau[key].push({ text: al.message, type: al.type, severity: al.severity });
+      }
+    });
+
+    return {
+      data: {
+        'Basic Information': {
+          'Report Title': { value: 'Three Bureau Credit Report' },
+          'Report Date': { value: data.reportHeader.reportDate },
+          'Reference Number': { value: data.reportHeader.referenceNumber },
+        },
+        'Personal Information': {
+          'Name': { value: data.personalInfo.name },
+          'Also Known As': { value: (data.personalInfo.aliases || []).join(', ') },
+          'Former Names': { value: '' },
+          'Date of Birth': { value: data.personalInfo.birthDate },
+          'Employers': { value: (data.personalInfo.employers || []).map(e => e.name).join('; ') },
+          'Current Addresses': currentAddrs,
+          'Previous Addresses': previousAddrs,
+        },
+        'Credit Score': {
+          'TransUnion': { value: data.creditScores.transUnion?.score },
+          'Experian': { value: data.creditScores.experian?.score },
+          'Equifax': { value: data.creditScores.equifax?.score },
+        },
+        'Risk Factors': {
+          'TransUnion': { value: (data.creditScores.transUnion?.factors || []).join('; ') },
+          'Experian': { value: (data.creditScores.experian?.factors || []).join('; ') },
+          'Equifax': { value: (data.creditScores.equifax?.factors || []).join('; ') },
+        },
+        'Summary': {
+          'TransUnion': { value: summaryLine },
+          'Experian': { value: summaryLine },
+          'Equifax': { value: summaryLine },
+        },
+        'Public Records': { 'If None': { value: 'No public records reported' } },
+        'Customer Statement': alertsByBureau,
+        'Account History': { 'Two year payment history': [] },
+      }
+    };
+  }, [data]);
+
   useEffect(() => {
     auditCreditData(data);
   }, [data]);
@@ -304,8 +374,8 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
         </TabsContent>
 
         <TabsContent value="tri-bureau">
-          {/* Pass Docsumo JSON when available; for now, component renders gracefully without it */}
-          <TriBureauReportViewer />
+          {/* Pass Docsumo-like JSON mapped from current data */}
+          <TriBureauReportViewer docsumo={triBureauDocsumo} />
         </TabsContent>
       </Tabs>
     </div>

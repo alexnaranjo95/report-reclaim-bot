@@ -14,7 +14,7 @@ const awsRegion = Deno.env.get('AWS_REGION') || 'us-east-1';
 const googleCloudVisionApiKey = Deno.env.get('GOOGLE_CLOUD_VISION_API_KEY');
 const googleCloudProjectId = Deno.env.get('GOOGLE_CLOUD_PROJECT_ID');
 const googleCloudServiceAccountKey = Deno.env.get('GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY');
-const docuClipperApiKey = Deno.env.get('DOCUCLIPPER_API_KEY');
+const docsumoApiKey = Deno.env.get('DOCSUMO_API_KEY');
 
 serve(async (req) => {
   console.log(`📋 Request method: ${req.method}, URL: ${req.url}`);
@@ -62,24 +62,23 @@ serve(async (req) => {
     const arrayBuffer = await fileData.arrayBuffer();
     console.log('📄 Downloaded PDF, size:', arrayBuffer.byteLength);
 
-    // DOCUCLIPPER ONLY EXTRACTION
-    console.log('🔄 Starting DocuClipper-only extraction...');
+    // DOCSUMO ONLY EXTRACTION (primary)
+    console.log('🔄 Starting Docsumo-only extraction...');
     
-    if (!docuClipperApiKey) {
-      throw new Error('DocuClipper API key not configured');
+    if (!docsumoApiKey) {
+      throw new Error('Docsumo API key not configured');
     }
 
-    // Extract using DocuClipper only
     const startTime = Date.now();
-    const extractionResult = await extractWithDocuClipper(arrayBuffer);
+    const extractionResult = await extractWithDocsumo(arrayBuffer);
     const totalTime = Date.now() - startTime;
 
-    console.log(`✅ DocuClipper extraction completed in ${totalTime}ms`);
+    console.log(`✅ Docsumo extraction completed in ${totalTime}ms`);
 
     // Process and validate the extraction result
     const characterCount = extractionResult.length;
     const wordCount = extractionResult.split(/\s+/).filter(w => w.length > 0).length;
-    const confidence = calculateConfidenceScore(extractionResult, 'docuclipper');
+    const confidence = calculateConfidenceScore(extractionResult, 'docsumo');
     const hasStructuredData = hasExtractableData(extractionResult);
 
     // Store extraction result
@@ -87,7 +86,7 @@ serve(async (req) => {
       .from('extraction_results')
       .insert({
         report_id: reportId,
-        extraction_method: 'docuclipper',
+        extraction_method: 'docsumo',
         extracted_text: extractionResult,
         processing_time_ms: totalTime,
         character_count: characterCount,
@@ -101,28 +100,28 @@ serve(async (req) => {
         }
       });
 
-    console.log(`📊 DocuClipper: ${characterCount} chars, confidence: ${confidence}, structured: ${hasStructuredData}`);
+    console.log(`📊 Docsumo: ${characterCount} chars, confidence: ${confidence}, structured: ${hasStructuredData}`);
 
     if (extractionResult.length < 100) {
-      throw new Error('DocuClipper extraction returned insufficient text data');
+      throw new Error('Docsumo extraction returned insufficient text data');
     }
 
-    // Store consolidation metadata (simplified for single method)
+    // Store consolidation metadata (single source)
     await supabase
       .from('consolidation_metadata')
       .insert({
         report_id: reportId,
-        primary_source: 'docuclipper',
+        primary_source: 'docsumo',
         consolidation_strategy: 'single_source',
         confidence_level: confidence,
         field_sources: {
-          primary_text: 'docuclipper',
+          primary_text: 'docsumo',
           total_sources: 1,
-          methods_used: ['docuclipper']
+          methods_used: ['docsumo']
         },
         conflict_count: 0,
         requires_human_review: confidence < 0.7,
-        consolidation_notes: `DocuClipper-only extraction. Confidence: ${confidence}`
+        consolidation_notes: `Docsumo-only extraction. Confidence: ${confidence}`
       });
 
     // Update the database with extraction result
@@ -133,7 +132,7 @@ serve(async (req) => {
         extraction_status: 'completed',
         consolidation_status: 'completed',
         consolidation_confidence: confidence,
-        primary_extraction_method: 'docuclipper',
+        primary_extraction_method: 'docsumo',
         updated_at: new Date().toISOString()
       })
       .eq('id', reportId);
@@ -143,16 +142,16 @@ serve(async (req) => {
       throw new Error(`Database update failed: ${updateError.message}`);
     }
 
-    console.log(`✅ DocuClipper extraction completed successfully`);
+    console.log(`✅ Docsumo extraction completed successfully`);
 
     return new Response(JSON.stringify({ 
       success: true,
       extractedText: extractionResult,
       textLength: extractionResult.length,
-      primaryMethod: 'docuclipper',
+      primaryMethod: 'docsumo',
       consolidationConfidence: confidence,
       extractionResult: {
-        method: 'docuclipper',
+        method: 'docsumo',
         confidence: confidence,
         characterCount: characterCount,
         hasStructuredData: hasStructuredData
@@ -207,6 +206,9 @@ function calculateConfidenceScore(text: string, method: string): number {
       break;
     case 'google-vision':
       baseScore = 0.8;
+      break;
+    case 'docsumo':
+      baseScore = 0.86;
       break;
     case 'docuclipper':
       baseScore = 0.85;
@@ -410,96 +412,80 @@ async function createJWT(serviceAccount: any): Promise<string> {
   }
 }
 
-// DocuClipper extraction function for general OCR
-async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
-  console.log('🔄 Starting DocuClipper OCR extraction...');
+// Docsumo extraction function for general OCR
+async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<string> {
+  console.log('🔄 Starting Docsumo OCR extraction...');
   
   try {
-    const apiKey = Deno.env.get('DOCUCLIPPER_API_KEY');
+    const apiKey = Deno.env.get('DOCSUMO_API_KEY');
     if (!apiKey) {
-      throw new Error('DocuClipper API key not configured');
+      throw new Error('Docsumo API key not configured');
     }
 
-    console.log('📤 Uploading PDF to DocuClipper for text extraction...');
+    console.log('📤 Uploading PDF to Docsumo for text extraction...');
 
     // Create form data for the PDF
     const formData = new FormData();
     const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
     formData.append('file', pdfBlob, 'credit-report.pdf');
 
-    // Try the correct DocuClipper endpoint for document processing
-    const response = await fetch(
-      'https://api.docuclipper.com/api/v1/documents/extract',
-      {
-        method: 'POST',
-        headers: {
-          'X-API-Key': apiKey,
-          'Accept': 'application/json',
-        },
-        body: formData,
-      }
-    );
+    // Try Docsumo general OCR endpoint
+    const response = await fetch('https://app.docsumo.com/api/v1/ocr/extract', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': 'application/json',
+      },
+      body: formData,
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ DocuClipper API error: ${response.status} ${response.statusText}`);
+      console.error(`❌ Docsumo API error: ${response.status} ${response.statusText}`);
       console.error(`❌ Error details: ${errorText}`);
       
-      // Try fallback extraction if DocuClipper fails
-      console.log('🔄 DocuClipper failed, attempting fallback PDF extraction...');
+      // Fallback extraction if Docsumo fails
+      console.log('🔄 Docsumo failed, attempting fallback PDF extraction...');
       return await fallbackTextExtraction(pdfBuffer);
     }
 
     const result = await response.json();
-    console.log('✅ DocuClipper response received');
-
-    // Log response structure for debugging
-    console.log('📋 DocuClipper response keys:', Object.keys(result));
+    console.log('✅ Docsumo response received');
+    console.log('📋 Docsumo response keys:', Object.keys(result));
 
     let extractedText = '';
 
-    // Extract text from DocuClipper response
-    if (result.text) {
-      extractedText = result.text;
+    // Attempt to extract text based on common Docsumo response shapes
+    if (result.data?.raw_text) {
+      extractedText = result.data.raw_text;
+    } else if (result.raw_text) {
+      extractedText = result.raw_text;
     } else if (result.data?.text) {
       extractedText = result.data.text;
-    } else if (result.data?.content) {
-      extractedText = result.data.content;
-    } else if (result.content) {
-      extractedText = result.content;
-    } else if (result.extractedText) {
-      extractedText = result.extractedText;
-    } else if (result.data?.extractedText) {
-      extractedText = result.data.extractedText;
-    } else if (result.pages && Array.isArray(result.pages)) {
-      // Extract text from pages array
+    } else if (result.text) {
+      extractedText = result.text;
+    } else if (result.data?.ocr_text) {
+      extractedText = result.data.ocr_text;
+    } else if (result.ocr_text) {
+      extractedText = result.ocr_text;
+    } else if (Array.isArray(result.pages)) {
       extractedText = result.pages
-        .map((page: any) => page.text || page.content || '')
-        .filter((text: string) => text.length > 0)
+        .map((p: any) => p.text || p.content || '')
+        .filter((t: string) => t.length > 0)
         .join('\n');
     } else {
-      // Log full response for debugging
-      console.log('📋 Full DocuClipper response:', JSON.stringify(result, null, 2));
-      
-      // Try to find any text in the response
-      const findTextInObject = (obj: any, path = ''): string[] => {
+      // Deep search as last resort
+      const findTextInObject = (obj: any): string[] => {
         const texts: string[] = [];
-        
         if (typeof obj === 'string' && obj.length > 20) {
           texts.push(obj);
         } else if (obj && typeof obj === 'object') {
-          for (const [key, value] of Object.entries(obj)) {
-            if (typeof value === 'string' && value.length > 20) {
-              texts.push(value);
-            } else if (value && typeof value === 'object') {
-              texts.push(...findTextInObject(value, `${path}.${key}`));
-            }
+          for (const value of Object.values(obj)) {
+            texts.push(...findTextInObject(value));
           }
         }
-        
         return texts;
       };
-      
       const foundTexts = findTextInObject(result);
       extractedText = foundTexts.join('\n');
     }
@@ -512,31 +498,27 @@ async function extractWithDocuClipper(pdfBuffer: ArrayBuffer): Promise<string> {
         .replace(/\n\s*\n/g, '\n');
     }
 
-    console.log(`📊 DocuClipper extracted ${extractedText.length} characters`);
-    
-    // Log a sample of the extracted text for debugging
+    console.log(`📊 Docsumo extracted ${extractedText.length} characters`);
     if (extractedText.length > 0) {
       const sample = extractedText.substring(0, 200);
       console.log(`📝 Text sample: "${sample}${extractedText.length > 200 ? '...' : ''}"`);
     }
-    
+
     if (extractedText.length < 100) {
-      console.log('⚠️ DocuClipper returned insufficient text, trying fallback extraction...');
+      console.log('⚠️ Docsumo returned insufficient text, trying fallback extraction...');
       return await fallbackTextExtraction(pdfBuffer);
     }
 
     return extractedText;
 
   } catch (error) {
-    console.error('❌ DocuClipper extraction error:', error);
-    
-    // Try fallback extraction if DocuClipper completely fails
-    console.log('🔄 DocuClipper failed completely, attempting fallback PDF extraction...');
+    console.error('❌ Docsumo extraction error:', error);
+    console.log('🔄 Docsumo failed completely, attempting fallback PDF extraction...');
     try {
       return await fallbackTextExtraction(pdfBuffer);
     } catch (fallbackError) {
       console.error('❌ Fallback extraction also failed:', fallbackError);
-      throw new Error(`DocuClipper extraction failed: ${error.message}`);
+      throw new Error(`Docsumo extraction failed: ${error.message}`);
     }
   }
 }

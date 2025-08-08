@@ -317,6 +317,36 @@ export type Database = {
         }
         Relationships: []
       }
+      browseai_credentials: {
+        Row: {
+          created_at: string
+          id: string
+          iv: string
+          password_cipher: string
+          updated_at: string
+          user_id: string
+          username_cipher: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          iv: string
+          password_cipher: string
+          updated_at?: string
+          user_id: string
+          username_cipher: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          iv?: string
+          password_cipher?: string
+          updated_at?: string
+          user_id?: string
+          username_cipher?: string
+        }
+        Relationships: []
+      }
       browseai_runs: {
         Row: {
           created_at: string

@@ -317,6 +317,59 @@ export type Database = {
         }
         Relationships: []
       }
+      browseai_runs: {
+        Row: {
+          created_at: string
+          credit_report_id: string | null
+          error: string | null
+          id: string
+          input_params: Json | null
+          raw_result: Json | null
+          robot_id: string
+          status: string
+          task_id: string | null
+          updated_at: string
+          user_id: string
+          webhook_received_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          credit_report_id?: string | null
+          error?: string | null
+          id?: string
+          input_params?: Json | null
+          raw_result?: Json | null
+          robot_id: string
+          status?: string
+          task_id?: string | null
+          updated_at?: string
+          user_id: string
+          webhook_received_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          credit_report_id?: string | null
+          error?: string | null
+          id?: string
+          input_params?: Json | null
+          raw_result?: Json | null
+          robot_id?: string
+          status?: string
+          task_id?: string | null
+          updated_at?: string
+          user_id?: string
+          webhook_received_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "browseai_runs_credit_report_id_fkey"
+            columns: ["credit_report_id"]
+            isOneToOne: false
+            referencedRelation: "credit_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       collections: {
         Row: {
           account_number: string | null

@@ -15,6 +15,8 @@ import { DataAIConfiguration } from '@/components/DataAIConfiguration';
 import TemplateManager from '@/components/TemplateManager';
 import { AdminSettings } from '@/components/AdminSettings';
 import { LogOut, Settings } from 'lucide-react';
+import { SmartCreditImport } from '@/components/SmartCreditImport';
+
 const Admin = () => {
   const navigate = useNavigate();
   const {
@@ -210,11 +212,15 @@ const Admin = () => {
         )}
 
         {/* AI Training Tab */}
-        {activeView === 'ai' && <DataAIConfiguration />}
+        {activeView === 'ai' && <>
+          <DataAIConfiguration />
+          <SmartCreditImport />
+        >}
 
         {/* Settings Tab */}
         {activeView === 'settings' && <AdminSettings />}
       </div>
     </div>;
 };
+
 export default Admin;

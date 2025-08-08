@@ -81,13 +81,16 @@ serve(async (req) => {
     const confidence = calculateConfidenceScore(extractionResult, 'docsumo');
     const hasStructuredData = hasExtractableData(extractionResult);
 
+    // Sanitize text for safe DB storage
+    const sanitizedText = sanitizeTextForPostgres(extractionResult);
+
     // Store extraction result
     await supabase
       .from('extraction_results')
       .insert({
         report_id: reportId,
         extraction_method: 'docsumo',
-        extracted_text: extractionResult,
+        extracted_text: sanitizedText,
         processing_time_ms: totalTime,
         character_count: characterCount,
         word_count: wordCount,
@@ -128,7 +131,7 @@ serve(async (req) => {
     const { error: updateError } = await supabase
       .from('credit_reports')
       .update({
-        raw_text: extractionResult,
+        raw_text: sanitizedText,
         extraction_status: 'completed',
         consolidation_status: 'completed',
         consolidation_confidence: confidence,
@@ -146,7 +149,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ 
       success: true,
-      extractedText: extractionResult,
+      extractedText: sanitizedText,
       textLength: extractionResult.length,
       primaryMethod: 'docsumo',
       consolidationConfidence: confidence,
@@ -173,7 +176,7 @@ serve(async (req) => {
           .update({
             extraction_status: 'failed',
             consolidation_status: 'failed',
-            processing_errors: `${error.message} | Stack: ${error.stack?.substring(0, 500) || 'No stack trace'}`,
+            processing_errors: sanitizeTextForPostgres(`${error.message} | Stack: ${error.stack?.substring(0, 500) || 'No stack trace'}`),
             updated_at: new Date().toISOString()
           })
           .eq('id', reportId);
@@ -252,6 +255,24 @@ function hasExtractableData(text: string): boolean {
   }
   
   return matches >= 3;
+}
+
+// Utility: sanitize text to avoid Postgres JSON unicode escape issues
+function sanitizeTextForPostgres(text: string): string {
+  if (!text) return text;
+  try {
+    // Remove null bytes
+    let safe = text.replace(/\u0000/g, '');
+    // Remove unpaired surrogates
+    safe = safe.replace(/[\uD800-\uDFFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+    // Protect invalid \u escapes (e.g., "\\u12GZ"), turn them into literal text
+    safe = safe.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u');
+    // Strip other control chars except common whitespace
+    safe = safe.replace(/[\u0001-\u0009\u000B-\u001F]/g, ' ');
+    return safe;
+  } catch {
+    return text;
+  }
 }
 
 // Google Document AI extraction function  

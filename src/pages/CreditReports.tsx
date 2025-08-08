@@ -413,22 +413,22 @@ const CreditReportsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Upload Modal */}
+      {/* Smart Credit Modal */}
       {showUpload && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-auto">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold">Upload Credit Reports</h2>
+                <h2 className="text-2xl font-bold">Smart Credit</h2>
                 <Button 
                   variant="outline" 
                   size="sm" 
                   onClick={() => setShowUpload(false)}
                 >
-                  <X className="w-4 h-4" />
+                  Close
                 </Button>
               </div>
-              <CreditReportUpload onUploadSuccess={handleUploadSuccess} />
+              <SmartCreditLoginForm />
             </div>
           </div>
         </div>

@@ -42,7 +42,50 @@ serve(async (req) => {
     let connectivity: { status?: number; ok?: boolean; bodySnippet?: string; error?: string } | null = null;
     if (keyPresent) {
       try {
-        const resp = await fetch('https://app.docsumo.com/api/v1/eevee/document_types', {
+        const resp = await fetch('https://app.docsumo.com/api/v1/mew/documents/types/', {
+          method: 'GET',
+          headers: {
+            'apikey': docsumoApiKey!,
+            'x-api-key': docsumoApiKey!,
+            'Accept': 'application/json',
+          },
+        });
+        const body = await resp.text();
+        connectivity = { status: resp.status, ok: resp.ok, bodySnippet: body.slice(0, 300) };
+      } catch (e) {
+        connectivity = { error: String(e).slice(0, 300) };
+      }
+    }
+    return new Response(
+      JSON.stringify({
+        success: true,
+        keyPresent,
+        apiKeyMasked: keyPresent ? `***${docsumoApiKey!.slice(-4)}` : null,
+        documentTypeId: resolvedDocTypeId,
+        connectivity,
+        timestamp: new Date().toISOString()
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // Support POST-based validation flow (when called via supabase.functions.invoke)
+  let parsedBody: any = null;
+  if (req.method !== 'GET') {
+    try {
+      parsedBody = await req.json();
+    } catch (_) {
+      // ignore body parse errors for non-JSON requests
+    }
+  }
+
+  if (!validateParam && parsedBody?.validate) {
+    const resolvedDocTypeId = parsedBody.documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID;
+    const keyPresent = !!docsumoApiKey;
+    let connectivity: { status?: number; ok?: boolean; bodySnippet?: string; error?: string } | null = null;
+    if (keyPresent) {
+      try {
+        const resp = await fetch('https://app.docsumo.com/api/v1/mew/documents/types/', {
           method: 'GET',
           headers: {
             'apikey': docsumoApiKey!,
@@ -75,7 +118,7 @@ serve(async (req) => {
     if (!supabaseUrl || !supabaseServiceKey) throw new Error('Supabase configuration missing');
     if (!docsumoApiKey) throw new Error('Docsumo API key not configured');
 
-    const body = await req.json();
+    const body = parsedBody ?? await req.json();
     const { reportId: rid, filePath, documentTypeId } = body;
     const resolvedDocTypeId = documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID;
     reportId = rid;
@@ -390,9 +433,10 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: strin
     formData.append('file', pdfBlob, 'credit-report.pdf');
     formData.append('type', actualDocTypeId);
 
-    const uploadResp = await fetch('https://app.docsumo.com/api/v1/eevee/upload', {
+    const uploadResp = await fetch('https://app.docsumo.com/api/v1/eevee/apikey/upload/', {
       method: 'POST',
       headers: {
+        'apikey': apiKey,
         'x-api-key': apiKey,
         'Accept': 'application/json',
       },
@@ -426,9 +470,10 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: strin
       pollAttempts++;
 
       try {
-        const pollResp = await fetch(`https://app.docsumo.com/api/v1/eevee/documents/${documentId}`, {
+        const pollResp = await fetch(`https://app.docsumo.com/api/v1/eevee/apikey/documents/detail/${documentId}/`, {
           method: 'GET',
           headers: {
+            'apikey': apiKey,
             'x-api-key': apiKey,
             'Accept': 'application/json',
           },

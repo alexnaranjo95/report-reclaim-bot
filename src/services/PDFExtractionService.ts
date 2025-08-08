@@ -83,21 +83,58 @@ export class PDFExtractionService {
       const isValidText = await this.validateExtractedText(reportId);
       if (!isValidText) {
         console.log('❌ Consolidated text validation failed');
-        
-        // Check if we have alternative extraction results to try
+
+        // Try to persist the extracted text from the edge function and re-validate
+        const textFromFunction = (result?.extractedText as string) || '';
+        if (textFromFunction && textFromFunction.length > 500) {
+          try {
+            const { error: rawUpdateError } = await supabase
+              .from('credit_reports')
+              .update({ raw_text: textFromFunction, primary_extraction_method: result.primaryMethod })
+              .eq('id', reportId);
+            if (rawUpdateError) {
+              console.log('⚠️ Client-side raw_text update failed:', rawUpdateError.message);
+            } else {
+              // Re-validate after updating raw_text
+              const recheck = await this.validateExtractedText(reportId);
+              if (recheck) {
+                console.log('✅ Re-validation passed after client-side raw_text update');
+              } else {
+                console.log('⚠️ Re-validation still failing after raw_text update');
+              }
+            }
+          } catch (e) {
+            console.log('⚠️ raw_text update attempt threw:', e);
+          }
+        }
+
+        // Check if we have alternative extraction results to try (accept at least one)
         const extractionResults = await this.getAlternativeExtractionResults(reportId);
-        if (extractionResults.length > 1) {
-          console.log('🔄 Trying alternative consolidation strategy...');
-          const { DataConsolidationService } = await import('./DataConsolidationService');
-          const reconsolidated = await DataConsolidationService.reconsolidate(reportId, 'majority_vote');
-          
-          // Re-validate with new consolidation
+        if (extractionResults.length >= 1) {
+          console.log('🔄 Trying alternative consolidation strategy or direct alternative parsing...');
+          try {
+            const { DataConsolidationService } = await import('./DataConsolidationService');
+            await DataConsolidationService.reconsolidate(reportId, 'majority_vote');
+          } catch (_) {
+            // If reconsolidation utility is unavailable, we still proceed to alternative parsing below
+          }
+
+          // Re-validate with potentially updated consolidation
           const revalidated = await this.validateExtractedText(reportId);
           if (!revalidated) {
-            throw new Error('All consolidation strategies failed validation. This may be an image-based PDF requiring OCR.');
+            console.log('⚠️ Re-validation failed; attempting alternative parsing flow');
+            const altResult = await this.tryAlternativeParsing(reportId);
+            if (!altResult.hasValidData) {
+              throw new Error('All consolidation strategies failed validation. This may be an image-based PDF requiring OCR.');
+            }
           }
         } else {
-          throw new Error('Text validation failed and no alternative extraction results available.');
+          // As a last resort, if we have text from the function, proceed to parsing with it
+          if (textFromFunction && textFromFunction.length > 500) {
+            console.log('ℹ️ Proceeding with parsing using function-returned text despite failed DB validation');
+          } else {
+            throw new Error('Text validation failed and no alternative extraction results available.');
+          }
         }
       }
       

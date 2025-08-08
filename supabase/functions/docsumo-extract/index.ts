@@ -118,30 +118,52 @@ serve(async (req) => {
 
     const sanitizedText = sanitizeTextForPostgres(extractionResult);
 
-    // Insert extraction_results with explicit error handling
+    // Insert extraction_results with robust error handling
     let extractionStored = false;
     let extractionInsertErrorMsg: string | null = null;
-    const { error: extractionInsertError } = await supabase
+    
+    const extractionData = {
+      report_id: reportId,
+      extraction_method: extraction.diagnostics.usedFallback ? 'fallback' : 'docsumo',
+      extracted_text: sanitizedText,
+      processing_time_ms: totalTime,
+      character_count: characterCount,
+      word_count: wordCount,
+      confidence_score: confidence,
+      has_structured_data: hasStructuredData,
+      extraction_metadata: {
+        hasError: false,
+        errorMessage: null,
+        processingTime: totalTime,
+        docsumoAttempts: extraction.diagnostics.attempts,
+        endpoint: extraction.diagnostics.endpoint,
+        usedFallback: extraction.diagnostics.usedFallback,
+        documentTypeId: extraction.diagnostics.documentTypeId || resolvedDocTypeId,
+        pollAttempts: extraction.diagnostics.pollAttempts || null,
+        documentId: extraction.diagnostics.documentId || null,
+      }
+    };
+
+    // Try inserting as array first (safer for JSON serialization)
+    let { error: extractionInsertError } = await supabase
       .from('extraction_results')
-      .insert({
-        report_id: reportId,
-        extraction_method: extraction.diagnostics.usedFallback ? 'fallback' : 'docsumo',
-        extracted_text: sanitizedText,
-        processing_time_ms: totalTime,
-        character_count: characterCount,
-        word_count: wordCount,
-        confidence_score: confidence,
-        has_structured_data: hasStructuredData,
+      .insert([extractionData]);
+      
+    if (extractionInsertError && extractionInsertError.message?.includes('json')) {
+      // Retry with simplified metadata if JSON error
+      console.log('🔄 Retrying extraction_results with simplified metadata...');
+      const simplifiedData = {
+        ...extractionData,
         extraction_metadata: {
-          hasError: false,
-          errorMessage: null,
-          processingTime: totalTime,
-          docsumoAttempts: extraction.diagnostics.attempts,
           endpoint: extraction.diagnostics.endpoint,
           usedFallback: extraction.diagnostics.usedFallback,
           documentTypeId: extraction.diagnostics.documentTypeId || resolvedDocTypeId,
         }
-      });
+      };
+      const retryResult = await supabase.from('extraction_results').insert([simplifiedData]);
+      extractionInsertError = retryResult.error;
+    }
+    
     if (extractionInsertError) {
       extractionInsertErrorMsg = extractionInsertError.message || 'Unknown error inserting extraction_results';
       console.error('Failed to insert extraction_results:', extractionInsertError);
@@ -301,21 +323,33 @@ function calculateConfidenceScore(text: string, method: string): number {
 
 function hasExtractableData(text: string): boolean {
   if (!text || text.length < 200) return false;
+  
+  // Enhanced patterns for better detection
   const creditIndicators = [
-    /credit\s*report/i,
-    /personal\s*information/i,
-    /account\s*number/i,
-    /payment\s*history/i,
-    /credit\s*score/i,
-    /inquiry|inquiries/i,
-    /creditor/i,
-    /balance/i,
+    /credit\s*report|consumer\s*report/i,
+    /personal\s*information|identity\s*information/i,
+    /account\s*number|acct\s*#?[\s]*\d+/i,
+    /payment\s*history|pay\s*status/i,
+    /credit\s*score|fico|score\s*\d+/i,
+    /inquiry|inquiries|hard\s*pull/i,
+    /creditor|lender|financial\s*institution/i,
+    /balance|current\s*balance|\$\d+/i,
+    /experian|equifax|transunion/i,
+    /date\s*opened|open\s*date/i,
+    /social\s*security|ssn/i,
+    /tradeline|trade\s*line/i,
   ];
+  
   let matches = 0;
   for (const pattern of creditIndicators) {
     if (pattern.test(text)) matches++;
   }
-  return matches >= 3;
+  
+  // Lower threshold for IdentityIQ reports
+  const isIdentityIQ = /identityiq|identity\s*iq/i.test(text);
+  const threshold = isIdentityIQ ? 2 : 3;
+  
+  return matches >= threshold;
 }
 
 function sanitizeTextForPostgres(text: string): string {
@@ -343,96 +377,161 @@ function sanitizeTextForPostgres(text: string): string {
 async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: string): Promise<{ text: string; diagnostics: { attempts: { endpoint: string; status: number; ok: boolean; error?: string }[]; endpoint?: string; usedFallback: boolean; documentTypeId?: string } }> {
   console.log('🔄 Starting Docsumo OCR extraction...');
   const attempts: { endpoint: string; status: number; ok: boolean; error?: string }[] = [];
-  let lastError: any = null;
+  const actualDocTypeId = documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID;
+  
   try {
     const apiKey = Deno.env.get('DOCSUMO_API_KEY');
     if (!apiKey) throw new Error('Docsumo API key not configured');
 
+    // Step 1: Upload document using the correct upload endpoint
+    console.log(`📤 Uploading document with type: ${actualDocTypeId}`);
     const formData = new FormData();
     const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
     formData.append('file', pdfBlob, 'credit-report.pdf');
-    if (documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID) {
-      formData.append('type', documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID);
+    formData.append('type', actualDocTypeId);
+
+    const uploadResp = await fetch('https://app.docsumo.com/api/v1/eevee/upload', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'Accept': 'application/json',
+      },
+      body: formData,
+    });
+
+    if (!uploadResp.ok) {
+      const errorText = await uploadResp.text();
+      attempts.push({ endpoint: 'upload', status: uploadResp.status, ok: false, error: errorText?.slice(0, 500) });
+      console.error(`❌ Docsumo upload failed: ${uploadResp.status} ${uploadResp.statusText}`);
+      throw new Error(`Upload failed: ${uploadResp.status} - ${errorText?.slice(0, 200)}`);
     }
 
-    // Try multiple known endpoints (header uses `apikey` per docs)
-    const endpoints = [
-      'https://app.docsumo.com/api/v1/documents/extract',
-      'https://app.docsumo.com/api/v1/eevee/extract'
-    ];
+    attempts.push({ endpoint: 'upload', status: uploadResp.status, ok: true });
+    const uploadResult = await uploadResp.json();
+    const documentId = uploadResult?.data?.document_id || uploadResult?.document_id;
+    
+    if (!documentId) {
+      throw new Error('No document ID returned from upload');
+    }
 
-    for (const endpoint of endpoints) {
+    console.log(`📄 Document uploaded, ID: ${documentId}`);
+
+    // Step 2: Poll for processing completion
+    let pollAttempts = 0;
+    const maxPollAttempts = 30; // 30 attempts * 2 seconds = 1 minute max
+    let documentData: any = null;
+
+    while (pollAttempts < maxPollAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      pollAttempts++;
+
       try {
-        const resp = await fetch(endpoint, {
-          method: 'POST',
-            headers: {
-              'apikey': apiKey,
-              'x-api-key': apiKey,
-              'Accept': 'application/json',
-            },
-          body: formData,
+        const pollResp = await fetch(`https://app.docsumo.com/api/v1/eevee/documents/${documentId}`, {
+          method: 'GET',
+          headers: {
+            'x-api-key': apiKey,
+            'Accept': 'application/json',
+          },
         });
 
-        if (!resp.ok) {
-          const text = await resp.text();
-          attempts.push({ endpoint, status: resp.status, ok: false, error: text?.slice(0, 500) });
-          console.error(`❌ Docsumo API error @ ${endpoint}: ${resp.status} ${resp.statusText}`);
-          continue; // try next endpoint
+        if (!pollResp.ok) {
+          console.error(`❌ Poll attempt ${pollAttempts} failed: ${pollResp.status}`);
+          continue;
         }
 
-        attempts.push({ endpoint, status: resp.status, ok: true });
-        const result = await resp.json();
-
-        let extractedText = '';
-        if (result?.data?.raw_text) extractedText = result.data.raw_text;
-        else if (result?.raw_text) extractedText = result.raw_text;
-        else if (result?.data?.text) extractedText = result.data.text;
-        else if (result?.text) extractedText = result.text;
-        else if (result?.data?.ocr_text) extractedText = result.data.ocr_text;
-        else if (result?.ocr_text) extractedText = result.ocr_text;
-        else if (Array.isArray(result?.pages)) {
-          extractedText = result.pages.map((p: any) => p.text || p.content || '').filter((t: string) => t.length > 0).join('\n');
-        } else {
-          const findTextInObject = (obj: any): string[] => {
-            const texts: string[] = [];
-            if (typeof obj === 'string' && obj.length > 20) texts.push(obj);
-            else if (obj && typeof obj === 'object') {
-              for (const value of Object.values(obj)) texts.push(...findTextInObject(value));
-            }
-            return texts;
-          };
-          const foundTexts = findTextInObject(result);
-          extractedText = foundTexts.join('\n');
+        const pollResult = await pollResp.json();
+        const status = pollResult?.data?.status || pollResult?.status;
+        
+        console.log(`🔄 Poll attempt ${pollAttempts}: status = ${status}`);
+        
+        if (status === 'processed' || status === 'complete' || status === 'completed') {
+          documentData = pollResult;
+          break;
+        } else if (status === 'failed' || status === 'error') {
+          throw new Error(`Document processing failed with status: ${status}`);
         }
-
-        if (extractedText) {
-          extractedText = extractedText.trim().replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n');
-        }
-
-        console.log(`📊 Docsumo extracted ${extractedText.length} characters from ${endpoint}`);
-        if (extractedText.length < 100) {
-          console.log('⚠️ Docsumo returned insufficient text, will try fallback.');
-          break; // proceed to fallback below
-        }
-
-        return { text: extractedText, diagnostics: { attempts, endpoint, usedFallback: false, documentTypeId: documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID } };
-      } catch (fetchErr) {
-        lastError = fetchErr;
-        attempts.push({ endpoint, status: 0, ok: false, error: String(fetchErr).slice(0, 500) });
-        console.error(`❌ Docsumo fetch error @ ${endpoint}:`, fetchErr);
+        // Continue polling for 'processing', 'queued', etc.
+      } catch (pollError) {
+        console.error(`❌ Poll error on attempt ${pollAttempts}:`, pollError);
+        if (pollAttempts >= maxPollAttempts - 3) throw pollError; // Only throw on last few attempts
       }
     }
 
-    // If we reached here, docsumo failed or insufficient text
-    console.log('🔄 Docsumo failed, attempting fallback PDF extraction...');
-    const fallbackText = await fallbackTextExtraction(pdfBuffer);
-    return { text: fallbackText, diagnostics: { attempts, endpoint: 'fallback', usedFallback: true, documentTypeId: documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID } };
+    if (!documentData) {
+      throw new Error(`Document processing timed out after ${pollAttempts} attempts`);
+    }
+
+    // Step 3: Extract text from the processed document
+    let extractedText = '';
+    
+    // Try multiple paths to find the text
+    const data = documentData?.data || documentData;
+    if (data?.raw_text) extractedText = data.raw_text;
+    else if (data?.extracted_data?.raw_text) extractedText = data.extracted_data.raw_text;
+    else if (data?.text) extractedText = data.text;
+    else if (data?.ocr_text) extractedText = data.ocr_text;
+    else if (data?.content) extractedText = data.content;
+    else if (Array.isArray(data?.pages)) {
+      extractedText = data.pages
+        .map((p: any) => p.text || p.content || p.raw_text || '')
+        .filter((t: string) => t.length > 0)
+        .join('\n');
+    } else {
+      // Fallback: search for any text in the response
+      const findTextInObject = (obj: any, depth = 0): string[] => {
+        if (depth > 5) return []; // Prevent infinite recursion
+        const texts: string[] = [];
+        if (typeof obj === 'string' && obj.length > 20) {
+          texts.push(obj);
+        } else if (obj && typeof obj === 'object') {
+          for (const value of Object.values(obj)) {
+            texts.push(...findTextInObject(value, depth + 1));
+          }
+        }
+        return texts;
+      };
+      const foundTexts = findTextInObject(data);
+      extractedText = foundTexts.join('\n');
+    }
+
+    if (extractedText) {
+      extractedText = extractedText.trim().replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n');
+    }
+
+    console.log(`📊 Docsumo extracted ${extractedText.length} characters via upload/poll flow`);
+    
+    if (extractedText.length < 100) {
+      console.log('⚠️ Docsumo returned insufficient text, will try fallback.');
+      throw new Error('Insufficient text extracted from Docsumo');
+    }
+
+    return { 
+      text: extractedText, 
+      diagnostics: { 
+        attempts, 
+        endpoint: 'upload/poll', 
+        usedFallback: false, 
+        documentTypeId: actualDocTypeId,
+        pollAttempts,
+        documentId
+      } 
+    };
+
   } catch (error) {
     console.error('❌ Docsumo extraction error:', error);
-    console.log('🔄 Docsumo failed completely, attempting fallback PDF extraction...');
+    console.log('🔄 Docsumo failed, attempting fallback PDF extraction...');
     try {
       const fallbackText = await fallbackTextExtraction(pdfBuffer);
-      return { text: fallbackText, diagnostics: { attempts, endpoint: 'fallback', usedFallback: true, documentTypeId: documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID } };
+      return { 
+        text: fallbackText, 
+        diagnostics: { 
+          attempts, 
+          endpoint: 'fallback', 
+          usedFallback: true, 
+          documentTypeId: actualDocTypeId,
+          docsumoError: error.message 
+        } 
+      };
     } catch (fallbackError) {
       console.error('❌ Fallback extraction also failed:', fallbackError);
       throw new Error(`Docsumo extraction failed: ${(lastError?.message || error.message)}`);

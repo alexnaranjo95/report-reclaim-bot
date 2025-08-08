@@ -50,14 +50,16 @@ serve(async (req) => {
     console.log('📄 Downloaded PDF, size:', arrayBuffer.byteLength);
 
     const startTime = Date.now();
-    const extractionResult = await extractWithDocsumo(arrayBuffer);
+    const extraction = await extractWithDocsumo(arrayBuffer);
+    const extractionResult = extraction.text;
     const totalTime = Date.now() - startTime;
 
-    console.log(`✅ Docsumo extraction completed in ${totalTime}ms`);
+    console.log(`✅ Docsumo extraction completed in ${totalTime}ms via ${extraction.diagnostics?.endpoint || 'unknown endpoint'}`);
 
+    const usedMethod = extraction.diagnostics.usedFallback ? 'fallback' : 'docsumo';
     const characterCount = extractionResult.length;
     const wordCount = extractionResult.split(/\s+/).filter(w => w.length > 0).length;
-    const confidence = calculateConfidenceScore(extractionResult, 'docsumo');
+    const confidence = calculateConfidenceScore(extractionResult, usedMethod);
     const hasStructuredData = hasExtractableData(extractionResult);
 
     const sanitizedText = sanitizeTextForPostgres(extractionResult);
@@ -66,14 +68,21 @@ serve(async (req) => {
       .from('extraction_results')
       .insert({
         report_id: reportId,
-        extraction_method: 'docsumo',
+        extraction_method: extraction.diagnostics.usedFallback ? 'fallback' : 'docsumo',
         extracted_text: sanitizedText,
         processing_time_ms: totalTime,
         character_count: characterCount,
         word_count: wordCount,
         confidence_score: confidence,
         has_structured_data: hasStructuredData,
-        extraction_metadata: { hasError: false, errorMessage: null, processingTime: totalTime }
+        extraction_metadata: {
+          hasError: false,
+          errorMessage: null,
+          processingTime: totalTime,
+          docsumoAttempts: extraction.diagnostics.attempts,
+          endpoint: extraction.diagnostics.endpoint,
+          usedFallback: extraction.diagnostics.usedFallback,
+        }
       });
 
     console.log(`📊 Docsumo: ${characterCount} chars, confidence: ${confidence}, structured: ${hasStructuredData}`);
@@ -84,13 +93,13 @@ serve(async (req) => {
       .from('consolidation_metadata')
       .insert({
         report_id: reportId,
-        primary_source: 'docsumo',
+        primary_source: usedMethod,
         consolidation_strategy: 'single_source',
         confidence_level: confidence,
-        field_sources: { primary_text: 'docsumo', total_sources: 1, methods_used: ['docsumo'] },
+        field_sources: { primary_text: usedMethod, total_sources: 1, methods_used: [usedMethod] },
         conflict_count: 0,
         requires_human_review: confidence < 0.7,
-        consolidation_notes: `Docsumo-only extraction. Confidence: ${confidence}`
+        consolidation_notes: `${usedMethod}-only extraction. Confidence: ${confidence}`
       });
 
     // First update: set status only
@@ -100,7 +109,7 @@ serve(async (req) => {
         extraction_status: 'completed',
         consolidation_status: 'completed',
         consolidation_confidence: confidence,
-        primary_extraction_method: 'docsumo',
+        primary_extraction_method: usedMethod,
         updated_at: new Date().toISOString()
       })
       .eq('id', reportId);
@@ -131,14 +140,15 @@ serve(async (req) => {
         success: true,
         extractedText: sanitizedText,
         textLength: extractionResult.length,
-        primaryMethod: 'docsumo',
+        primaryMethod: extraction.diagnostics.usedFallback ? 'fallback' : 'docsumo',
         consolidationConfidence: confidence,
         extractionResult: {
-          method: 'docsumo',
+          method: extraction.diagnostics.usedFallback ? 'fallback' : 'docsumo',
           confidence: confidence,
           characterCount: characterCount,
           hasStructuredData: hasStructuredData,
         },
+        diagnostics: extraction.diagnostics,
         hasValidText: extractionResult.length > 100,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -234,8 +244,10 @@ function sanitizeTextForPostgres(text: string): string {
   }
 }
 
-async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<string> {
+async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<{ text: string; diagnostics: { attempts: { endpoint: string; status: number; ok: boolean; error?: string }[]; endpoint?: string; usedFallback: boolean } }> {
   console.log('🔄 Starting Docsumo OCR extraction...');
+  const attempts: { endpoint: string; status: number; ok: boolean; error?: string }[] = [];
+  let lastError: any = null;
   try {
     const apiKey = Deno.env.get('DOCSUMO_API_KEY');
     if (!apiKey) throw new Error('Docsumo API key not configured');
@@ -244,67 +256,86 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<string> {
     const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
     formData.append('file', pdfBlob, 'credit-report.pdf');
 
-    // Try Docsumo Document AI endpoint (correct endpoint)
-    const response = await fetch('https://app.docsumo.com/api/v1/documents/extract', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${apiKey}`,
-        'Accept': 'application/json',
-      },
-      body: formData,
-    });
+    // Try multiple known endpoints (header uses `apikey` per docs)
+    const endpoints = [
+      'https://app.docsumo.com/api/v1/documents/extract',
+      'https://app.docsumo.com/api/v1/eevee/extract'
+    ];
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Docsumo API error: ${response.status} ${response.statusText}`);
-      console.error(`❌ Error details: ${errorText}`);
-      console.log('🔄 Docsumo failed, attempting fallback PDF extraction...');
-      return await fallbackTextExtraction(pdfBuffer);
-    }
+    for (const endpoint of endpoints) {
+      try {
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'apikey': apiKey,
+            'Accept': 'application/json',
+          },
+          body: formData,
+        });
 
-    const result = await response.json();
-
-    let extractedText = '';
-    if (result.data?.raw_text) extractedText = result.data.raw_text;
-    else if (result.raw_text) extractedText = result.raw_text;
-    else if (result.data?.text) extractedText = result.data.text;
-    else if (result.text) extractedText = result.text;
-    else if (result.data?.ocr_text) extractedText = result.data.ocr_text;
-    else if (result.ocr_text) extractedText = result.ocr_text;
-    else if (Array.isArray(result.pages)) {
-      extractedText = result.pages.map((p: any) => p.text || p.content || '').filter((t: string) => t.length > 0).join('\n');
-    } else {
-      const findTextInObject = (obj: any): string[] => {
-        const texts: string[] = [];
-        if (typeof obj === 'string' && obj.length > 20) texts.push(obj);
-        else if (obj && typeof obj === 'object') {
-          for (const value of Object.values(obj)) texts.push(...findTextInObject(value));
+        if (!resp.ok) {
+          const text = await resp.text();
+          attempts.push({ endpoint, status: resp.status, ok: false, error: text?.slice(0, 500) });
+          console.error(`❌ Docsumo API error @ ${endpoint}: ${resp.status} ${resp.statusText}`);
+          continue; // try next endpoint
         }
-        return texts;
-      };
-      const foundTexts = findTextInObject(result);
-      extractedText = foundTexts.join('\n');
+
+        attempts.push({ endpoint, status: resp.status, ok: true });
+        const result = await resp.json();
+
+        let extractedText = '';
+        if (result?.data?.raw_text) extractedText = result.data.raw_text;
+        else if (result?.raw_text) extractedText = result.raw_text;
+        else if (result?.data?.text) extractedText = result.data.text;
+        else if (result?.text) extractedText = result.text;
+        else if (result?.data?.ocr_text) extractedText = result.data.ocr_text;
+        else if (result?.ocr_text) extractedText = result.ocr_text;
+        else if (Array.isArray(result?.pages)) {
+          extractedText = result.pages.map((p: any) => p.text || p.content || '').filter((t: string) => t.length > 0).join('\n');
+        } else {
+          const findTextInObject = (obj: any): string[] => {
+            const texts: string[] = [];
+            if (typeof obj === 'string' && obj.length > 20) texts.push(obj);
+            else if (obj && typeof obj === 'object') {
+              for (const value of Object.values(obj)) texts.push(...findTextInObject(value));
+            }
+            return texts;
+          };
+          const foundTexts = findTextInObject(result);
+          extractedText = foundTexts.join('\n');
+        }
+
+        if (extractedText) {
+          extractedText = extractedText.trim().replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n');
+        }
+
+        console.log(`📊 Docsumo extracted ${extractedText.length} characters from ${endpoint}`);
+        if (extractedText.length < 100) {
+          console.log('⚠️ Docsumo returned insufficient text, will try fallback.');
+          break; // proceed to fallback below
+        }
+
+        return { text: extractedText, diagnostics: { attempts, endpoint, usedFallback: false } };
+      } catch (fetchErr) {
+        lastError = fetchErr;
+        attempts.push({ endpoint, status: 0, ok: false, error: String(fetchErr).slice(0, 500) });
+        console.error(`❌ Docsumo fetch error @ ${endpoint}:`, fetchErr);
+      }
     }
 
-    if (extractedText) {
-      extractedText = extractedText.trim().replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n');
-    }
-
-    console.log(`📊 Docsumo extracted ${extractedText.length} characters`);
-    if (extractedText.length < 100) {
-      console.log('⚠️ Docsumo returned insufficient text, trying fallback extraction...');
-      return await fallbackTextExtraction(pdfBuffer);
-    }
-
-    return extractedText;
+    // If we reached here, docsumo failed or insufficient text
+    console.log('🔄 Docsumo failed, attempting fallback PDF extraction...');
+    const fallbackText = await fallbackTextExtraction(pdfBuffer);
+    return { text: fallbackText, diagnostics: { attempts, endpoint: 'fallback', usedFallback: true } };
   } catch (error) {
     console.error('❌ Docsumo extraction error:', error);
     console.log('🔄 Docsumo failed completely, attempting fallback PDF extraction...');
     try {
-      return await fallbackTextExtraction(pdfBuffer);
+      const fallbackText = await fallbackTextExtraction(pdfBuffer);
+      return { text: fallbackText, diagnostics: { attempts, endpoint: 'fallback', usedFallback: true } };
     } catch (fallbackError) {
       console.error('❌ Fallback extraction also failed:', fallbackError);
-      throw new Error(`Docsumo extraction failed: ${error.message}`);
+      throw new Error(`Docsumo extraction failed: ${(lastError?.message || error.message)}`);
     }
   }
 }

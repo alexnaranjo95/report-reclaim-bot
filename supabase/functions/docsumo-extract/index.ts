@@ -9,6 +9,7 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get('SUPABASE_URL');
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const docsumoApiKey = Deno.env.get('DOCSUMO_API_KEY');
+const DEFAULT_DOCSUMO_DOC_TYPE_ID = Deno.env.get('DOCSUMO_DOCUMENT_TYPE_ID') || 'others__dFnTB';
 
 serve(async (req) => {
   console.log(`📋 Request method: ${req.method}, URL: ${req.url}`);
@@ -33,6 +34,40 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
+  // Validation-mode: quickly verify key and document type configuration
+  const validateParam = url.searchParams.get('validate');
+  if (validateParam) {
+    const resolvedDocTypeId = url.searchParams.get('documentTypeId') || DEFAULT_DOCSUMO_DOC_TYPE_ID;
+    const keyPresent = !!docsumoApiKey;
+    let connectivity: { status?: number; ok?: boolean; bodySnippet?: string; error?: string } | null = null;
+    if (keyPresent) {
+      try {
+        const resp = await fetch('https://app.docsumo.com/api/v1/eevee/document_types', {
+          method: 'GET',
+          headers: {
+            'apikey': docsumoApiKey!,
+            'x-api-key': docsumoApiKey!,
+            'Accept': 'application/json',
+          },
+        });
+        const body = await resp.text();
+        connectivity = { status: resp.status, ok: resp.ok, bodySnippet: body.slice(0, 300) };
+      } catch (e) {
+        connectivity = { error: String(e).slice(0, 300) };
+      }
+    }
+    return new Response(
+      JSON.stringify({
+        success: true,
+        keyPresent,
+        apiKeyMasked: keyPresent ? `***${docsumoApiKey!.slice(-4)}` : null,
+        documentTypeId: resolvedDocTypeId,
+        connectivity,
+        timestamp: new Date().toISOString()
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
 
   let reportId: string | null = null;
 
@@ -40,7 +75,9 @@ serve(async (req) => {
     if (!supabaseUrl || !supabaseServiceKey) throw new Error('Supabase configuration missing');
     if (!docsumoApiKey) throw new Error('Docsumo API key not configured');
 
-    const { reportId: rid, filePath } = await req.json();
+    const body = await req.json();
+    const { reportId: rid, filePath, documentTypeId } = body;
+    const resolvedDocTypeId = documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID;
     reportId = rid;
     if (!reportId || !filePath) throw new Error('Missing reportId or filePath');
 
@@ -67,7 +104,7 @@ serve(async (req) => {
     console.log('📄 Downloaded PDF, size:', arrayBuffer.byteLength);
 
     const startTime = Date.now();
-    const extraction = await extractWithDocsumo(arrayBuffer);
+    const extraction = await extractWithDocsumo(arrayBuffer, resolvedDocTypeId);
     const extractionResult = extraction.text;
     const totalTime = Date.now() - startTime;
 
@@ -102,6 +139,7 @@ serve(async (req) => {
           docsumoAttempts: extraction.diagnostics.attempts,
           endpoint: extraction.diagnostics.endpoint,
           usedFallback: extraction.diagnostics.usedFallback,
+          documentTypeId: extraction.diagnostics.documentTypeId || resolvedDocTypeId,
         }
       });
     if (extractionInsertError) {
@@ -302,7 +340,7 @@ function sanitizeTextForPostgres(text: string): string {
   }
 }
 
-async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<{ text: string; diagnostics: { attempts: { endpoint: string; status: number; ok: boolean; error?: string }[]; endpoint?: string; usedFallback: boolean } }> {
+async function extractWithDocsumo(pdfBuffer: ArrayBuffer, documentTypeId?: string): Promise<{ text: string; diagnostics: { attempts: { endpoint: string; status: number; ok: boolean; error?: string }[]; endpoint?: string; usedFallback: boolean; documentTypeId?: string } }> {
   console.log('🔄 Starting Docsumo OCR extraction...');
   const attempts: { endpoint: string; status: number; ok: boolean; error?: string }[] = [];
   let lastError: any = null;
@@ -313,6 +351,9 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<{ text: strin
     const formData = new FormData();
     const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
     formData.append('file', pdfBlob, 'credit-report.pdf');
+    if (documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID) {
+      formData.append('type', documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID);
+    }
 
     // Try multiple known endpoints (header uses `apikey` per docs)
     const endpoints = [
@@ -324,10 +365,11 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<{ text: strin
       try {
         const resp = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'apikey': apiKey,
-            'Accept': 'application/json',
-          },
+            headers: {
+              'apikey': apiKey,
+              'x-api-key': apiKey,
+              'Accept': 'application/json',
+            },
           body: formData,
         });
 
@@ -373,7 +415,7 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<{ text: strin
           break; // proceed to fallback below
         }
 
-        return { text: extractedText, diagnostics: { attempts, endpoint, usedFallback: false } };
+        return { text: extractedText, diagnostics: { attempts, endpoint, usedFallback: false, documentTypeId: documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID } };
       } catch (fetchErr) {
         lastError = fetchErr;
         attempts.push({ endpoint, status: 0, ok: false, error: String(fetchErr).slice(0, 500) });
@@ -384,13 +426,13 @@ async function extractWithDocsumo(pdfBuffer: ArrayBuffer): Promise<{ text: strin
     // If we reached here, docsumo failed or insufficient text
     console.log('🔄 Docsumo failed, attempting fallback PDF extraction...');
     const fallbackText = await fallbackTextExtraction(pdfBuffer);
-    return { text: fallbackText, diagnostics: { attempts, endpoint: 'fallback', usedFallback: true } };
+    return { text: fallbackText, diagnostics: { attempts, endpoint: 'fallback', usedFallback: true, documentTypeId: documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID } };
   } catch (error) {
     console.error('❌ Docsumo extraction error:', error);
     console.log('🔄 Docsumo failed completely, attempting fallback PDF extraction...');
     try {
       const fallbackText = await fallbackTextExtraction(pdfBuffer);
-      return { text: fallbackText, diagnostics: { attempts, endpoint: 'fallback', usedFallback: true } };
+      return { text: fallbackText, diagnostics: { attempts, endpoint: 'fallback', usedFallback: true, documentTypeId: documentTypeId || DEFAULT_DOCSUMO_DOC_TYPE_ID } };
     } catch (fallbackError) {
       console.error('❌ Fallback extraction also failed:', fallbackError);
       throw new Error(`Docsumo extraction failed: ${(lastError?.message || error.message)}`);

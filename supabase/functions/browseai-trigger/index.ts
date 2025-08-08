@@ -52,9 +52,32 @@ serve(async (req: Request) => {
   const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   const body = (await req.json().catch(() => ({}))) as TriggerBody;
-  const { robotId, inputParameters, tags = ["smartcredit", "import"] } = body || {};
-  if (!robotId || !inputParameters) {
-    return new Response(JSON.stringify({ error: "robotId and inputParameters are required" }), {
+  let { robotId, inputParameters, tags = ["smartcredit", "import"] } = body || {};
+  if (!inputParameters) {
+    return new Response(JSON.stringify({ error: "inputParameters are required" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  // If robotId not provided, try to load default from admin_settings
+  if (!robotId) {
+    try {
+      const { data: robotRow } = await supabaseAdmin
+        .from("admin_settings")
+        .select("setting_value")
+        .eq("setting_key", "browseai.robot_id")
+        .limit(1)
+        .single();
+      const raw = robotRow?.setting_value as unknown;
+      robotId = typeof raw === "string" ? raw : (raw && typeof raw === "object" && "value" in (raw as Record<string, unknown>) ? String((raw as Record<string, unknown>).value) : null);
+    } catch (_err) {
+      robotId = robotId || null;
+    }
+  }
+
+  if (!robotId) {
+    return new Response(JSON.stringify({ error: "robotId is required and no default is configured" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

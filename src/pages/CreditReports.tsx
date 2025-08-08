@@ -8,7 +8,7 @@ import { CreditReportCard } from '@/components/CreditReportCard';
 import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
 import { RoundProgressCard } from '@/components/RoundProgressCard';
 import { CreditReportService, type CreditReport } from '@/services/CreditReportService';
-import CreditReportUpload from '@/components/CreditReportUpload';
+import SmartCreditLoginForm from '@/components/SmartCreditLoginForm';
 import { CreditReportPreviewModal } from '@/components/CreditReportPreviewModal';
 import { CreditReportAnalysis } from '@/components/CreditReportAnalysis';
 import { CreditReportTimeline } from '@/components/CreditReportTimeline';
@@ -19,10 +19,7 @@ import {
   Filter,
   ArrowLeft,
   RefreshCw,
-  AlertCircle,
-  Upload,
-  Eye,
-  X
+  AlertCircle
 } from 'lucide-react';
 
 const CreditReportsPage: React.FC = () => {
@@ -251,11 +248,9 @@ const CreditReportsPage: React.FC = () => {
               </Button>
               <Button 
                 onClick={() => setShowUpload(true)}
-                size="sm" 
-                className="flex items-center gap-2"
+                size="sm"
               >
-                <Upload className="w-4 h-4" />
-                Upload Reports
+                Smart Credit
               </Button>
             </div>
           </div>
@@ -396,11 +391,9 @@ const CreditReportsPage: React.FC = () => {
             {reports.length === 0 && (
               <Button 
                 onClick={() => setShowUpload(true)}
-                size="lg" 
-                className="flex items-center gap-2"
+                size="lg"
               >
-                <Upload className="w-4 h-4" />
-                Upload Credit Reports
+                Open Smart Credit
               </Button>
             )}
           </CardContent>

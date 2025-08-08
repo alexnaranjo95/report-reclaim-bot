@@ -307,16 +307,22 @@ export const Dashboard = () => {
       // Require meaningful structured data for a successful analysis
       // We need at least some personal info OR some accounts to proceed
       if (extractedCounts.personalInfo === 0 && extractedCounts.accounts === 0) {
-        // Even if we have raw text, if no structured data was parsed, it's not a successful extraction
-        console.error('❌ No structured credit data extracted from PDF');
-        console.log('📊 Extraction counts:', extractedCounts);
+        // If we at least have raw text, proceed with a minimal analysis instead of failing hard
         if (hasExtractedText) {
+          console.warn('⚠️ No structured data parsed, but raw text exists. Proceeding with minimal analysis.');
+          console.log('📊 Extraction counts:', extractedCounts);
           console.log('📝 Raw text was extracted but could not be parsed into credit data');
           console.log('📝 Raw text preview:', updatedReport?.raw_text?.substring(0, 300));
+          toast({
+            title: 'Limited data parsed',
+            description: 'We extracted the text but could not parse accounts yet. You can proceed and try parsing again later.',
+          });
+        } else {
+          console.error('❌ No structured credit data extracted from PDF and no raw text available');
+          throw new Error('No credit data could be extracted from this PDF. Please ensure this is a valid credit report from Experian, Equifax, or TransUnion, and try again.');
         }
-        throw new Error('No credit data could be extracted from this PDF. Please ensure this is a valid credit report from Experian, Equifax, or TransUnion, and try again.');
       }
-      console.log('✅ Structured credit data found, proceeding with analysis...');
+      console.log('✅ Structured credit data found or minimal analysis path enabled, proceeding with analysis...');
 
       // Step 6: Create analysis result from real extracted data
       setProcessingStep('Building analysis from real data...');

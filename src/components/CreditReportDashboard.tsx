@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { ActionItemsPanel } from './ActionItemsPanel';
 import { InquiriesTimeline } from './InquiriesTimeline';
 import { PersonalInfoCard } from './PersonalInfoCard';
 import { TriBureauReportViewer } from './TriBureauReportViewer';
+import { auditCreditData } from '@/utils/CreditDataAudit';
 
 export interface CreditReportData {
   reportHeader: {
@@ -112,6 +113,10 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
     const totalLimit = revolvingAccounts.reduce((sum, acc) => sum + (acc.limit || 0), 0);
     return totalLimit > 0 ? (totalBalance / totalLimit) * 100 : 0;
   }, [data.accounts]);
+
+  useEffect(() => {
+    auditCreditData(data);
+  }, [data]);
 
   return (
     <div className="min-h-screen bg-gradient-dashboard p-6">

@@ -29,7 +29,7 @@ const scoreRank = (score?: number) => {
   if (score >= 800) return { label: 'Excellent', tone: 'default' as const };
   if (score >= 740) return { label: 'Very Good', tone: 'default' as const };
   if (score >= 670) return { label: 'Good', tone: 'secondary' as const };
-  if (score >= 580) return { label: 'Fair', tone: 'warning' as const };
+  if (score >= 580) return { label: 'Fair', tone: 'secondary' as const };
   return { label: 'Poor', tone: 'destructive' as const };
 };
 
@@ -241,7 +241,7 @@ export const TriBureauReportViewer: React.FC<TriBureauReportViewerProps> = ({ do
           <AccordionTrigger>Credit Scores</AccordionTrigger>
           <AccordionContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {(BUREAUS as BureauKey[]).map((b) => {
+              {BUREAUS.map((b: BureauKey) => {
                 const score = scoreMap[b];
                 const rank = scoreRank(score);
                 return (
@@ -269,7 +269,7 @@ export const TriBureauReportViewer: React.FC<TriBureauReportViewerProps> = ({ do
                 <ShieldAlert className="h-4 w-4" /> Score Risk Factors
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {(BUREAUS as BureauKey[]).map((b) => {
+                {BUREAUS.map((b: BureauKey) => {
                   const raw = riskFactors?.[b]?.value as string | undefined;
                   if (!raw) {
                     return (
@@ -361,7 +361,7 @@ export const TriBureauReportViewer: React.FC<TriBureauReportViewerProps> = ({ do
           <AccordionTrigger>Customer Statement & Alerts</AccordionTrigger>
           <AccordionContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {(BUREAUS as BureauKey[]).map((b) => {
+              {BUREAUS.map((b: BureauKey) => {
                 const key = `${b} Alerts`;
                 const alerts = customerStatement?.[key] as any[] | undefined;
                 return (

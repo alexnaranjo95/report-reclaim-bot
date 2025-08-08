@@ -13,11 +13,7 @@ type StatusBody = {
 };
 
 function getAuthHeaderFromKey(key: string) {
-  if (key.includes(":")) {
-    // deno-lint-ignore no-explicit-any
-    const basic = (globalThis as any).btoa ? btoa(key) : "";
-    return `Basic ${basic}`;
-  }
+  // Always use Bearer scheme per Browse AI v2 docs
   return `Bearer ${key}`;
 }
 
@@ -58,9 +54,9 @@ serve(async (req: Request) => {
   }
 
   // Ensure the run exists and belongs to this user (or superadmin can see all)
-  const { data: roleCheck } = await supabaseAdmin
-    .rpc("has_role", { _user_id: user.id, _role: "superadmin" })
-    .catch(() => ({ data: false }));
+  const { data: superRole, error: roleErr } = await supabaseAdmin
+    .rpc("has_role", { _user_id: user.id, _role: "superadmin" });
+  const isSuperadmin = roleErr ? false : !!superRole;
 
   const { data: runRow } = await supabaseAdmin
     .from("browseai_runs")
@@ -74,7 +70,7 @@ serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
-  if (!roleCheck && runRow.user_id !== user.id) {
+  if (!isSuperadmin && runRow.user_id !== user.id) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

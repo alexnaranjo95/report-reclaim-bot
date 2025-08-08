@@ -15,12 +15,7 @@ type TriggerBody = {
 };
 
 function getAuthHeaderFromKey(key: string) {
-  if (key.includes(":")) {
-    // key:secret format
-    // deno-lint-ignore no-explicit-any
-    const basic = (globalThis as any).btoa ? btoa(key) : "";
-    return `Basic ${basic}`;
-  }
+  // Always use Bearer scheme per Browse AI v2 docs
   return `Bearer ${key}`;
 }
 
@@ -149,8 +144,7 @@ serve(async (req: Request) => {
         error: typeof data === "object" ? JSON.stringify(data) : String(data),
       })
       .select()
-      .single()
-      .catch(() => null);
+      .single();
 
     return new Response(JSON.stringify({ error: "Failed to start Browse.ai task", details: data }), {
       status: res.status || 500,

@@ -222,14 +222,11 @@ function hasExtractableData(text: string): boolean {
 function sanitizeTextForPostgres(text: string): string {
   if (!text) return text;
   try {
-    // More aggressive sanitization for PostgreSQL JSON storage
+    // Sanitize problematic control characters while letting JSON serialization handle escaping
     let safe = text.replace(/\u0000/g, ''); // Remove null bytes
     safe = safe.replace(/[\uD800-\uDFFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ''); // Remove unpaired surrogates
-    safe = safe.replace(/\\u(?![0-9a-fA-F]{4})/g, '\\\\u'); // Fix invalid unicode escapes
     safe = safe.replace(/[\u0001-\u0009\u000B-\u001F]/g, ' '); // Replace control chars with spaces
     safe = safe.replace(/[\u007F-\u009F]/g, ' '); // Replace additional control chars
-    safe = safe.replace(/"/g, '\\"'); // Escape quotes for JSON safety
-    safe = safe.replace(/\\/g, '\\\\'); // Escape backslashes
     safe = safe.trim();
     
     // Truncate if too long (PostgreSQL text limit safety)
@@ -240,7 +237,7 @@ function sanitizeTextForPostgres(text: string): string {
     return safe;
   } catch (error) {
     console.error('Sanitization error:', error);
-    return text.replace(/[^\x20-\x7E\n\r\t]/g, ' ').trim(); // Fallback: ASCII only
+    return String(text).replace(/[^\x20-\x7E\n\r\t]/g, ' ').trim(); // Fallback: ASCII only
   }
 }
 

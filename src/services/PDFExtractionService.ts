@@ -1,6 +1,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { ComprehensiveCreditParser } from './ComprehensiveCreditParser';
+import { PDFProcessor } from './PDFProcessor';
 
 export class PDFExtractionService {
   /**
@@ -129,11 +130,76 @@ export class PDFExtractionService {
             }
           }
         } else {
-          // As a last resort, if we have text from the function, proceed to parsing with it
-          if (textFromFunction && textFromFunction.length > 500) {
-            console.log('ℹ️ Proceeding with parsing using function-returned text despite failed DB validation');
-          } else {
-            throw new Error('Text validation failed and no alternative extraction results available.');
+          // As a last resort, try client-side PDF.js extraction directly from storage
+          try {
+            console.log('🧪 Attempting client-side PDF.js extraction fallback...');
+            const { data: blob, error: downloadErr } = await supabase
+              .storage
+              .from('credit-reports')
+              .download(report.file_path);
+            if (downloadErr || !blob) {
+              throw new Error(`Download failed: ${downloadErr?.message || 'Unknown error'}`);
+            }
+            const clientFile = new File([blob], 'credit-report.pdf', { type: 'application/pdf' });
+            const clientText = await PDFProcessor.extractTextFromPDF(clientFile);
+
+            const charCount = clientText.length;
+            const wordCount = clientText.split(/\s+/).filter(Boolean).length;
+            const confidence = Math.min(0.95, 0.5 + Math.min(0.45, charCount / 50000));
+
+            // Store as an alternative extraction result
+            await supabase.from('extraction_results').insert({
+              report_id: reportId,
+              extraction_method: 'client_pdfjs',
+              extracted_text: clientText,
+              character_count: charCount,
+              word_count: wordCount,
+              confidence_score: confidence,
+              has_structured_data: true,
+              extraction_metadata: { source: 'frontend', note: 'Client-side PDF.js fallback' }
+            });
+
+            // Update report raw_text and method
+            await supabase
+              .from('credit_reports')
+              .update({ raw_text: clientText, primary_extraction_method: 'client_pdfjs' })
+              .eq('id', reportId);
+
+            const revalidatedAfterClient = await this.validateExtractedText(reportId);
+            if (!revalidatedAfterClient) {
+              throw new Error('Client-side PDF.js text also failed validation.');
+            }
+
+            console.log('✅ Client-side PDF.js extraction succeeded; proceeding to parsing');
+
+            // Parse immediately using the client-extracted text, then short-circuit the rest of the flow
+            const parseResult = await ComprehensiveCreditParser.parseReport(reportId, clientText);
+            if (!parseResult.success) {
+              console.log('⚠️ Parsing after client PDF.js had issues:', parseResult.error);
+              try {
+                const { EnhancedCreditParserV2 } = await import('./EnhancedCreditParserV2');
+                await EnhancedCreditParserV2.parseReport(reportId);
+                console.log('✅ EnhancedCreditParserV2 completed after client PDF.js');
+              } catch (e) {
+                console.error('❌ EnhancedCreditParserV2 failed after client PDF.js:', e);
+              }
+            }
+
+            const finalValidation = await this.validateParsedData(reportId);
+            if (!finalValidation.hasValidData) {
+              throw new Error('No structured data parsed even after client-side extraction.');
+            }
+
+            console.log('✅ Completed processing via client-side fallback.');
+            return; // Stop further processing path
+          } catch (clientFallbackErr) {
+            console.error('❌ Client-side PDF.js fallback failed:', clientFallbackErr);
+            // If we still have some text from the function, proceed with parsing using it
+            if (textFromFunction && textFromFunction.length > 500) {
+              console.log('ℹ️ Proceeding with parsing using function-returned text despite failed DB validation');
+            } else {
+              throw new Error('Text validation failed and no alternative extraction results available.');
+            }
           }
         }
       }

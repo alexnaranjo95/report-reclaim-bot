@@ -93,7 +93,7 @@ export class PDFParsingService {
         throw new Error('No file path found for this report');
       }
 
-      const { data: result, error } = await supabase.functions.invoke('textract-extract', {
+      const { data: result, error } = await supabase.functions.invoke('docsumo-extract', {
         body: { 
           reportId,
           filePath: report.file_path 

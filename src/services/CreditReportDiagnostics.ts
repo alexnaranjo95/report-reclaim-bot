@@ -16,8 +16,8 @@ export class CreditReportDiagnostics {
       // Phase 1: File upload and storage verification
       await this.checkFileStorage(reportId);
       
-      // Phase 2: Adobe PDF processing investigation
-      await this.checkAdobeProcessing(reportId);
+      // Phase 2: Extraction function availability check (Docsumo)
+      await this.checkExtractionFunction(reportId);
       
       // Phase 3: Database operations analysis
       await this.checkDatabaseOperations(reportId);
@@ -103,11 +103,10 @@ export class CreditReportDiagnostics {
   }
 
   /**
-   * Phase 2: Adobe PDF processing investigation
+   * Phase 2: Extraction function availability (Docsumo)
    */
-  static async checkAdobeProcessing(reportId: string): Promise<void> {
-    console.log('🤖 Phase 2: Adobe PDF Processing Investigation');
-    
+  static async checkExtractionFunction(reportId: string): Promise<void> {
+    console.log('🤖 Phase 2: Docsumo Extraction Function Check');
     try {
       const { data: report } = await supabase
         .from('credit_reports')
@@ -119,41 +118,20 @@ export class CreditReportDiagnostics {
         extraction_status: report.extraction_status,
         processing_errors: report.processing_errors,
         last_updated: report.updated_at,
-        stuck_duration: new Date().getTime() - new Date(report.updated_at).getTime()
       });
 
-      // Test Adobe edge function availability
-      console.log('🔍 Testing Adobe edge function...');
+      // Test Docsumo edge function availability
+      console.log('🔍 Testing docsumo-extract edge function...');
       try {
-        const testResponse = await supabase.functions.invoke('adobe-pdf-extract', {
-          body: { test: true }
+        const testResponse = await supabase.functions.invoke('docsumo-extract', {
+          body: { test: true, reportId: reportId, filePath: report.file_path }
         });
-        
-        console.log('📡 Adobe function response:', testResponse);
-        
-        if (testResponse.error) {
-          console.error('❌ Adobe function error:', testResponse.error);
-        } else {
-          console.log('✅ Adobe function is accessible');
-        }
-      } catch (adobeError) {
-        console.error('❌ Adobe function test failed:', adobeError);
+        console.log('📡 Docsumo function response (test):', testResponse.error ? testResponse.error : 'OK');
+      } catch (fnError) {
+        console.error('❌ Docsumo function test failed:', fnError);
       }
-
-      // If stuck in processing, show detailed timing
-      if (report.extraction_status === 'processing') {
-        const stuckTime = new Date().getTime() - new Date(report.updated_at).getTime();
-        const stuckMinutes = Math.floor(stuckTime / (1000 * 60));
-        
-        console.warn(`⚠️ Report stuck in processing for ${stuckMinutes} minutes`);
-        
-        if (stuckMinutes > 5) {
-          console.error('🚨 Processing timeout detected - system likely hung');
-        }
-      }
-
     } catch (error) {
-      console.error('❌ Adobe processing check failed:', error);
+      console.error('❌ Extraction function check failed:', error);
     }
   }
 

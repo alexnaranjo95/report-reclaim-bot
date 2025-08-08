@@ -42,32 +42,26 @@ export class PDFExtractionService {
     try {
       console.log('🚀 Starting parallel PDF extraction with consolidation...');
       
-      // Call the enhanced textract-extract edge function
+      // Call the Docsumo extraction edge function
       let result = null;
       let extractError = null;
       
       for (let attempt = 1; attempt <= 3; attempt++) {
-        console.log(`📤 Attempt ${attempt} to call parallel textract-extract function...`);
-        
-        const response = await supabase.functions.invoke('textract-extract', {
+        console.log(`📤 Attempt ${attempt} to call docsumo-extract function...`);
+        const response = await supabase.functions.invoke('docsumo-extract', {
           body: {
             reportId,
             filePath: report.file_path,
           },
         });
-        
         extractError = response.error;
         result = response.data;
-        
         if (!extractError && result?.success) {
-          console.log(`✅ Parallel extraction successful on attempt ${attempt}`);
+          console.log(`✅ Extraction successful on attempt ${attempt}`);
           console.log(`📊 Results: Primary method: ${result.primaryMethod}, Confidence: ${result.consolidationConfidence}`);
-          console.log(`📊 All methods: ${result.extractionResults?.map((r: any) => `${r.method}(${r.confidence})`).join(', ')}`);
           break;
         }
-        
         console.log(`⚠️ Attempt ${attempt} failed:`, extractError?.message || result?.error);
-        
         if (attempt < 3) {
           console.log(`⏳ Waiting 2 seconds before retry...`);
           await new Promise(resolve => setTimeout(resolve, 2000));

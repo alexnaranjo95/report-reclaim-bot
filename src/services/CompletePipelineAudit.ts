@@ -298,7 +298,7 @@ export class CompletePipelineAudit {
     auditResults: AuditResult[];
   }> {
     try {
-      // First, trigger the Adobe processing
+      // Fetch file path
       const { data: report } = await supabase
         .from('credit_reports')
         .select('file_path')
@@ -309,17 +309,17 @@ export class CompletePipelineAudit {
         throw new Error('No file path found for report');
       }
 
-      // Reset status and trigger extraction
+      // Reset status and trigger extraction via Docsumo
       await supabase
         .from('credit_reports')
         .update({ 
           extraction_status: 'processing',
+          consolidation_status: 'processing',
           updated_at: new Date().toISOString()
         })
         .eq('id', reportId);
 
-      // Call Adobe extraction
-      const { data: processingResult, error } = await supabase.functions.invoke('adobe-pdf-extract', {
+      const { data: processingResult, error } = await supabase.functions.invoke('docsumo-extract', {
         body: { reportId, filePath: report.file_path }
       });
 
@@ -327,22 +327,16 @@ export class CompletePipelineAudit {
         throw new Error(`Processing failed: ${error.message}`);
       }
 
-      // Wait a moment for processing to complete
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Small wait for downstream updates
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
       // Run full audit
       const auditResults = await this.runFullAudit(reportId);
 
-      return {
-        processingResult,
-        auditResults
-      };
+      return { processingResult, auditResults };
     } catch (error) {
       const auditResults = await this.runFullAudit(reportId);
-      return {
-        processingResult: { error: error.message },
-        auditResults
-      };
+      return { processingResult: { error: error.message }, auditResults };
     }
   }
 }

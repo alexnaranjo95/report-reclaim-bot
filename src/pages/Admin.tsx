@@ -212,10 +212,12 @@ const Admin = () => {
         )}
 
         {/* AI Training Tab */}
-        {activeView === 'ai' && <>
-          <DataAIConfiguration />
-          <SmartCreditImport />
-        >}
+        {activeView === 'ai' && (
+          <>
+            <DataAIConfiguration />
+            <SmartCreditImport />
+          </>
+        )}
 
         {/* Settings Tab */}
         {activeView === 'settings' && <AdminSettings />}

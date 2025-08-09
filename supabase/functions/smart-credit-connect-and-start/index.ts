@@ -247,7 +247,7 @@ serve(async (req: Request) => {
       ];
       await supabaseAdmin.from("smart_credit_items").upsert(sampleData, { onConflict: "user_id,posted_at,amount,merchant,item_type,source" });
 
-      await supabaseAdmin.from("smart_credit_imports").update({ status: "done", rows: 2, finished_at: new Date().toISOString() }).eq("run_id", runId);
+      await supabaseAdmin.from("smart_credit_imports").update({ status: "done", total_rows: 2, finished_at: new Date().toISOString() }).eq("run_id", runId);
       await supabaseAdmin.from("smart_credit_import_events").insert({
         run_id: runId,
         type: "done",
@@ -294,11 +294,10 @@ serve(async (req: Request) => {
     }
 
     const browseHeaders: HeadersInit = { "Content-Type": "application/json", Authorization: `Bearer ${BROWSEAI_API_KEY}` };
-    if (BROWSEAI_WORKSPACE_ID) (browseHeaders as any)["x-browseai-workspace-id"] = BROWSEAI_WORKSPACE_ID;
+    if (BROWSEAI_WORKSPACE_ID) (browseHeaders as any)["X-Workspace-Id"] = BROWSEAI_WORKSPACE_ID;
 
     const taskPayload = {
-      robotId,
-      inputParameters: { smartCreditUsername: username, smartCreditPassword: password },
+      inputParameters: { username, password },
       tags: [`run:${runId}`],
     } as const;
 
@@ -310,14 +309,14 @@ serve(async (req: Request) => {
       message: "Dispatching BrowseAI task",
       progress: 5,
       metadata: {
-        url: "https://api.browse.ai/v2/tasks",
+        url: `https://api.browse.ai/v2/robots/${robotId}/tasks`,
         method: "POST",
-        headers: { authorization: "Bearer ****", ...(BROWSEAI_WORKSPACE_ID ? { "x-browseai-workspace-id": "***" } : {}) },
+        headers: { authorization: "Bearer ****", ...(BROWSEAI_WORKSPACE_ID ? { "X-Workspace-Id": "***" } : {}) },
         payloadKeys: ["username", "password"],
       },
     });
 
-    const resp = await fetch("https://api.browse.ai/v2/tasks", { method: "POST", headers: browseHeaders, body: JSON.stringify(taskPayload) });
+    const resp = await fetch(`https://api.browse.ai/v2/robots/${encodeURIComponent(String(robotId))}/tasks`, { method: "POST", headers: browseHeaders, body: JSON.stringify(taskPayload) });
     const taskResult = await resp.json().catch(() => ({}));
 
     // Emit response diagnostic (redacted)
@@ -354,6 +353,21 @@ serve(async (req: Request) => {
 
     const taskId: string | undefined = taskResult?.result?.id;
     const jobId: string | undefined = taskResult?.result?.jobId ?? taskResult?.result?.job?.id;
+
+    // Record browseai_runs with the same runId for 1:1 correlation
+    try {
+      const sanitizedInput = { username };
+      await supabaseAdmin.from("browseai_runs").insert({
+        id: runId,
+        user_id: auth.user.id,
+        robot_id: String(robotId),
+        task_id: taskId,
+        status: taskResult?.status || "queued",
+        input_params: sanitizedInput,
+      });
+    } catch (err) {
+      console.warn(`[${runId}] Failed to insert browseai_runs:`, err);
+    }
 
     await supabaseAdmin.from("smart_credit_imports").update({ status: "running", task_id: taskId, job_id: jobId }).eq("run_id", runId);
     await supabaseAdmin.from("smart_credit_import_events").insert({

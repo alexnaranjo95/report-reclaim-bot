@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { UploadZone } from './UploadZone';
+import { SmartCreditImportPanel } from './SmartCreditImportPanel';
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
@@ -807,17 +807,22 @@ export const Dashboard = () => {
               setProcessingProgress(0);
             }} /> : <>
                 {/* Upload Section */}
-                {!uploadedFile && !analysisComplete && <Card className="bg-gradient-card shadow-card animate-fade-in">
-                    <CardHeader>
-                      <CardTitle>Upload Your Credit Report</CardTitle>
-                      <CardDescription>
-                        Upload your monthly credit report PDF to begin Round {currentRound} analysis
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <UploadZone onFileUpload={handleFileUpload} />
-                    </CardContent>
-                  </Card>}
+{!uploadedFile && !analysisComplete && (
+  <div className="animate-fade-in">
+    <section
+      aria-label="Smart Credit Import"
+      className="space-y-3"
+      id="smart-credit-import-panel"
+      data-testid="smart-credit-import-panel"
+    >
+      <header>
+        <h2 className="text-xl font-semibold">Smart Credit</h2>
+        <p className="text-muted-foreground">Import and monitor live extraction from SmartCredit.</p>
+      </header>
+      <SmartCreditImportPanel />
+    </section>
+  </div>
+)}
               </>}
 
             {/* Analysis Section */}

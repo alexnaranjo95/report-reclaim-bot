@@ -1,6 +1,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient as createSupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { ulid } from "https://deno.land/x/ulid@v0.3.0/mod.ts";
 
 const baseCors = {
   "Access-Control-Allow-Origin": "*", // refined dynamically
@@ -93,6 +94,7 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...headers, "Content-Type": "application/json" } });
     }
 
+    const url = new URL(req.url);
     const body = (await req.json().catch(() => ({}))) as any;
     let robotId: string | undefined = body.robotId;
     const inputParameters: Record<string, unknown> = body.inputParameters || {};
@@ -113,7 +115,7 @@ serve(async (req: Request) => {
     // Load and decrypt Smart Credit credentials server-side
     const { data: cred } = await supabaseAdmin
       .from("smart_credit_credentials")
-      .select("username_enc, password_enc, iv")
+      .select("username_enc, password_enc, iv, iv_user, iv_pass")
       .eq("user_id", auth.user.id)
       .maybeSingle();
 
@@ -121,44 +123,76 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: "No credentials saved" }), { status: 400, headers: { ...headers, "Content-Type": "application/json" } });
     }
 
-    const [ivUserB64, ivPassB64] = String(cred.iv || "").split(":");
+    const combined = String((cred as any).iv || "");
+    const [ivUserLegacy, ivPassLegacy] = combined ? combined.split(":") : [undefined, undefined];
+    const ivUserB64 = (cred as any).iv_user || ivUserLegacy;
+    const ivPassB64 = (cred as any).iv_pass || ivPassLegacy;
     if (!ivUserB64 || !ivPassB64) {
       return new Response(JSON.stringify({ error: "Corrupt credentials" }), { status: 500, headers: { ...headers, "Content-Type": "application/json" } });
     }
 
     const key = await importKeyFromSecret();
-    const username = await decryptCipher(ivUserB64, cred.username_enc as string, key);
-    const password = await decryptCipher(ivPassB64, cred.password_enc as string, key);
+    const username = await decryptCipher(ivUserB64, (cred as any).username_enc as string, key);
+    const password = await decryptCipher(ivPassB64, (cred as any).password_enc as string, key);
 
-    // Create initial run row as the user (RLS will allow)
-    const { data: runInsert, error: runErr } = await supabaseAuth
-      .from("browseai_runs")
-      .insert({ user_id: auth.user.id, robot_id: robotId, status: "queued", input_params: redact(inputParameters) })
-      .select("id")
-      .single();
-
-    if (runErr || !runInsert) {
-      console.error("Failed to create run:", runErr);
-      return new Response(JSON.stringify({ error: "Failed to create run" }), { status: 500, headers: { ...headers, "Content-Type": "application/json" } });
-    }
-    const runId = runInsert.id as string;
-
-    // Register in smart_credit_imports for tracking
+    // Generate ULID runId and register in smart_credit_imports (service role bypasses RLS)
+    const runId = ulid();
     await supabaseAdmin
       .from("smart_credit_imports")
-      .insert({ user_id: auth.user.id, run_id: runId, status: "queued", total_rows: 0 })
+      .insert({ user_id: auth.user.id, run_id: runId, status: "starting", total_rows: 0, started_at: new Date().toISOString() })
       .select("id")
       .maybeSingle();
 
-    // Log init event (existing stream uses events)
-    await supabaseAuth.from("smart_credit_import_events").insert({
+    // Emit init event
+    await supabaseAdmin.from("smart_credit_import_events").insert({
       run_id: runId,
-      type: "init",
-      step: "initialize",
+      type: "status",
+      step: "starting",
       message: "Starting Smart Credit import",
       progress: 0,
       metrics: {},
     });
+
+    // Dry-run simulation path
+    const dryRun = url.searchParams.get("dryRun");
+    if (dryRun === "1" || dryRun === "true") {
+      await supabaseAdmin.from("smart_credit_imports").update({ status: "running" }).eq("run_id", runId);
+      await supabaseAdmin.from("smart_credit_import_events").insert({
+        run_id: runId,
+        type: "status",
+        step: "running",
+        message: "Dry-run: simulating data",
+        progress: 25,
+      });
+
+      const nowIso = new Date().toISOString();
+      const sample = [
+        { posted_at: nowIso, amount: 42.5, merchant: "DryRun Utilities", item_type: "utility", source: "simulation", payload: { note: "sample 1" } },
+        { posted_at: nowIso, amount: 19.99, merchant: "DryRun Subscription", item_type: "subscription", source: "simulation", payload: { note: "sample 2" } },
+      ];
+
+      await supabaseAdmin.from("smart_credit_items").upsert([
+        { user_id: auth.user.id, run_id: runId, list_key: "dryRun", item_index: 0, ...sample[0] },
+        { user_id: auth.user.id, run_id: runId, list_key: "dryRun", item_index: 1, ...sample[1] },
+      ]);
+
+      await supabaseAdmin
+        .from("smart_credit_imports")
+        .update({ status: "done", rows: 2, finished_at: new Date().toISOString() })
+        .eq("run_id", runId);
+
+      await supabaseAdmin.from("smart_credit_import_events").insert({
+        run_id: runId,
+        type: "status",
+        step: "done",
+        message: "Dry-run complete",
+        progress: 100,
+        metrics: { rows: 2 },
+      });
+
+      const hdrs = new Headers({ ...headers, "Content-Type": "application/json", "x-run-id": runId });
+      return new Response(JSON.stringify({ ok: true, runId, simulatedRows: 2 }), { status: 201, headers: hdrs });
+    }
 
     // Trigger Browse.ai task, inject credentials into inputParameters (server-side only)
     const browseHeaders: HeadersInit = {
@@ -170,7 +204,7 @@ serve(async (req: Request) => {
     const payload = {
       robotId,
       inputParameters: { ...inputParameters, smartCreditUsername: username, smartCreditPassword: password },
-      tags,
+      tags: Array.isArray(tags) ? [...tags, `run:${runId}`] : [`run:${runId}`],
     };
 
     const resp = await fetch("https://api.browse.ai/v2/tasks", {
@@ -182,40 +216,43 @@ serve(async (req: Request) => {
     const bodyJson = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       console.error("Browse.ai task creation failed:", resp.status, bodyJson?.message || bodyJson);
-      await supabaseAdmin.from("browseai_runs").update({ status: "failed", error: `Create task failed: ${resp.status}` }).eq("id", runId);
+      const status = resp.status;
+      let code = "UPSTREAM_UNAVAILABLE";
+      if (status === 401 || status === 403) code = "AUTH_BAD_KEY";
+      else if (status === 404) code = "ROBOT_NOT_FOUND";
+      else if (status >= 500) code = "UPSTREAM_UNAVAILABLE";
+
       await supabaseAdmin.from("smart_credit_imports").update({ status: "failed" }).eq("run_id", runId);
-      await supabaseAuth.from("smart_credit_import_events").insert({
+      await supabaseAdmin.from("smart_credit_import_events").insert({
         run_id: runId,
         type: "error",
         step: "create_task",
-        message: bodyJson?.messageCode || "Failed to create task",
+        message: String(bodyJson?.message || bodyJson?.messageCode || code),
         progress: 0,
+        metrics: { status },
       });
-      return new Response(JSON.stringify({ error: "Browse.ai create task failed", runId }), { status: 502, headers: { ...headers, "Content-Type": "application/json" } });
+      const hdrs = new Headers({ ...headers, "Content-Type": "application/json", "x-run-id": runId });
+      return new Response(JSON.stringify({ ok: false, code, detail: bodyJson?.message || bodyJson }), { status: 502, headers: hdrs });
     }
 
     const taskId = bodyJson?.result?.id as string | undefined;
 
     await supabaseAdmin
-      .from("browseai_runs")
-      .update({ task_id: taskId ?? null, status: bodyJson?.result?.status ?? "in-progress" })
-      .eq("id", runId);
-
-    await supabaseAdmin
       .from("smart_credit_imports")
-      .update({ task_id: taskId ?? null, status: bodyJson?.result?.status ?? "in-progress" })
+      .update({ task_id: taskId ?? null, status: "running" })
       .eq("run_id", runId);
 
-    await supabaseAuth.from("smart_credit_import_events").insert({
+    await supabaseAdmin.from("smart_credit_import_events").insert({
       run_id: runId,
-      type: "step",
-      step: "start",
+      type: "status",
+      step: "running",
       message: "Browse.ai task started",
-      progress: 5,
+      progress: 10,
       metrics: {},
     });
 
-    return new Response(JSON.stringify({ runId, taskId }), { status: 200, headers: { ...headers, "Content-Type": "application/json" } });
+    const hdrs = new Headers({ ...headers, "Content-Type": "application/json", "x-run-id": runId });
+    return new Response(JSON.stringify({ ok: true, runId }), { status: 201, headers: hdrs });
   } catch (e: any) {
     console.error("smart-credit-import-start error:", e);
     return new Response(JSON.stringify({ error: "Internal error" }), { status: 500, headers: { ...headers, "Content-Type": "application/json" } });

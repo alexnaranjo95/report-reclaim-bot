@@ -1680,6 +1680,8 @@ export type Database = {
         Row: {
           created_at: string
           iv: string
+          iv_pass: string | null
+          iv_user: string | null
           key_version: number
           password_enc: string
           updated_at: string
@@ -1689,6 +1691,8 @@ export type Database = {
         Insert: {
           created_at?: string
           iv: string
+          iv_pass?: string | null
+          iv_user?: string | null
           key_version?: number
           password_enc: string
           updated_at?: string
@@ -1698,6 +1702,8 @@ export type Database = {
         Update: {
           created_at?: string
           iv?: string
+          iv_pass?: string | null
+          iv_user?: string | null
           key_version?: number
           password_enc?: string
           updated_at?: string
@@ -1800,9 +1806,12 @@ export type Database = {
       smart_credit_imports: {
         Row: {
           created_at: string
+          finished_at: string | null
           id: string
+          rows: number
           run_id: string
           runtime_sec: number | null
+          started_at: string
           status: string
           task_id: string | null
           total_rows: number
@@ -1811,9 +1820,12 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          finished_at?: string | null
           id?: string
+          rows?: number
           run_id: string
           runtime_sec?: number | null
+          started_at?: string
           status?: string
           task_id?: string | null
           total_rows?: number
@@ -1822,9 +1834,12 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          finished_at?: string | null
           id?: string
+          rows?: number
           run_id?: string
           runtime_sec?: number | null
+          started_at?: string
           status?: string
           task_id?: string | null
           total_rows?: number
@@ -1843,30 +1858,45 @@ export type Database = {
       }
       smart_credit_items: {
         Row: {
+          amount: number | null
           created_at: string
           id: number
           item_index: number
+          item_type: string | null
           list_key: string | null
+          merchant: string | null
           payload: Json
+          posted_at: string
           run_id: string
+          source: string | null
           user_id: string
         }
         Insert: {
+          amount?: number | null
           created_at?: string
           id?: number
           item_index: number
+          item_type?: string | null
           list_key?: string | null
+          merchant?: string | null
           payload?: Json
+          posted_at?: string
           run_id: string
+          source?: string | null
           user_id: string
         }
         Update: {
+          amount?: number | null
           created_at?: string
           id?: number
           item_index?: number
+          item_type?: string | null
           list_key?: string | null
+          merchant?: string | null
           payload?: Json
+          posted_at?: string
           run_id?: string
+          source?: string | null
           user_id?: string
         }
         Relationships: [

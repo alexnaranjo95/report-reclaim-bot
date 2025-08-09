@@ -103,7 +103,7 @@ serve(async (req: Request) => {
     const BROWSEAI_API_KEY = Deno.env.get("BROWSEAI_API_KEY");
     const BROWSEAI_WORKSPACE_ID = Deno.env.get("BROWSEAI_WORKSPACE_ID") || undefined;
 
-    if (!SMART_CREDIT_KMS_KEY || !APP_ALLOWED_ORIGINS) {
+    if (!SMART_CREDIT_KMS_KEY || !APP_ALLOWED_ORIGINS || !BROWSEAI_API_KEY) {
       return new Response(
         JSON.stringify({ ok: false, code: "E_CONFIG_MISSING", detail: "Server configuration incomplete" }),
         { status: 503, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },

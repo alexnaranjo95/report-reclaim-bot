@@ -1,85 +1,212 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Play } from "lucide-react";
+import { Play, AlertCircle, CheckCircle2 } from "lucide-react";
+
+interface SmartCreditResponse {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  savedAt?: string;
+  runId?: string;
+  simulatedRows?: number;
+}
+
+const ERROR_MESSAGES: Record<string, string> = {
+  E_AUTH_REQUIRED: "Please log in to continue",
+  E_SCHEMA_INVALID: "Please check your username and password format",
+  E_KMS_KEY: "Server encryption error - please try again",
+  E_DB_UPSERT: "Failed to save credentials - please retry",
+  E_CORS: "Access denied from this domain",
+  E_CONFIG_MISSING: "Server configuration incomplete - contact support",
+  E_NO_CREDENTIALS: "Please save your credentials first",
+  E_NO_ROBOT_ID: "Import service not configured - contact support",
+  E_AUTH_BAD_KEY: "Invalid API configuration - contact support",
+  E_ROBOT_NOT_FOUND: "Import robot not found - contact support",
+  E_UPSTREAM_UNAVAILABLE: "Import service temporarily unavailable",
+};
 
 export const SmartCreditLoginForm: React.FC = () => {
   const { toast } = useToast();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-  const formRef = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const canSubmit = email.trim() !== "" && password.trim() !== "" && !isSubmitting;
+  // Clear previous state on new attempts
+  const clearState = useCallback(() => {
+    setError(null);
+    setSuccessMessage(null);
+  }, []);
 
-  const onSubmit = async () => {
-    // Inline validation
-    const nextErrors: { email?: string; password?: string } = {};
-    if (!email.trim()) nextErrors.email = "Username is required";
-    if (!password.trim()) nextErrors.password = "Password is required";
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+  // Validation
+  const canSubmit = username.trim().length >= 3 && password.length >= 8 && !isConnecting && !isImporting;
 
-    setIsSubmitting(true);
+  const handleConnectAndImport = async () => {
+    clearState();
+    
+    // Validate inputs
+    if (username.trim().length < 3) {
+      setError("Username must be at least 3 characters");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
+      return;
+    }
+
+    setIsConnecting(true);
+
     try {
-      const { data, error } = await supabase.functions.invoke("browseai-credentials", {
-        body: { email, password },
-      });
+      console.log("Step 1: Saving credentials...");
+      
+      // Step 1: Save credentials
+      const { data: credData, error: credError } = await supabase.functions.invoke(
+        "integrations-smart-credit",
+        {
+          body: { username: username.trim(), password },
+        }
+      ) as { data: SmartCreditResponse; error: any };
 
-      if (error) {
-        // Do not log secrets; surface a safe inline error
-        setErrors({ password: "Failed to save credentials. Please verify and try again." });
+      if (credError || !credData?.ok) {
+        const errorCode = credData?.code || "UNKNOWN_ERROR";
+        const errorMsg = ERROR_MESSAGES[errorCode] || credData?.message || "Failed to save credentials";
+        setError(`Save failed: ${errorMsg}`);
         return;
       }
 
-      if ((data as any)?.success) {
-        setEmail("");
-        setPassword("");
-        setErrors({});
-        toast({ title: "Credentials saved" });
-        window.dispatchEvent(new CustomEvent("smart_credit_credentials_saved"));
-      } else {
-        setErrors({ password: "Unexpected response. Please try again." });
+      console.log("Step 1 complete: Credentials saved");
+      setSuccessMessage("Credentials saved successfully!");
+
+      // Step 2: Start import immediately
+      setIsConnecting(false);
+      setIsImporting(true);
+      
+      console.log("Step 2: Starting import...");
+      
+      const { data: importData, error: importError } = await supabase.functions.invoke(
+        "smart-credit-import-start",
+        { body: {} }
+      ) as { data: SmartCreditResponse; error: any };
+
+      if (importError || !importData?.ok) {
+        const errorCode = importData?.code || "UNKNOWN_ERROR";
+        const errorMsg = ERROR_MESSAGES[errorCode] || importData?.message || "Failed to start import";
+        setError(`Import failed: ${errorMsg}`);
+        return;
       }
+
+      console.log("Step 2 complete: Import started with runId:", importData.runId);
+      
+      // Clear form and show success
+      setUsername("");
+      setPassword("");
+      setSuccessMessage(`Import started successfully! Run ID: ${importData.runId}`);
+      
+      toast({
+        title: "Import Started",
+        description: `Smart Credit import is now running (${importData.runId})`,
+      });
+
+      // Trigger custom event for monitoring components
+      window.dispatchEvent(new CustomEvent("smart_credit_import_started", {
+        detail: { runId: importData.runId, simulatedRows: importData.simulatedRows }
+      }));
+
+    } catch (e: any) {
+      console.error("Connection error:", e);
+      setError(`Connection error: ${e.message || "Unknown error"}`);
     } finally {
-      setIsSubmitting(false);
+      setIsConnecting(false);
+      setIsImporting(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    clearState();
+    setIsImporting(true);
+
+    try {
+      console.log("Retrying import with stored credentials...");
+      
+      const { data: importData, error: importError } = await supabase.functions.invoke(
+        "smart-credit-import-start",
+        { body: {} }
+      ) as { data: SmartCreditResponse; error: any };
+
+      if (importError || !importData?.ok) {
+        const errorCode = importData?.code || "UNKNOWN_ERROR";
+        const errorMsg = ERROR_MESSAGES[errorCode] || importData?.message || "Failed to start import";
+        setError(`Retry failed: ${errorMsg}`);
+        return;
+      }
+
+      setSuccessMessage(`Import restarted successfully! Run ID: ${importData.runId}`);
+      
+      toast({
+        title: "Import Restarted",
+        description: `Smart Credit import is now running (${importData.runId})`,
+      });
+
+      window.dispatchEvent(new CustomEvent("smart_credit_import_started", {
+        detail: { runId: importData.runId }
+      }));
+
+    } catch (e: any) {
+      console.error("Retry error:", e);
+      setError(`Retry error: ${e.message || "Unknown error"}`);
+    } finally {
+      setIsImporting(false);
     }
   };
 
   return (
-    <Card ref={formRef} className="bg-card" id="smart-credit-form" data-testid="smart-credit-form" aria-labelledby="smart-credit-form-title" aria-describedby="smart-credit-form-desc">
+    <Card className="bg-card" data-testid="smart-credit-form">
       <CardHeader>
-        <CardTitle id="smart-credit-form-title" className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2">
           <Play className="h-5 w-5 text-primary" />
-          Smart Credit
+          Smart Credit Import
         </CardTitle>
-        <CardDescription id="smart-credit-form-desc">Connect your SmartCredit account to enable automatic imports.</CardDescription>
+        <CardDescription>
+          Connect your SmartCredit account to enable automatic financial data imports.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {successMessage && (
+          <Alert>
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertDescription>{successMessage}</AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="sc-username">Username</Label>
+            <Label htmlFor="sc-username">Username / Email</Label>
             <Input
               id="sc-username"
               type="text"
               autoComplete="username"
-              aria-label="SmartCredit username"
-              aria-invalid={!!errors.email}
-              aria-describedby={errors.email ? 'sc-username-error' : undefined}
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={isConnecting || isImporting}
               required
             />
-            {errors.email && (
-              <p id="sc-username-error" className="text-destructive text-xs mt-1">{errors.email}</p>
-            )}
           </div>
           <div>
             <Label htmlFor="sc-password">Password</Label>
@@ -88,12 +215,10 @@ export const SmartCreditLoginForm: React.FC = () => {
                 id="sc-password"
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
-                aria-label="SmartCredit password"
-                aria-invalid={!!errors.password}
-                aria-describedby={errors.password ? 'sc-password-error' : undefined}
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={isConnecting || isImporting}
                 required
               />
               <Button
@@ -101,25 +226,39 @@ export const SmartCreditLoginForm: React.FC = () => {
                 variant="ghost"
                 size="sm"
                 className="absolute right-1 top-1/2 -translate-y-1/2"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                onClick={() => setShowPassword((v) => !v)}
+                onClick={() => setShowPassword(!showPassword)}
+                disabled={isConnecting || isImporting}
               >
                 {showPassword ? 'Hide' : 'Show'}
               </Button>
             </div>
-            {errors.password && (
-              <p id="sc-password-error" className="text-destructive text-xs mt-1">{errors.password}</p>
-            )}
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <Button onClick={onSubmit} disabled={!canSubmit || isSubmitting} aria-label="Connect SmartCredit account">
-            {isSubmitting ? 'Connecting…' : 'Connect'}
+          <Button 
+            onClick={handleConnectAndImport}
+            disabled={!canSubmit}
+            data-testid="start-import-btn"
+            className="min-w-[140px]"
+          >
+            {isConnecting ? 'Saving...' : isImporting ? 'Starting...' : 'Connect & Import'}
           </Button>
-          <p className="text-xs text-muted-foreground">
-            We never log your credentials. Transmission is secured over HTTPS.
-          </p>
+          
+          <Button 
+            variant="outline"
+            onClick={handleRetry}
+            disabled={isImporting || isConnecting}
+            className="min-w-[80px]"
+          >
+            {isImporting ? 'Starting...' : 'Retry'}
+          </Button>
+        </div>
+
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>• Credentials are encrypted and never logged</p>
+          <p>• Import automatically starts after successful connection</p>
+          <p>• Use "Retry" to start import with previously saved credentials</p>
         </div>
       </CardContent>
     </Card>

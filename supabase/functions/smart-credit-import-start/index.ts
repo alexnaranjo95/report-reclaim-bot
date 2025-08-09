@@ -1,11 +1,10 @@
-
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient as createSupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ulid } from "https://deno.land/x/ulid@v0.3.0/mod.ts";
 
-const baseCors = {
-  "Access-Control-Allow-Origin": "*", // refined dynamically
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-csrf-token",
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -13,37 +12,32 @@ function parseAllowedOrigins() {
   const v = Deno.env.get("APP_ALLOWED_ORIGINS") || "";
   return v.split(",").map(s => s.trim()).filter(Boolean);
 }
-function checkOrigin(req: Request, headers: Headers): boolean {
+
+function setCors(req: Request, headers: Headers) {
   const allowed = parseAllowedOrigins();
   const origin = req.headers.get("Origin");
   if (!allowed.length) {
     headers.set("Access-Control-Allow-Origin", "*");
-    return true;
-  }
-  if (origin && allowed.includes(origin)) {
+  } else if (origin && allowed.includes(origin)) {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Vary", "Origin");
-    return true;
   }
-  return false;
 }
-function requireCsrf(req: Request) {
-  const token = req.headers.get("x-csrf-token");
-  return !!(token && token.length >= 8);
-}
+
 function decodeB64(b64: string): Uint8Array {
   const binStr = atob(b64);
   const bytes = new Uint8Array(binStr.length);
   for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
   return bytes;
 }
+
 async function importKeyFromSecret(): Promise<CryptoKey> {
   const b64 = Deno.env.get("SMART_CREDIT_KMS_KEY");
   if (!b64) throw new Error("Missing SMART_CREDIT_KMS_KEY");
   const raw = decodeB64(b64);
-  if (raw.byteLength !== 32) throw new Error("SMART_CREDIT_KMS_KEY must be 32 bytes (base64-encoded)");
   return crypto.subtle.importKey("raw", raw, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
 }
+
 async function decryptCipher(ivB64: string, ctB64: string, key: CryptoKey) {
   const iv = decodeB64(ivB64);
   const ct = decodeB64(ctB64);
@@ -51,210 +45,283 @@ async function decryptCipher(ivB64: string, ctB64: string, key: CryptoKey) {
   return new TextDecoder().decode(pt);
 }
 
-function redact(obj: Record<string, unknown>) {
-  const clone: Record<string, unknown> = { ...obj };
-  for (const k of Object.keys(clone)) {
-    if (k.toLowerCase().includes("password") || k.toLowerCase().includes("pass")) {
-      clone[k] = "******";
-    }
-  }
-  return clone;
-}
-
 serve(async (req: Request) => {
-  const headers = new Headers(baseCors);
+  const headers = new Headers(corsHeaders);
+  setCors(req, headers);
+
   if (req.method === "OPTIONS") {
-    checkOrigin(req, headers);
     return new Response(null, { headers });
   }
-  if (!checkOrigin(req, headers)) {
-    return new Response(JSON.stringify({ error: "Origin not allowed" }), { status: 403, headers: { ...headers, "Content-Type": "application/json" } });
-  }
+
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: { ...headers, "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({ ok: false, code: "E_METHOD_NOT_ALLOWED", detail: "Only POST requests allowed" }),
+      { status: 405, headers: { ...headers, "Content-Type": "application/json" } }
+    );
   }
-  if (!requireCsrf(req)) {
-    return new Response(JSON.stringify({ error: "Missing CSRF header" }), { status: 400, headers: { ...headers, "Content-Type": "application/json" } });
-  }
-
-  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-  const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-  const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const BROWSEAI_API_KEY = Deno.env.get("BROWSEAI_API_KEY")!;
-  const BROWSEAI_WORKSPACE_ID = Deno.env.get("BROWSEAI_WORKSPACE_ID");
-
-  const supabaseAuth = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
-  });
-  const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    const { data: auth } = await supabaseAuth.auth.getUser();
-    if (!auth?.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...headers, "Content-Type": "application/json" } });
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const BROWSEAI_API_KEY = Deno.env.get("BROWSEAI_API_KEY")!;
+    const BROWSEAI_WORKSPACE_ID = Deno.env.get("BROWSEAI_WORKSPACE_ID");
+
+    // Auth check
+    const supabaseAuth = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+    });
+
+    const { data: auth, error: authError } = await supabaseAuth.auth.getUser();
+    if (authError || !auth?.user) {
+      return new Response(
+        JSON.stringify({ ok: false, code: "E_AUTH_REQUIRED", detail: "Authentication required" }),
+        { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+      );
     }
 
     const url = new URL(req.url);
-    const body = (await req.json().catch(() => ({}))) as any;
-    let robotId: string | undefined = body.robotId;
-    const inputParameters: Record<string, unknown> = body.inputParameters || {};
-    const tags: string[] | undefined = body.tags;
+    const dryRun = url.searchParams.get("dryRun") === "1";
+    const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    if (!robotId) {
-      const { data } = await supabaseAdmin
-        .from("admin_settings")
-        .select("setting_key, setting_value")
-        .eq("setting_key", "browseai.robot_id")
-        .maybeSingle();
-      robotId = (data?.setting_value as any)?.value ?? (typeof data?.setting_value === "string" ? (data?.setting_value as string) : undefined);
-    }
-    if (!robotId) {
-      return new Response(JSON.stringify({ error: "Missing robotId" }), { status: 400, headers: { ...headers, "Content-Type": "application/json" } });
-    }
-
-    // Load and decrypt Smart Credit credentials server-side
-    const { data: cred } = await supabaseAdmin
-      .from("smart_credit_credentials")
-      .select("username_enc, password_enc, iv, iv_user, iv_pass")
-      .eq("user_id", auth.user.id)
-      .maybeSingle();
-
-    if (!cred) {
-      return new Response(JSON.stringify({ error: "No credentials saved" }), { status: 400, headers: { ...headers, "Content-Type": "application/json" } });
-    }
-
-    const combined = String((cred as any).iv || "");
-    const [ivUserLegacy, ivPassLegacy] = combined ? combined.split(":") : [undefined, undefined];
-    const ivUserB64 = (cred as any).iv_user || ivUserLegacy;
-    const ivPassB64 = (cred as any).iv_pass || ivPassLegacy;
-    if (!ivUserB64 || !ivPassB64) {
-      return new Response(JSON.stringify({ error: "Corrupt credentials" }), { status: 500, headers: { ...headers, "Content-Type": "application/json" } });
-    }
-
-    const key = await importKeyFromSecret();
-    const username = await decryptCipher(ivUserB64, (cred as any).username_enc as string, key);
-    const password = await decryptCipher(ivPassB64, (cred as any).password_enc as string, key);
-
-    // Generate ULID runId and register in smart_credit_imports (service role bypasses RLS)
+    // Generate runId and create import record first
     const runId = ulid();
-    await supabaseAdmin
+    console.log(`[${runId}] Starting Smart Credit import for user ${auth.user.id}, dryRun=${dryRun}`);
+
+    const { error: insertError } = await supabaseAdmin
       .from("smart_credit_imports")
-      .insert({ user_id: auth.user.id, run_id: runId, status: "starting", total_rows: 0, started_at: new Date().toISOString() })
-      .select("id")
-      .maybeSingle();
+      .insert({
+        user_id: auth.user.id,
+        run_id: runId,
+        status: "starting",
+        total_rows: 0,
+        started_at: new Date().toISOString(),
+      });
 
-    // Emit init event
-    await supabaseAdmin.from("smart_credit_import_events").insert({
-      run_id: runId,
-      type: "status",
-      step: "starting",
-      message: "Starting Smart Credit import",
-      progress: 0,
-      metrics: {},
-    });
+    if (insertError) {
+      console.error(`[${runId}] Failed to create import record:`, insertError);
+      return new Response(
+        JSON.stringify({ ok: false, code: "E_DB_INSERT", detail: "Failed to create import record" }),
+        { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+      );
+    }
 
-    // Dry-run simulation path
-    const dryRun = url.searchParams.get("dryRun");
-    if (dryRun === "1" || dryRun === "true") {
+    // Emit initial events
+    await supabaseAdmin.from("smart_credit_import_events").insert([
+      {
+        run_id: runId,
+        type: "init",
+        step: "starting",
+        message: "Import initialized",
+        progress: 0,
+        metadata: { dryRun },
+      },
+    ]);
+
+    // Handle dry run
+    if (dryRun) {
+      console.log(`[${runId}] Processing dry run`);
+      
       await supabaseAdmin.from("smart_credit_imports").update({ status: "running" }).eq("run_id", runId);
       await supabaseAdmin.from("smart_credit_import_events").insert({
         run_id: runId,
-        type: "status",
-        step: "running",
-        message: "Dry-run: simulating data",
-        progress: 25,
+        type: "step",
+        step: "simulating",
+        message: "Generating sample data",
+        progress: 50,
+        metadata: { phase: "simulation" },
       });
 
+      // Insert sample data
       const nowIso = new Date().toISOString();
-      const sample = [
-        { posted_at: nowIso, amount: 42.5, merchant: "DryRun Utilities", item_type: "utility", source: "simulation", payload: { note: "sample 1" } },
-        { posted_at: nowIso, amount: 19.99, merchant: "DryRun Subscription", item_type: "subscription", source: "simulation", payload: { note: "sample 2" } },
+      const sampleData = [
+        {
+          user_id: auth.user.id,
+          run_id: runId,
+          list_key: "dryRun",
+          item_index: 0,
+          posted_at: nowIso,
+          amount: 42.50,
+          merchant: "DryRun Utilities",
+          item_type: "utility",
+          source: "simulation",
+          payload: { note: "Sample transaction 1" },
+        },
+        {
+          user_id: auth.user.id,
+          run_id: runId,
+          list_key: "dryRun",
+          item_index: 1,
+          posted_at: nowIso,
+          amount: 19.99,
+          merchant: "DryRun Subscription",
+          item_type: "subscription",
+          source: "simulation",
+          payload: { note: "Sample transaction 2" },
+        },
       ];
 
-      await supabaseAdmin.from("smart_credit_items").upsert([
-        { user_id: auth.user.id, run_id: runId, list_key: "dryRun", item_index: 0, ...sample[0] },
-        { user_id: auth.user.id, run_id: runId, list_key: "dryRun", item_index: 1, ...sample[1] },
-      ]);
+      await supabaseAdmin.from("smart_credit_items").upsert(sampleData, {
+        onConflict: "user_id,posted_at,amount,merchant,item_type,source",
+      });
 
-      await supabaseAdmin
-        .from("smart_credit_imports")
+      // Complete dry run
+      await supabaseAdmin.from("smart_credit_imports")
         .update({ status: "done", rows: 2, finished_at: new Date().toISOString() })
         .eq("run_id", runId);
 
       await supabaseAdmin.from("smart_credit_import_events").insert({
         run_id: runId,
-        type: "status",
-        step: "done",
-        message: "Dry-run complete",
+        type: "done",
+        step: "completed",
+        message: "Dry run completed successfully",
         progress: 100,
-        metrics: { rows: 2 },
+        metadata: { rows: 2, simulatedRows: 2 },
       });
 
-      const hdrs = new Headers({ ...headers, "Content-Type": "application/json", "x-run-id": runId });
-      return new Response(JSON.stringify({ ok: true, runId, simulatedRows: 2 }), { status: 201, headers: hdrs });
+      console.log(`[${runId}] Dry run completed with 2 sample rows`);
+      
+      const responseHeaders = new Headers({ ...headers, "Content-Type": "application/json", "x-run-id": runId });
+      return new Response(
+        JSON.stringify({ ok: true, runId, simulatedRows: 2 }),
+        { status: 201, headers: responseHeaders }
+      );
     }
 
-    // Trigger Browse.ai task, inject credentials into inputParameters (server-side only)
+    // Real import: get credentials
+    const { data: cred } = await supabaseAdmin
+      .from("smart_credit_credentials")
+      .select("username_enc, password_enc, iv_user, iv_pass")
+      .eq("user_id", auth.user.id)
+      .maybeSingle();
+
+    if (!cred || !cred.iv_user || !cred.iv_pass) {
+      console.error(`[${runId}] No credentials found for user`);
+      await supabaseAdmin.from("smart_credit_imports").update({ status: "failed" }).eq("run_id", runId);
+      await supabaseAdmin.from("smart_credit_import_events").insert({
+        run_id: runId,
+        type: "error",
+        step: "credentials",
+        message: "No Smart Credit credentials found",
+        progress: 0,
+        metadata: { code: "E_NO_CREDENTIALS" },
+      });
+      return new Response(
+        JSON.stringify({ ok: false, code: "E_NO_CREDENTIALS", detail: "No Smart Credit credentials found" }),
+        { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Decrypt credentials
+    const key = await importKeyFromSecret();
+    const username = await decryptCipher(cred.iv_user, cred.username_enc, key);
+    const password = await decryptCipher(cred.iv_pass, cred.password_enc, key);
+
+    // Get robot ID
+    const { data: robotSetting } = await supabaseAdmin
+      .from("admin_settings")
+      .select("setting_value")
+      .eq("setting_key", "browseai.robot_id")
+      .maybeSingle();
+
+    const robotId = robotSetting?.setting_value?.value || robotSetting?.setting_value;
+    if (!robotId) {
+      console.error(`[${runId}] No robot ID configured`);
+      await supabaseAdmin.from("smart_credit_imports").update({ status: "failed" }).eq("run_id", runId);
+      await supabaseAdmin.from("smart_credit_import_events").insert({
+        run_id: runId,
+        type: "error",
+        step: "config",
+        message: "Robot ID not configured",
+        progress: 0,
+        metadata: { code: "E_NO_ROBOT_ID" },
+      });
+      return new Response(
+        JSON.stringify({ ok: false, code: "E_NO_ROBOT_ID", detail: "Robot ID not configured" }),
+        { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Start Browse.ai task
+    console.log(`[${runId}] Starting Browse.ai task with robot ${robotId}`);
+    
     const browseHeaders: HeadersInit = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${BROWSEAI_API_KEY}`,
     };
     if (BROWSEAI_WORKSPACE_ID) browseHeaders["x-browseai-workspace-id"] = BROWSEAI_WORKSPACE_ID;
 
-    const payload = {
+    const taskPayload = {
       robotId,
-      inputParameters: { ...inputParameters, smartCreditUsername: username, smartCreditPassword: password },
-      tags: Array.isArray(tags) ? [...tags, `run:${runId}`] : [`run:${runId}`],
+      inputParameters: {
+        smartCreditUsername: username,
+        smartCreditPassword: password,
+      },
+      tags: [`run:${runId}`],
     };
 
     const resp = await fetch("https://api.browse.ai/v2/tasks", {
       method: "POST",
       headers: browseHeaders,
-      body: JSON.stringify(payload),
+      body: JSON.stringify(taskPayload),
     });
 
-    const bodyJson = await resp.json().catch(() => ({}));
+    const taskResult = await resp.json().catch(() => ({}));
+
     if (!resp.ok) {
-      console.error("Browse.ai task creation failed:", resp.status, bodyJson?.message || bodyJson);
-      const status = resp.status;
-      let code = "UPSTREAM_UNAVAILABLE";
-      if (status === 401 || status === 403) code = "AUTH_BAD_KEY";
-      else if (status === 404) code = "ROBOT_NOT_FOUND";
-      else if (status >= 500) code = "UPSTREAM_UNAVAILABLE";
+      console.error(`[${runId}] Browse.ai task creation failed:`, resp.status, taskResult);
+      
+      let code = "E_UPSTREAM_ERROR";
+      if (resp.status === 401 || resp.status === 403) code = "E_AUTH_BAD_KEY";
+      else if (resp.status === 404) code = "E_ROBOT_NOT_FOUND";
+      else if (resp.status >= 500) code = "E_UPSTREAM_UNAVAILABLE";
 
       await supabaseAdmin.from("smart_credit_imports").update({ status: "failed" }).eq("run_id", runId);
       await supabaseAdmin.from("smart_credit_import_events").insert({
         run_id: runId,
         type: "error",
-        step: "create_task",
-        message: String(bodyJson?.message || bodyJson?.messageCode || code),
+        step: "task_creation",
+        message: taskResult?.message || `Browse.ai error: ${resp.status}`,
         progress: 0,
-        metrics: { status },
+        metadata: { code, status: resp.status },
       });
-      const hdrs = new Headers({ ...headers, "Content-Type": "application/json", "x-run-id": runId });
-      return new Response(JSON.stringify({ ok: false, code, detail: bodyJson?.message || bodyJson }), { status: 502, headers: hdrs });
+
+      return new Response(
+        JSON.stringify({ ok: false, code, detail: taskResult?.message || `Browse.ai error: ${resp.status}` }),
+        { status: 502, headers: { ...headers, "Content-Type": "application/json" } }
+      );
     }
 
-    const taskId = bodyJson?.result?.id as string | undefined;
+    const taskId = taskResult?.result?.id;
+    console.log(`[${runId}] Browse.ai task created: ${taskId}`);
 
-    await supabaseAdmin
-      .from("smart_credit_imports")
-      .update({ task_id: taskId ?? null, status: "running" })
+    // Update status to running
+    await supabaseAdmin.from("smart_credit_imports")
+      .update({ task_id: taskId, status: "running" })
       .eq("run_id", runId);
 
     await supabaseAdmin.from("smart_credit_import_events").insert({
       run_id: runId,
-      type: "status",
+      type: "step",
       step: "running",
-      message: "Browse.ai task started",
+      message: "Browse.ai task started successfully",
       progress: 10,
-      metrics: {},
+      metadata: { taskId },
     });
 
-    const hdrs = new Headers({ ...headers, "Content-Type": "application/json", "x-run-id": runId });
-    return new Response(JSON.stringify({ ok: true, runId }), { status: 201, headers: hdrs });
+    console.log(`[${runId}] Import started successfully`);
+    
+    const responseHeaders = new Headers({ ...headers, "Content-Type": "application/json", "x-run-id": runId });
+    return new Response(
+      JSON.stringify({ ok: true, runId }),
+      { status: 201, headers: responseHeaders }
+    );
+
   } catch (e: any) {
     console.error("smart-credit-import-start error:", e);
-    return new Response(JSON.stringify({ error: "Internal error" }), { status: 500, headers: { ...headers, "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({ ok: false, code: "E_INTERNAL", detail: "Internal server error" }),
+      { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+    );
   }
 });

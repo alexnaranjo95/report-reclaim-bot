@@ -151,7 +151,7 @@ serve(async (req: Request) => {
       user_id: auth.user.id,
       run_id: runId,
       status: "starting",
-      total_rows: 0,
+      rows: 0,
       started_at: new Date().toISOString(),
     });
     if (insertError) {
@@ -260,7 +260,7 @@ serve(async (req: Request) => {
       ];
       await supabaseAdmin.from("smart_credit_items").upsert(sampleData, { onConflict: "user_id,posted_at,amount,merchant,item_type,source" });
 
-      await supabaseAdmin.from("smart_credit_imports").update({ status: "done", total_rows: 2, finished_at: new Date().toISOString() }).eq("run_id", runId);
+      await supabaseAdmin.from("smart_credit_imports").update({ status: "done", rows: 2, finished_at: new Date().toISOString() }).eq("run_id", runId);
       await supabaseAdmin.from("smart_credit_import_events").insert({
         run_id: runId,
         type: "done",

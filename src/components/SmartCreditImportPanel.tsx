@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -34,6 +36,8 @@ export const SmartCreditImportPanel: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [usingPolling, setUsingPolling] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const lastTsRef = useRef<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -125,21 +129,34 @@ export const SmartCreditImportPanel: React.FC = () => {
     setProgress(0);
     setStep("Starting");
 
-    const { data, error } = await supabase.functions.invoke("smart-credit-import-start", { body: {} });
+    if (!username || !password) {
+      toast({ title: "Credentials required", description: "Enter SmartCredit username and password", variant: "destructive" });
+      setStep("Idle");
+      return;
+    }
+
+    const { data, error } = await supabase.functions.invoke("smart-credit-connect-and-start", { body: { username, password } });
     if (error) {
       toast({ title: "Failed to start", description: error.message, variant: "destructive" });
       setStep("Error");
       return;
     }
+    const ok = (data as any)?.ok !== false;
     const rid = (data as any)?.runId as string | undefined;
-    if (!rid) {
-      toast({ title: "Failed to start", description: "No runId returned", variant: "destructive" });
+    const taskId = (data as any)?.browseai?.taskId;
+    const jobId = (data as any)?.browseai?.jobId;
+    if (!ok || !rid) {
+      const code = (data as any)?.code || "E_UNKNOWN";
+      toast({ title: "Start failed", description: `Code: ${code}`, variant: "destructive" });
       setStep("Error");
       return;
     }
     setRunId(rid);
+    if (taskId || jobId) {
+      toast({ title: "Connected to BrowseAI", description: `task ${taskId || "—"}, job ${jobId || "—"}` });
+    }
     openStream(rid);
-  }, [openStream, toast]);
+  }, [openStream, password, toast, username]);
 
   const onRetry = useCallback(() => {
     onStart();
@@ -177,13 +194,13 @@ export const SmartCreditImportPanel: React.FC = () => {
   const showNoDataDiag = useMemo(() => progress > 80 && rowsCount === 0 && !doneEvent, [progress, rowsCount, doneEvent]);
 
   return (
-    <Card className="bg-gradient-card shadow-card" data-testid="smartcredit-import-panel">
+    <Card className="bg-gradient-card shadow-card" data-testid="smart-credit-import-panel">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span>Smart Credit Import Monitor</span>
           <div className="flex items-center gap-2">
-            <Button onClick={onStart} disabled={connecting} data-testid="start-import">
-              <Play className="h-4 w-4 mr-2" /> Start Import
+            <Button onClick={onStart} disabled={connecting} data-testid="connect-and-import-btn">
+              <Play className="h-4 w-4 mr-2" /> Connect & Import
             </Button>
             <Button variant="outline" onClick={onRetry} data-testid="retry-import">
               <RefreshCcw className="h-4 w-4 mr-2" /> Retry
@@ -198,6 +215,21 @@ export const SmartCreditImportPanel: React.FC = () => {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Credentials Form */}
+        <div className="rounded-md border p-3 space-y-3" data-testid="smart-credit-form">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="sc-username">SmartCredit Username</Label>
+              <Input id="sc-username" type="text" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="sc-password">Password</Label>
+              <Input id="sc-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+          </div>
+          <div className="text-xs text-muted-foreground">Credentials are sent securely to the server and never logged in the client.</div>
+        </div>
+
         {/* Progress */}
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">

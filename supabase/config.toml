@@ -21,3 +21,14 @@ verify_jwt = true
 [functions.smart-credit-connect-and-start]
 verify_jwt = true
 
+[functions.smart-credit-webhook]
+verify_jwt = false
+
+[functions.smart-credit-import-health]
+verify_jwt = true
+
+[functions.smart-credit-summary]
+verify_jwt = true
+
+[functions.smart-credit-items]
+verify_jwt = true

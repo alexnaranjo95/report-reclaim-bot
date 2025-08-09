@@ -57,9 +57,9 @@ serve(async (req: Request) => {
 
   // Verify access to run
   const { data: run, error: runErr } = await supabaseAuth
-    .from("browseai_runs")
-    .select("id")
-    .eq("id", runId)
+    .from("smart_credit_imports")
+    .select("run_id")
+    .eq("run_id", runId)
     .single();
 
   if (runErr || !run) {

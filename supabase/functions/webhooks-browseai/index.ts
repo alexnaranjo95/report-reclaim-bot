@@ -72,32 +72,60 @@ serve(async (req: Request) => {
       });
     }
 
-    // Snapshot any list data
-    let rowsImported = 0;
+    // Snapshot all captured lists and optionally land full rows (24h TTL)
+    let totalRowsImported = 0;
     try {
-      const firstListKey = Object.keys(capturedLists)[0];
-      const listItems: any[] = firstListKey ? capturedLists[firstListKey]?.items || [] : [];
-      rowsImported = Array.isArray(listItems) ? listItems.length : 0;
-      if (rowsImported > 0) {
-        await supabaseAdmin.from("smart_credit_import_events").insert({
-          run_id: runId,
-          type: "data:snapshot",
-          step: "data",
-          message: `Received ${rowsImported} rows`,
-          metrics: { rows: rowsImported },
-          sample: listItems.slice(0, 5),
-          payload: sanitizePayload({ key: firstListKey, count: rowsImported }),
-        });
+      const listKeys = Object.keys(capturedLists || {});
+      for (const key of listKeys) {
+        const items: any[] = Array.isArray(capturedLists[key]?.items)
+          ? capturedLists[key].items
+          : [];
+        const count = items.length;
+        totalRowsImported += count;
+
+        if (count > 0) {
+          // Per-list snapshot event
+          await supabaseAdmin.from("smart_credit_import_events").insert({
+            run_id: runId,
+            type: "data:snapshot",
+            step: `data:${key}`,
+            message: `Received ${count} rows in ${key}`,
+            metrics: { rows: count, list: key },
+            sample: items.slice(0, 5),
+            payload: sanitizePayload({ key, count }),
+          });
+
+          // Bulk land items into temporary rows table
+          const rows = items.map((item, idx) => ({
+            run_id: runId,
+            list_key: key,
+            item_index: idx,
+            item,
+          }));
+          // Insert in chunks to avoid payload limits
+          const chunkSize = 500;
+          for (let i = 0; i < rows.length; i += chunkSize) {
+            const batch = rows.slice(i, i + chunkSize);
+            const { error: insertErr } = await supabaseAdmin
+              .from("smart_credit_import_rows")
+              .insert(batch);
+            if (insertErr) console.warn("Failed to insert import rows batch:", insertErr);
+          }
+        }
       }
     } catch (e) {
-      console.warn("Failed to process snapshot:", e);
+      console.warn("Failed to process captured lists:", e);
     }
 
     // Update run row
     const runtimeSec = createdAtMs && finishedAtMs ? Math.max(0, Math.round((finishedAtMs - createdAtMs) / 1000)) : null;
     await supabaseAdmin
       .from("browseai_runs")
-      .update({ status: status ?? run.status, raw_result: sanitizePayload(body) })
+      .update({
+        status: status ?? run.status,
+        raw_result: sanitizePayload(body),
+        webhook_received_at: new Date().toISOString(),
+      })
       .eq("id", runId);
 
     if (status === "completed") {
@@ -107,7 +135,7 @@ serve(async (req: Request) => {
         step: "summary",
         message: "Import completed",
         progress: 100,
-        metrics: { rows: rowsImported, runtimeSec },
+        metrics: { rows: totalRowsImported, runtimeSec },
         payload: sanitizePayload(body?.result || body),
       });
     }

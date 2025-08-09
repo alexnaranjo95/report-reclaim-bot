@@ -1729,6 +1729,36 @@ export type Database = {
           },
         ]
       }
+      smart_credit_import_rows: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          item: Json
+          item_index: number | null
+          list_key: string
+          run_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          item: Json
+          item_index?: number | null
+          list_key: string
+          run_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          item?: Json
+          item_index?: number | null
+          list_key?: string
+          run_id?: string
+        }
+        Relationships: []
+      }
       template_layouts: {
         Row: {
           body_html: string | null
@@ -1849,6 +1879,10 @@ export type Database = {
     }
     Functions: {
       cleanup_expired_import_events: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      cleanup_expired_import_rows: {
         Args: Record<PropertyKey, never>
         Returns: undefined
       }

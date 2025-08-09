@@ -133,29 +133,53 @@ export const SmartCreditLoginForm: React.FC = () => {
     setIsImporting(true);
 
     try {
-      console.log("Retrying import with stored credentials...");
-      
-      const { data: importData, error: importError } = await supabase.functions.invoke(
-        "smart-credit-import-start",
+      // Retry using stored credentials via the unified function
+      const { data, error } = await supabase.functions.invoke(
+        "smart-credit-connect-and-start",
         { body: {} }
-      ) as { data: SmartCreditResponse; error: any };
+      ) as { data: any; error: any };
 
-      if (importError || !importData?.ok) {
-        const errorCode = importData?.code || "UNKNOWN_ERROR";
-        const errorMsg = ERROR_MESSAGES[errorCode] || importData?.message || "Failed to start import";
+      if (error || !data?.ok) {
+        const errorCode = data?.code || "UNKNOWN_ERROR";
+        const errorMsg = ERROR_MESSAGES[errorCode] || data?.detail || "Failed to start import";
         setError(`Retry failed: ${errorMsg}`);
         return;
       }
 
-      setSuccessMessage(`Import restarted successfully! Run ID: ${importData.runId}`);
-      
+      const runId = data.runId as string;
+      const taskId = data.browseai?.taskId as string | undefined;
+      const jobId = data.browseai?.jobId as string | undefined;
+
+      setSuccessMessage(`Import restarted (task ${taskId || "n/a"}${jobId ? ", job " + jobId : ""})`);
+
       toast({
         title: "Import Restarted",
-        description: `Smart Credit import is now running (${importData.runId})`,
+        description: `Smart Credit import is now running (${runId})`,
       });
 
+      // Live stream events as in the main start
+      try {
+        const accessToken = (await supabase.auth.getSession()).data.session?.access_token;
+        const streamUrl = new URL(`${"https://rcrpqdhfawtpjicttgvx.supabase.co"}/functions/v1/smart-credit-import-stream`);
+        streamUrl.searchParams.set("runId", runId);
+        if (accessToken) streamUrl.searchParams.set("access_token", accessToken);
+        const es = new EventSource(streamUrl.toString());
+        setIsStreaming(true);
+        es.onmessage = (ev) => {
+          try {
+            const evt = JSON.parse(ev.data);
+            if (evt?.type === "error") {
+              console.warn("Import error event:", evt);
+            }
+          } catch {}
+        };
+        es.onerror = () => {
+          es.close();
+        };
+      } catch {}
+
       window.dispatchEvent(new CustomEvent("smart_credit_import_started", {
-        detail: { runId: importData.runId }
+        detail: { runId, taskId, jobId }
       }));
 
     } catch (e: any) {

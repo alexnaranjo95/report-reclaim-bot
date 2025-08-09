@@ -53,25 +53,28 @@ async function encryptPlaintext(plaintext: string, key: CryptoKey) {
   return { ivB64: encodeB64(iv), ctB64: encodeB64(ct) };
 }
 
+function decryptCipher(ivB64: string, ctBytes: Uint8Array, key: CryptoKey): Promise<string> {
+  const iv = decodeB64(ivB64);
+  return crypto.subtle
+    .decrypt({ name: "AES-GCM", iv }, key, ctBytes)
+    .then((pt) => new TextDecoder().decode(new Uint8Array(pt)));
+}
+
 function validateBody(body: any): { username?: string; password?: string; errors: string[] } {
   const errors: string[] = [];
   let username: string | undefined;
   let password: string | undefined;
 
+  // Allow empty/missing body for stored-credentials retry flow
   if (!body || typeof body !== "object") {
-    errors.push("Invalid request body");
     return { errors };
   }
-  if (typeof body.username !== "string") {
-    errors.push("Username must be a string");
-  } else {
+  if (typeof body.username === "string") {
     username = body.username.trim();
     if (username.length < 3) errors.push("Username must be at least 3 characters");
     if (username.length > 128) errors.push("Username must not exceed 128 characters");
   }
-  if (typeof body.password !== "string") {
-    errors.push("Password must be a string");
-  } else {
+  if (typeof body.password === "string") {
     password = body.password;
     if (password.length < 8) errors.push("Password must be at least 8 characters");
     if (password.length > 256) errors.push("Password must not exceed 256 characters");
@@ -136,15 +139,20 @@ serve(async (req: Request) => {
     const url = new URL(req.url);
     const dryRun = url.searchParams.get("dryRun") === "1";
 
-    // Parse + validate
-    const body = await req.json().catch(() => null);
+    // Parse + validate (allow empty body for stored-credentials retry)
+    const body = await req.json().catch(() => ({}));
     const { username, password, errors } = validateBody(body);
-    if (errors.length > 0) {
+    const usingStored = !username || !password;
+    if (!usingStored && errors.length > 0) {
       return new Response(
         JSON.stringify({ ok: false, code: "E_SCHEMA_INVALID", detail: errors.join(", ") }),
         { status: 400, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
+
+    // Working vars for downstream usage
+    let usernameVal: string | undefined = username;
+    let passwordVal: string | undefined = password;
 
     const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     // Create import row first using the generated runId
@@ -173,7 +181,7 @@ serve(async (req: Request) => {
       metadata: { dryRun },
     });
 
-    // Save credentials (encrypt) atomically per user
+    // Credentials handling: save new creds or load stored creds
     let key: CryptoKey;
     try {
       key = await importKeyFromSecret();
@@ -193,54 +201,111 @@ serve(async (req: Request) => {
       );
     }
 
-    const userEnc = await encryptPlaintext(username!, key);
-    const passEnc = await encryptPlaintext(password!, key);
+    if (!usingStored) {
+      // Save provided credentials
+      const userEnc = await encryptPlaintext(usernameVal!, key);
+      const passEnc = await encryptPlaintext(passwordVal!, key);
 
-    const userCt = decodeB64(userEnc.ctB64);
-    const passCt = decodeB64(passEnc.ctB64);
-    const ivBytea = decodeB64(passEnc.ivB64);
+      const userCt = decodeB64(userEnc.ctB64);
+      const passCt = decodeB64(passEnc.ctB64);
+      const ivBytea = decodeB64(passEnc.ivB64);
 
-    const { error: upsertError } = await supabaseAdmin
-      .from("smart_credit_credentials")
-      .upsert(
-        {
-          user_id: auth.user.id,
-          username_enc: userCt,
-          password_enc: passCt,
-          iv: ivBytea,
-          iv_user: userEnc.ivB64,
-          iv_pass: passEnc.ivB64,
-          key_version: 1,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
-      );
+      const { error: upsertError } = await supabaseAdmin
+        .from("smart_credit_credentials")
+        .upsert(
+          {
+            user_id: auth.user.id,
+            username_enc: userCt,
+            password_enc: passCt,
+            iv: ivBytea,
+            iv_user: userEnc.ivB64,
+            iv_pass: passEnc.ivB64,
+            key_version: 1,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" },
+        );
 
-    if (upsertError) {
-      console.error(`[${runId}] Credential upsert error`, upsertError?.code);
-      await supabaseAdmin.from("smart_credit_imports").update({ status: "failed" }).eq("run_id", runId);
+      if (upsertError) {
+        console.error(`[${runId}] Credential upsert error`, upsertError?.code);
+        await supabaseAdmin.from("smart_credit_imports").update({ status: "failed" }).eq("run_id", runId);
+        await supabaseAdmin.from("smart_credit_import_events").insert({
+          run_id: runId,
+          type: "error",
+          step: "credentials",
+          message: "Failed to save credentials",
+          progress: 0,
+          metadata: { code: "E_DB_UPSERT" },
+        });
+        return new Response(
+          JSON.stringify({ ok: false, code: "E_DB_UPSERT", detail: "Failed to save credentials" }),
+          { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
+        );
+      }
+
+      // Emit saveCreds event after successful credential upsert
       await supabaseAdmin.from("smart_credit_import_events").insert({
         run_id: runId,
-        type: "error",
-        step: "credentials",
-        message: "Failed to save credentials",
-        progress: 0,
-        metadata: { code: "E_DB_UPSERT" },
+        type: "step",
+        step: "saveCreds",
+        message: "Credentials saved",
+        progress: 5,
       });
-      return new Response(
-        JSON.stringify({ ok: false, code: "E_DB_UPSERT", detail: "Failed to save credentials" }),
-        { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
-      );
-    }
+    } else {
+      // Load and decrypt stored credentials
+      const { data: credRow, error: credErr } = await supabaseAdmin
+        .from("smart_credit_credentials")
+        .select("username_enc, password_enc, iv_user, iv_pass")
+        .eq("user_id", auth.user.id)
+        .maybeSingle();
 
-    // Emit saveCreds event after successful credential upsert
-    await supabaseAdmin.from("smart_credit_import_events").insert({
-      run_id: runId,
-      type: "step",
-      step: "saveCreds",
-      message: "Credentials saved",
-      progress: 5,
-    });
+      if (credErr || !credRow) {
+        await supabaseAdmin.from("smart_credit_imports").update({ status: "failed" }).eq("run_id", runId);
+        await supabaseAdmin.from("smart_credit_import_events").insert({
+          run_id: runId,
+          type: "error",
+          step: "credentials",
+          message: "No stored credentials",
+          progress: 0,
+          metadata: { code: "E_NO_CREDENTIALS" },
+        });
+        return new Response(
+          JSON.stringify({ ok: false, code: "E_NO_CREDENTIALS", detail: "No stored credentials" }),
+          { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
+        );
+      }
+
+      const toBytes = (v: any) => (v instanceof Uint8Array) ? v : (typeof v === "string" ? decodeB64(v) : new Uint8Array(v ?? []));
+      const userCtBytes = toBytes((credRow as any).username_enc);
+      const passCtBytes = toBytes((credRow as any).password_enc);
+
+      try {
+        usernameVal = await decryptCipher(String((credRow as any).iv_user), userCtBytes, key);
+        passwordVal = await decryptCipher(String((credRow as any).iv_pass), passCtBytes, key);
+      } catch {
+        await supabaseAdmin.from("smart_credit_imports").update({ status: "failed" }).eq("run_id", runId);
+        await supabaseAdmin.from("smart_credit_import_events").insert({
+          run_id: runId,
+          type: "error",
+          step: "credentials",
+          message: "Failed to decrypt stored credentials",
+          progress: 0,
+          metadata: { code: "E_KMS_KEY" },
+        });
+        return new Response(
+          JSON.stringify({ ok: false, code: "E_KMS_KEY", detail: "Failed to decrypt stored credentials" }),
+          { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
+        );
+      }
+
+      await supabaseAdmin.from("smart_credit_import_events").insert({
+        run_id: runId,
+        type: "step",
+        step: "loadCreds",
+        message: "Using stored credentials",
+        progress: 5,
+      });
+    }
 
     // Dry run path: prove DB/UI wiring without calling BrowseAI
     if (dryRun) {
@@ -313,7 +378,7 @@ serve(async (req: Request) => {
     const webhookUrl = `${SUPABASE_URL}/functions/v1/smart-credit-webhook?runId=${runId}`;
 
     const taskPayload = {
-      inputParameters: { username, password },
+      inputParameters: { username: usernameVal, password: passwordVal },
       tags: [`run:${runId}`],
       webhookUrl,
       webhook: { url: webhookUrl },
@@ -385,7 +450,7 @@ serve(async (req: Request) => {
 
     // Record browseai_runs with the same runId for 1:1 correlation
     try {
-      const sanitizedInput = { username };
+      const sanitizedInput = { mode: usingStored ? "stored" : "provided" };
       await supabaseAdmin.from("browseai_runs").insert({
         id: runId,
         user_id: auth.user.id,

@@ -81,6 +81,8 @@ function validateBody(body: any): { username?: string; password?: string; errors
 serve(async (req: Request) => {
   const headers = new Headers(corsHeaders);
   setCors(req, headers);
+  // Always generate a runId for traceability and include in responses
+  const runId = crypto.randomUUID();
 
   if (req.method === "OPTIONS") {
     return new Response(null, { headers });
@@ -88,7 +90,7 @@ serve(async (req: Request) => {
   if (req.method !== "POST") {
     return new Response(
       JSON.stringify({ ok: false, code: "E_METHOD_NOT_ALLOWED", detail: "Only POST requests allowed" }),
-      { status: 405, headers: { ...headers, "Content-Type": "application/json" } },
+      { status: 405, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
     );
   }
 
@@ -104,7 +106,7 @@ serve(async (req: Request) => {
     if (!SMART_CREDIT_KMS_KEY || !APP_ALLOWED_ORIGINS) {
       return new Response(
         JSON.stringify({ ok: false, code: "E_CONFIG_MISSING", detail: "Server configuration incomplete" }),
-        { status: 503, headers: { ...headers, "Content-Type": "application/json" } },
+        { status: 503, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
 
@@ -114,7 +116,7 @@ serve(async (req: Request) => {
     if (allowed.length && (!origin || !allowed.includes(origin))) {
       return new Response(
         JSON.stringify({ ok: false, code: "E_CORS", detail: "Origin not allowed" }),
-        { status: 403, headers: { ...headers, "Content-Type": "application/json" } },
+        { status: 403, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
 
@@ -126,7 +128,7 @@ serve(async (req: Request) => {
     if (authError || !auth?.user) {
       return new Response(
         JSON.stringify({ ok: false, code: "E_AUTH_REQUIRED", detail: "Authentication required" }),
-        { status: 401, headers: { ...headers, "Content-Type": "application/json" } },
+        { status: 401, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
 
@@ -139,15 +141,12 @@ serve(async (req: Request) => {
     if (errors.length > 0) {
       return new Response(
         JSON.stringify({ ok: false, code: "E_SCHEMA_INVALID", detail: errors.join(", ") }),
-        { status: 400, headers: { ...headers, "Content-Type": "application/json" } },
+        { status: 400, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
 
     const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-    // Create runId & import row first
-    const runId = crypto.randomUUID();
-
+    // Create import row first using the generated runId
     const { error: insertError } = await supabaseAdmin.from("smart_credit_imports").insert({
       user_id: auth.user.id,
       run_id: runId,
@@ -310,9 +309,13 @@ serve(async (req: Request) => {
     const browseHeaders: HeadersInit = { "Content-Type": "application/json", Authorization: `Bearer ${BROWSEAI_API_KEY}` };
     if (BROWSEAI_WORKSPACE_ID) (browseHeaders as any)["X-Workspace-Id"] = BROWSEAI_WORKSPACE_ID;
 
+    const webhookUrl = `${SUPABASE_URL}/functions/v1/smart-credit-webhook?runId=${runId}`;
+
     const taskPayload = {
       inputParameters: { username, password },
       tags: [`run:${runId}`],
+      webhookUrl,
+      webhook: { url: webhookUrl },
     } as const;
 
     // Emit redacted request diagnostic
@@ -327,8 +330,19 @@ serve(async (req: Request) => {
         method: "POST",
         headers: { authorization: "Bearer ****", ...(BROWSEAI_WORKSPACE_ID ? { "X-Workspace-Id": "***" } : {}) },
         payloadKeys: ["username", "password"],
+        webhookUrl,
       },
     });
+
+    // Emit startTask step
+    await supabaseAdmin.from("smart_credit_import_events").insert({
+      run_id: runId,
+      type: "step",
+      step: "startTask",
+      message: "Starting upstream task",
+      progress: 7,
+    });
+
 
     const resp = await fetch(`https://api.browse.ai/v2/robots/${encodeURIComponent(String(robotId))}/tasks`, { method: "POST", headers: browseHeaders, body: JSON.stringify(taskPayload) });
     const taskResult = await resp.json().catch(() => ({}));

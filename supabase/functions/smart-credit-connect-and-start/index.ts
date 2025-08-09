@@ -159,7 +159,7 @@ serve(async (req: Request) => {
       console.error(`[${runId}] Failed to create import record`, insertError?.code);
       return new Response(
         JSON.stringify({ ok: false, code: "E_DB_INSERT", detail: "Failed to create import record" }),
-        { status: 500, headers: { ...headers, "Content-Type": "application/json" } },
+        { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
 
@@ -189,20 +189,25 @@ serve(async (req: Request) => {
       });
       return new Response(
         JSON.stringify({ ok: false, code: "E_KMS_KEY", detail: "Encryption key error" }),
-        { status: 500, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
+        { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
 
     const userEnc = await encryptPlaintext(username!, key);
     const passEnc = await encryptPlaintext(password!, key);
 
+    const userCt = decodeB64(userEnc.ctB64);
+    const passCt = decodeB64(passEnc.ctB64);
+    const ivBytea = decodeB64(passEnc.ivB64);
+
     const { error: upsertError } = await supabaseAdmin
       .from("smart_credit_credentials")
       .upsert(
         {
           user_id: auth.user.id,
-          username_enc: userEnc.ctB64,
-          password_enc: passEnc.ctB64,
+          username_enc: userCt,
+          password_enc: passCt,
+          iv: ivBytea,
           iv_user: userEnc.ivB64,
           iv_pass: passEnc.ivB64,
           key_version: 1,
@@ -224,9 +229,18 @@ serve(async (req: Request) => {
       });
       return new Response(
         JSON.stringify({ ok: false, code: "E_DB_UPSERT", detail: "Failed to save credentials" }),
-        { status: 500, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
+        { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
+
+    // Emit saveCreds event after successful credential upsert
+    await supabaseAdmin.from("smart_credit_import_events").insert({
+      run_id: runId,
+      type: "step",
+      step: "saveCreds",
+      message: "Credentials saved",
+      progress: 5,
+    });
 
     // Dry run path: prove DB/UI wiring without calling BrowseAI
     if (dryRun) {
@@ -289,7 +303,7 @@ serve(async (req: Request) => {
       });
       return new Response(
         JSON.stringify({ ok: false, code: "E_NO_ROBOT_ID", detail: "Robot ID not configured" }),
-        { status: 500, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
+        { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
 
@@ -347,7 +361,7 @@ serve(async (req: Request) => {
 
       return new Response(
         JSON.stringify({ ok: false, code, detail: taskResult?.message || `BrowseAI error: ${resp.status}` }),
-        { status: 502, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
+        { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } },
       );
     }
 
@@ -385,7 +399,7 @@ serve(async (req: Request) => {
     console.error("connect-and-start error:", e);
     return new Response(
       JSON.stringify({ ok: false, code: "E_INTERNAL", detail: "Internal server error" }),
-      { status: 500, headers: { ...headers, "Content-Type": "application/json" } },
+      { status: 200, headers: { ...headers, "Content-Type": "application/json" } },
     );
   }
 });

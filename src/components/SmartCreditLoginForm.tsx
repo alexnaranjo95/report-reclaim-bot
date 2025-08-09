@@ -40,6 +40,7 @@ export const SmartCreditLoginForm: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   // Clear previous state on new attempts
   const clearState = useCallback(() => {
@@ -102,6 +103,7 @@ export const SmartCreditLoginForm: React.FC = () => {
         streamUrl.searchParams.set("runId", runId);
         if (accessToken) streamUrl.searchParams.set("access_token", accessToken);
         const es = new EventSource(streamUrl.toString());
+        setIsStreaming(true);
         es.onmessage = (ev) => {
           try {
             const evt = JSON.parse(ev.data);
@@ -255,6 +257,7 @@ export const SmartCreditLoginForm: React.FC = () => {
           <p>• Credentials are encrypted and never logged</p>
           <p>• Import automatically starts after successful connection</p>
           <p>• Use "Retry" to start import with previously saved credentials</p>
+          {isStreaming && <span data-testid="import-stream" style={{ display: 'none' }} />}
         </div>
       </CardContent>
     </Card>

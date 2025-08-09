@@ -178,7 +178,7 @@ export const DataPipelineDebugger: React.FC = () => {
       // 2. Check edge function health
       console.log('🔧 Checking edge function health...');
       try {
-        const { data: healthCheck, error: healthError } = await supabase.functions.invoke('advanced-pdf-extract', {
+        const { data: healthCheck, error: healthError } = await supabase.functions.invoke('process-credit-report', {
           body: { healthCheck: true }
         });
 

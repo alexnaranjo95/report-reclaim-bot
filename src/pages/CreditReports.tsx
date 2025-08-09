@@ -8,7 +8,7 @@ import { CreditReportCard } from '@/components/CreditReportCard';
 import { FullCreditReportViewer } from '@/components/FullCreditReportViewer';
 import { RoundProgressCard } from '@/components/RoundProgressCard';
 import { CreditReportService, type CreditReport } from '@/services/CreditReportService';
-import SmartCreditLoginForm from '@/components/SmartCreditLoginForm';
+// removed SmartCreditLoginForm import (moved to Import section)
 import { CreditReportPreviewModal } from '@/components/CreditReportPreviewModal';
 import { CreditReportAnalysis } from '@/components/CreditReportAnalysis';
 import { CreditReportTimeline } from '@/components/CreditReportTimeline';
@@ -34,7 +34,7 @@ const CreditReportsPage: React.FC = () => {
   const [reportCounts, setReportCounts] = useState<Record<string, { accounts: number; negatives: number }>>({});
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [showUpload, setShowUpload] = useState(false);
+  // removed showUpload state
   const [previewReport, setPreviewReport] = useState<CreditReport | null>(null);
   const [currentRound, setCurrentRound] = useState(1);
   const [viewMode, setViewMode] = useState<'rounds' | 'list'>('rounds');
@@ -139,15 +139,9 @@ const CreditReportsPage: React.FC = () => {
     setPreviewReport(report);
   };
 
-  const handleUploadSuccess = () => {
-    loadReports(); // Refresh the reports list
-    setShowUpload(false);
-    toast.success('Credit report uploaded successfully');
-  };
 
   const handleUploadForRound = (roundNumber: number) => {
     setCurrentRound(roundNumber);
-    setShowUpload(true);
   };
 
   // Get reports organized by rounds (assuming round 1 for now)
@@ -245,12 +239,6 @@ const CreditReportsPage: React.FC = () => {
               >
                 <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
                 Refresh
-              </Button>
-              <Button 
-                onClick={() => setShowUpload(true)}
-                size="sm"
-              >
-                Smart Credit
               </Button>
             </div>
           </div>
@@ -388,14 +376,6 @@ const CreditReportsPage: React.FC = () => {
                 : 'Try adjusting your filter settings to see more reports.'
               }
             </p>
-            {reports.length === 0 && (
-              <Button 
-                onClick={() => setShowUpload(true)}
-                size="lg"
-              >
-                Open Smart Credit
-              </Button>
-            )}
           </CardContent>
         </Card>
       ) : (
@@ -413,26 +393,6 @@ const CreditReportsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Smart Credit Modal */}
-      {showUpload && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold">Smart Credit</h2>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowUpload(false)}
-                >
-                  Close
-                </Button>
-              </div>
-              <SmartCreditLoginForm />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Preview Modal */}
       <CreditReportPreviewModal

@@ -1797,6 +1797,88 @@ export type Database = {
         }
         Relationships: []
       }
+      smart_credit_imports: {
+        Row: {
+          created_at: string
+          id: string
+          run_id: string
+          runtime_sec: number | null
+          status: string
+          task_id: string | null
+          total_rows: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          run_id: string
+          runtime_sec?: number | null
+          status?: string
+          task_id?: string | null
+          total_rows?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          run_id?: string
+          runtime_sec?: number | null
+          status?: string
+          task_id?: string | null
+          total_rows?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_sci_profiles_user"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      smart_credit_items: {
+        Row: {
+          created_at: string
+          id: number
+          item_index: number
+          list_key: string | null
+          payload: Json
+          run_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          item_index: number
+          list_key?: string | null
+          payload?: Json
+          run_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          item_index?: number
+          list_key?: string | null
+          payload?: Json
+          run_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_sci_items_profiles_user"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       template_layouts: {
         Row: {
           body_html: string | null

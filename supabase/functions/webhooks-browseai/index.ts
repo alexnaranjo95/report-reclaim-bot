@@ -36,7 +36,6 @@ serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    // Browse.ai webhook example structure may vary; try common fields
     const taskId: string | undefined = body?.result?.id || body?.taskId || body?.id;
     const status: string | undefined = body?.result?.status || body?.status;
     const createdAtMs: number | undefined = body?.result?.createdAt;
@@ -60,8 +59,9 @@ serve(async (req: Request) => {
     }
 
     const runId = run.id as string;
+    const userId = run.user_id as string;
 
-    // Progress step
+    // Progress step (existing events)
     if (status) {
       await supabaseAdmin.from("smart_credit_import_events").insert({
         run_id: runId,
@@ -72,19 +72,31 @@ serve(async (req: Request) => {
       });
     }
 
-    // Snapshot all captured lists and optionally land full rows (24h TTL)
+    // Upsert into smart_credit_imports for tracking
+    await supabaseAdmin
+      .from("smart_credit_imports")
+      .upsert(
+        {
+          user_id: userId,
+          run_id: runId,
+          task_id: taskId,
+          status: status ?? run.status,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "run_id" }
+      );
+
+    // Snapshot all captured lists and land items into normalized smart_credit_items
     let totalRowsImported = 0;
     try {
       const listKeys = Object.keys(capturedLists || {});
       for (const key of listKeys) {
-        const items: any[] = Array.isArray(capturedLists[key]?.items)
-          ? capturedLists[key].items
-          : [];
+        const items: any[] = Array.isArray(capturedLists[key]?.items) ? capturedLists[key].items : [];
         const count = items.length;
         totalRowsImported += count;
 
         if (count > 0) {
-          // Per-list snapshot event
+          // Per-list event
           await supabaseAdmin.from("smart_credit_import_events").insert({
             run_id: runId,
             type: "data:snapshot",
@@ -95,21 +107,21 @@ serve(async (req: Request) => {
             payload: sanitizePayload({ key, count }),
           });
 
-          // Bulk land items into temporary rows table
+          // Upsert normalized items
           const rows = items.map((item, idx) => ({
+            user_id: userId,
             run_id: runId,
-            list_key: key,
+            list_key: key || "",
             item_index: idx,
-            item,
+            payload: item ?? {},
           }));
-          // Insert in chunks to avoid payload limits
           const chunkSize = 500;
           for (let i = 0; i < rows.length; i += chunkSize) {
             const batch = rows.slice(i, i + chunkSize);
-            const { error: insertErr } = await supabaseAdmin
-              .from("smart_credit_import_rows")
-              .insert(batch);
-            if (insertErr) console.warn("Failed to insert import rows batch:", insertErr);
+            const { error: upsertErr } = await supabaseAdmin
+              .from("smart_credit_items")
+              .upsert(batch, { onConflict: "run_id, list_key, item_index", ignoreDuplicates: true });
+            if (upsertErr) console.warn("Failed to upsert smart_credit_items batch:", upsertErr);
           }
         }
       }
@@ -117,8 +129,19 @@ serve(async (req: Request) => {
       console.warn("Failed to process captured lists:", e);
     }
 
-    // Update run row
+    // Update totals on imports
     const runtimeSec = createdAtMs && finishedAtMs ? Math.max(0, Math.round((finishedAtMs - createdAtMs) / 1000)) : null;
+    await supabaseAdmin
+      .from("smart_credit_imports")
+      .update({
+        status: status ?? run.status,
+        runtime_sec: runtimeSec,
+        total_rows: totalRowsImported,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("run_id", runId);
+
+    // Keep existing browseai_runs updates and summary metric event
     await supabaseAdmin
       .from("browseai_runs")
       .update({

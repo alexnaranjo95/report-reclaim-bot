@@ -1,26 +1,52 @@
+
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient as createSupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
+const defaultCors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function parseAllowedOrigins() {
+  const v = Deno.env.get("APP_ALLOWED_ORIGINS") || "";
+  return v.split(",").map(s => s.trim()).filter(Boolean);
+}
+function setCorsOrigin(req: Request, headers: Headers) {
+  const allowed = parseAllowedOrigins();
+  const origin = req.headers.get("Origin");
+  if (!allowed.length) {
+    headers.set("Access-Control-Allow-Origin", "*");
+  } else if (origin && allowed.includes(origin)) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+  }
+}
 
 function sseFormat(obj: unknown) {
   return `data: ${JSON.stringify(obj)}\n\n`;
 }
 
 serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    const h = new Headers(defaultCors);
+    setCorsOrigin(req, h);
+    return new Response(null, { headers: h });
+  }
   if (req.method !== "GET") {
-    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
+    const h = new Headers(defaultCors);
+    setCorsOrigin(req, h);
+    return new Response("Method not allowed", { status: 405, headers: h });
   }
 
   const url = new URL(req.url);
   const runId = url.searchParams.get("runId");
   const accessToken = url.searchParams.get("access_token") || req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
 
-  if (!runId) return new Response("Missing runId", { status: 400, headers: corsHeaders });
+  if (!runId) {
+    const h = new Headers(defaultCors);
+    setCorsOrigin(req, h);
+    return new Response("Missing runId", { status: 400, headers: h });
+  }
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -36,11 +62,17 @@ serve(async (req: Request) => {
     .eq("id", runId)
     .single();
 
-  if (runErr || !run) return new Response("Forbidden", { status: 403, headers: corsHeaders });
+  if (runErr || !run) {
+    const h = new Headers(defaultCors);
+    setCorsOrigin(req, h);
+    return new Response("Forbidden", { status: 403, headers: h });
+  }
 
   const body = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
+      const h = new Headers(defaultCors);
+      setCorsOrigin(req, h);
       let lastTs = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       let lastEventAt = Date.now();
       let closed = false;
@@ -73,14 +105,12 @@ serve(async (req: Request) => {
       const heartbeat = setInterval(() => {
         if (closed) return;
         push({ type: "heartbeat", ts: new Date().toISOString() });
-        // Stall detection
         if (Date.now() - lastEventAt > 20000) {
           push({ type: "warn", step: "stalled", message: "No events for 20s", ts: new Date().toISOString() });
           lastEventAt = Date.now();
         }
       }, 5000);
 
-      // Initial fetch
       await poll();
 
       const cancel = () => {
@@ -91,18 +121,18 @@ serve(async (req: Request) => {
         controller.close();
       };
 
-      // Close on client abort
       const signal = (req as any).signal as AbortSignal | undefined;
       signal?.addEventListener("abort", cancel);
     },
   });
 
-  return new Response(body, {
-    headers: {
-      ...corsHeaders,
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    },
+  const h = new Headers({
+    ...defaultCors,
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
   });
+  setCorsOrigin(req, h);
+
+  return new Response(body, { headers: h });
 });

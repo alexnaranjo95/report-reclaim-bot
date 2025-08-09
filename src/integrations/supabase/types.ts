@@ -1676,6 +1676,44 @@ export type Database = {
         }
         Relationships: []
       }
+      smart_credit_credentials: {
+        Row: {
+          created_at: string
+          iv: string
+          key_version: number
+          password_enc: string
+          updated_at: string
+          user_id: string
+          username_enc: string
+        }
+        Insert: {
+          created_at?: string
+          iv: string
+          key_version?: number
+          password_enc: string
+          updated_at?: string
+          user_id: string
+          username_enc: string
+        }
+        Update: {
+          created_at?: string
+          iv?: string
+          key_version?: number
+          password_enc?: string
+          updated_at?: string
+          user_id?: string
+          username_enc?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_scc_profiles_user"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       smart_credit_import_events: {
         Row: {
           expires_at: string

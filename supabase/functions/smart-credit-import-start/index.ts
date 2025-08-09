@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient as createSupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { ulid } from "https://deno.land/x/ulid@v0.3.0/mod.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,7 +85,7 @@ serve(async (req: Request) => {
     const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Generate runId and create import record first
-    const runId = ulid();
+    const runId = crypto.randomUUID();
     console.log(`[${runId}] Starting Smart Credit import for user ${auth.user.id}, dryRun=${dryRun}`);
 
     const { error: insertError } = await supabaseAdmin
@@ -167,7 +167,7 @@ serve(async (req: Request) => {
 
       // Complete dry run
       await supabaseAdmin.from("smart_credit_imports")
-        .update({ status: "done", rows: 2, finished_at: new Date().toISOString() })
+        .update({ status: "done", total_rows: 2, finished_at: new Date().toISOString() })
         .eq("run_id", runId);
 
       await supabaseAdmin.from("smart_credit_import_events").insert({
@@ -249,18 +249,14 @@ serve(async (req: Request) => {
       "Content-Type": "application/json",
       Authorization: `Bearer ${BROWSEAI_API_KEY}`,
     };
-    if (BROWSEAI_WORKSPACE_ID) browseHeaders["x-browseai-workspace-id"] = BROWSEAI_WORKSPACE_ID;
+    if (BROWSEAI_WORKSPACE_ID) (browseHeaders as any)["X-Workspace-Id"] = BROWSEAI_WORKSPACE_ID;
 
     const taskPayload = {
-      robotId,
-      inputParameters: {
-        smartCreditUsername: username,
-        smartCreditPassword: password,
-      },
+      inputParameters: { username, password },
       tags: [`run:${runId}`],
-    };
+    } as const;
 
-    const resp = await fetch("https://api.browse.ai/v2/tasks", {
+    const resp = await fetch(`https://api.browse.ai/v2/robots/${encodeURIComponent(String(robotId))}/tasks`, {
       method: "POST",
       headers: browseHeaders,
       body: JSON.stringify(taskPayload),

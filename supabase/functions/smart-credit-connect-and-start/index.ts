@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient as createSupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { ulid } from "https://deno.land/x/ulid@v0.3.0/mod.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -146,7 +146,7 @@ serve(async (req: Request) => {
     const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Create runId & import row first
-    const runId = ulid();
+    const runId = crypto.randomUUID();
 
     const { error: insertError } = await supabaseAdmin.from("smart_credit_imports").insert({
       user_id: auth.user.id,

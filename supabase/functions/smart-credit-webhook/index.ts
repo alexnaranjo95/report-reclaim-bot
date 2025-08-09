@@ -61,11 +61,16 @@ serve(async (req: Request) => {
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseAdmin = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  try {
-    const runId = req.headers.get("x-run-id") || (await req.clone().json().catch(() => ({}))).runId;
-    if (!runId) {
-      return new Response(JSON.stringify({ ok: false, code: "MISSING_RUN_ID" }), { status: 400, headers: { ...headers, "Content-Type": "application/json" } });
-    }
+  // Determine runId early to include in all responses
+  const url = new URL(req.url);
+  const bodyClone = await req.clone().json().catch(() => ({}));
+  const runId = url.searchParams.get("runId") || req.headers.get("x-run-id") || bodyClone.runId;
+
+try {
+  if (!runId) {
+    return new Response(JSON.stringify({ ok: false, code: "MISSING_RUN_ID" }), { status: 400, headers: { ...headers, "Content-Type": "application/json" } });
+  }
+
 
     // Ensure import exists and get user
     const { data: imp, error: impErr } = await supabaseAdmin
@@ -163,7 +168,7 @@ serve(async (req: Request) => {
         message: "Failed to upsert items",
         payload: { error: upErr.message },
       });
-      return new Response(JSON.stringify({ ok: false, code: "UPSERT_FAILED" }), { status: 500, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } });
+      return new Response(JSON.stringify({ ok: false, code: "E_UPSERT_FAILED" }), { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } });
     }
 
     // Count rows for this run
@@ -194,6 +199,6 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ ok: true, runId, rows: count ?? normalized.length }), { status: 200, headers: { ...headers, "Content-Type": "application/json", "x-run-id": runId } });
   } catch (e: any) {
     console.error("smart-credit-webhook error:", e?.message || e);
-    return new Response(JSON.stringify({ ok: false, code: "INTERNAL" }), { status: 500, headers: { ...headers, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ok: false, code: "E_INTERNAL" }), { status: 200, headers: { ...headers, "Content-Type": "application/json", ...(runId ? { "x-run-id": runId } : {}) } });
   }
 });

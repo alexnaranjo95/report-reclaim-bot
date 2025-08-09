@@ -1676,6 +1676,59 @@ export type Database = {
         }
         Relationships: []
       }
+      smart_credit_import_events: {
+        Row: {
+          expires_at: string
+          id: string
+          level: string
+          message: string | null
+          metrics: Json
+          payload: Json | null
+          progress: number | null
+          run_id: string
+          sample: Json | null
+          step: string | null
+          ts: string
+          type: string
+        }
+        Insert: {
+          expires_at?: string
+          id?: string
+          level?: string
+          message?: string | null
+          metrics?: Json
+          payload?: Json | null
+          progress?: number | null
+          run_id: string
+          sample?: Json | null
+          step?: string | null
+          ts?: string
+          type: string
+        }
+        Update: {
+          expires_at?: string
+          id?: string
+          level?: string
+          message?: string | null
+          metrics?: Json
+          payload?: Json | null
+          progress?: number | null
+          run_id?: string
+          sample?: Json | null
+          step?: string | null
+          ts?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "smart_credit_import_events_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "browseai_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       template_layouts: {
         Row: {
           body_html: string | null
@@ -1795,6 +1848,10 @@ export type Database = {
       }
     }
     Functions: {
+      cleanup_expired_import_events: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       cleanup_old_failed_reports: {
         Args: Record<PropertyKey, never>
         Returns: undefined

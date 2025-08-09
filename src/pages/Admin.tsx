@@ -16,6 +16,7 @@ import TemplateManager from '@/components/TemplateManager';
 import { AdminSettings } from '@/components/AdminSettings';
 import { LogOut, Settings } from 'lucide-react';
 import { SmartCreditImport } from '@/components/SmartCreditImport';
+import SmartCreditImportPanel from '@/components/SmartCreditImportPanel';
 
 const Admin = () => {
   const navigate = useNavigate();

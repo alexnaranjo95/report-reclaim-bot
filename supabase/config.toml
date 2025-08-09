@@ -1,4 +1,3 @@
-
 project_id = "rcrpqdhfawtpjicttgvx"
 
 [functions.docsumo-extract]
@@ -9,3 +8,13 @@ verify_jwt = true
 
 [functions.get-postgrid-key]
 verify_jwt = true
+
+[functions.webhooks-browseai]
+verify_jwt = false
+
+[functions.smart-credit-import-start]
+verify_jwt = true
+
+[functions.smart-credit-import-stream]
+verify_jwt = true
+

@@ -3,8 +3,9 @@ import { createClient as createSupabaseClient } from "https://esm.sh/@supabase/s
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-run-id",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-run-id, x-supabase-api-version, prefer",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Max-Age": "86400",
 };
 
 function parseAllowedOrigins() {

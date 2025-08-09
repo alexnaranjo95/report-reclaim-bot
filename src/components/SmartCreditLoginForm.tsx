@@ -52,7 +52,7 @@ export const SmartCreditLoginForm: React.FC = () => {
 
   const handleConnectAndImport = async () => {
     clearState();
-    
+
     // Validate inputs
     if (username.trim().length < 3) {
       setError("Username must be at least 3 characters");
@@ -66,64 +66,60 @@ export const SmartCreditLoginForm: React.FC = () => {
     setIsConnecting(true);
 
     try {
-      console.log("Step 1: Saving credentials...");
-      
-      // Step 1: Save credentials
-      const { data: credData, error: credError } = await supabase.functions.invoke(
-        "integrations-smart-credit",
-        {
-          body: { username: username.trim(), password },
-        }
-      ) as { data: SmartCreditResponse; error: any };
+      // Single call: save creds + start task
+      const { data, error } = await supabase.functions.invoke(
+        "smart-credit-connect-and-start",
+        { body: { username: username.trim(), password } }
+      ) as { data: any; error: any };
 
-      if (credError || !credData?.ok) {
-        const errorCode = credData?.code || "UNKNOWN_ERROR";
-        const errorMsg = ERROR_MESSAGES[errorCode] || credData?.message || "Failed to save credentials";
-        setError(`Save failed: ${errorMsg}`);
+      if (error || !data?.ok) {
+        const errorCode = data?.code || "UNKNOWN_ERROR";
+        const errorMsg = ERROR_MESSAGES[errorCode] || data?.detail || "Failed to connect/start";
+        setError(`Start failed: ${errorMsg}`);
         return;
       }
 
-      console.log("Step 1 complete: Credentials saved");
-      setSuccessMessage("Credentials saved successfully!");
+      // Success -> show banner + open SSE
+      const runId = data.runId as string;
+      const taskId = data.browseai?.taskId as string | undefined;
+      const jobId = data.browseai?.jobId as string | undefined;
 
-      // Step 2: Start import immediately
-      setIsConnecting(false);
-      setIsImporting(true);
-      
-      console.log("Step 2: Starting import...");
-      
-      const { data: importData, error: importError } = await supabase.functions.invoke(
-        "smart-credit-import-start",
-        { body: {} }
-      ) as { data: SmartCreditResponse; error: any };
+      setSuccessMessage(`Connected to BrowseAI (task ${taskId || "n/a"}${jobId ? ", job " + jobId : ""})`);
 
-      if (importError || !importData?.ok) {
-        const errorCode = importData?.code || "UNKNOWN_ERROR";
-        const errorMsg = ERROR_MESSAGES[errorCode] || importData?.message || "Failed to start import";
-        setError(`Import failed: ${errorMsg}`);
-        return;
-      }
-
-      console.log("Step 2 complete: Import started with runId:", importData.runId);
-      
-      // Clear form and show success
+      // Clear sensitive fields immediately
       setUsername("");
       setPassword("");
-      setSuccessMessage(`Import started successfully! Run ID: ${importData.runId}`);
-      
+
       toast({
         title: "Import Started",
-        description: `Smart Credit import is now running (${importData.runId})`,
+        description: `Smart Credit import is now running (${runId})`,
       });
 
-      // Trigger custom event for monitoring components
-      window.dispatchEvent(new CustomEvent("smart_credit_import_started", {
-        detail: { runId: importData.runId, simulatedRows: importData.simulatedRows }
-      }));
+      // Live stream
+      try {
+        const accessToken = (await supabase.auth.getSession()).data.session?.access_token;
+        const streamUrl = new URL(`${"https://rcrpqdhfawtpjicttgvx.supabase.co"}/functions/v1/smart-credit-import-stream`);
+        streamUrl.searchParams.set("runId", runId);
+        if (accessToken) streamUrl.searchParams.set("access_token", accessToken);
+        const es = new EventSource(streamUrl.toString());
+        es.onmessage = (ev) => {
+          try {
+            const evt = JSON.parse(ev.data);
+            if (evt?.type === "error") {
+              console.warn("Import error event:", evt);
+            }
+          } catch {}
+        };
+        es.onerror = () => {
+          es.close();
+        };
+      } catch {}
 
+      // Notify other components
+      window.dispatchEvent(new CustomEvent("smart_credit_import_started", { detail: { runId, taskId, jobId } }));
     } catch (e: any) {
-      console.error("Connection error:", e);
-      setError(`Connection error: ${e.message || "Unknown error"}`);
+      console.error("connect-and-start error:", e);
+      setError(`Connection error: ${e?.message || "Unknown error"}`);
     } finally {
       setIsConnecting(false);
       setIsImporting(false);
@@ -239,7 +235,7 @@ export const SmartCreditLoginForm: React.FC = () => {
           <Button 
             onClick={handleConnectAndImport}
             disabled={!canSubmit}
-            data-testid="start-import-btn"
+            data-testid="connect-and-import-btn"
             className="min-w-[140px]"
           >
             {isConnecting ? 'Saving...' : isImporting ? 'Starting...' : 'Connect & Import'}

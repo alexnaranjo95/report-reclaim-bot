@@ -202,9 +202,7 @@ export const SmartCreditImportMonitor: React.FC<{ initialRun?: StartImportRespon
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {!running ? (
-                <Button onClick={onStart} aria-label="Start Import"><Play className="h-4 w-4 mr-2" />Start Import</Button>
-              ) : (
+              {running && (
                 <Button variant="outline" onClick={reconnect} aria-label="Retry">
                   <RefreshCw className="h-4 w-4 mr-2" />Reconnect
                 </Button>

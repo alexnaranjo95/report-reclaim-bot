@@ -24,18 +24,14 @@ serve(async (req: Request) => {
 
     const url = new URL(req.url);
     let runId: string | null = null;
+    let userId: string | null = null;
     if (req.method === "GET") {
       runId = url.searchParams.get("runId");
+      userId = url.searchParams.get("userId");
     } else {
       const body = await req.json().catch(() => ({}));
       runId = body?.runId ?? null;
-    }
-
-    if (!runId) {
-      return new Response(JSON.stringify({ error: "runId is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      userId = body?.userId ?? null;
     }
 
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -43,33 +39,92 @@ serve(async (req: Request) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const { data, error } = await supabase
+    if (!runId && !userId) {
+      return new Response(JSON.stringify({ error: "runId or userId is required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (runId) {
+      const { data, error } = await supabase
+        .from("normalized_credit_reports")
+        .select("run_id, user_id, collected_at, version, report_json")
+        .eq("run_id", runId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("credit-report-latest select error", error.message);
+        return new Response(JSON.stringify({ error: "Database error" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (!data) {
+        return new Response(JSON.stringify({ error: "Not found" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(
+        JSON.stringify({
+          runId: data.run_id,
+          collectedAt: data.collected_at,
+          version: data.version,
+          report: data.report_json,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Latest by user
+    const { data: latest, error: latestErr } = await supabase
       .from("normalized_credit_reports")
       .select("run_id, user_id, collected_at, version, report_json")
-      .eq("run_id", runId)
+      .eq("user_id", userId)
+      .order("collected_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    if (error) {
-      console.error("credit-report-latest select error", error.message);
+    if (latestErr) {
+      console.error("credit-report-latest select latest error", latestErr.message);
       return new Response(JSON.stringify({ error: "Database error" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (!data) {
+    if (!latest) {
       return new Response(JSON.stringify({ error: "Not found" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
+    // Derived counts
+    const [reCnt, rvCnt, otCnt] = await Promise.all([
+      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("category", "realEstate"),
+      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("category", "revolving"),
+      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("category", "other"),
+    ]);
+
+    const counts = {
+      accounts: {
+        realEstate: reCnt.count ?? 0,
+        revolving: rvCnt.count ?? 0,
+        other: otCnt.count ?? 0,
+      },
+    };
+
     return new Response(
       JSON.stringify({
-        runId: data.run_id,
-        collectedAt: data.collected_at,
-        version: data.version,
-        report: data.report_json,
+        runId: latest.run_id,
+        collectedAt: latest.collected_at,
+        version: latest.version,
+        report: latest.report_json,
+        counts,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

@@ -753,18 +753,21 @@ export type Database = {
       }
       credit_reports_raw: {
         Row: {
+          collected_at: string | null
           created_at: string
           raw_json: Json
           run_id: string
           user_id: string
         }
         Insert: {
+          collected_at?: string | null
           created_at?: string
           raw_json: Json
           run_id: string
           user_id: string
         }
         Update: {
+          collected_at?: string | null
           created_at?: string
           raw_json?: Json
           run_id?: string
@@ -1122,6 +1125,7 @@ export type Database = {
           account_type: string | null
           balance: number | null
           bureau: string | null
+          category: string | null
           closed_on: string | null
           collected_at: string | null
           created_at: string
@@ -1136,6 +1140,7 @@ export type Database = {
           last_payment_on: string | null
           opened_on: string | null
           past_due: number | null
+          payload: Json | null
           payment_amount: number | null
           payment_frequency: string | null
           payment_status: string | null
@@ -1156,6 +1161,7 @@ export type Database = {
           account_type?: string | null
           balance?: number | null
           bureau?: string | null
+          category?: string | null
           closed_on?: string | null
           collected_at?: string | null
           created_at?: string
@@ -1170,6 +1176,7 @@ export type Database = {
           last_payment_on?: string | null
           opened_on?: string | null
           past_due?: number | null
+          payload?: Json | null
           payment_amount?: number | null
           payment_frequency?: string | null
           payment_status?: string | null
@@ -1190,6 +1197,7 @@ export type Database = {
           account_type?: string | null
           balance?: number | null
           bureau?: string | null
+          category?: string | null
           closed_on?: string | null
           collected_at?: string | null
           created_at?: string
@@ -1204,6 +1212,7 @@ export type Database = {
           last_payment_on?: string | null
           opened_on?: string | null
           past_due?: number | null
+          payload?: Json | null
           payment_amount?: number | null
           payment_frequency?: string | null
           payment_status?: string | null

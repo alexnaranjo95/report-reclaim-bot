@@ -90,5 +90,29 @@ export async function fetchLatestNormalized(runId: string) {
     body: { runId },
   });
   if (error) throw new Error(((data as any)?.error as string) || error.message);
-  return data as { runId: string; collectedAt: string; version: string; report: any };
+  return data as { runId: string; collectedAt: string; version: string; report: any; counts?: any };
+}
+
+export async function fetchLatestNormalizedByUser(userId: string) {
+  const { data, error } = await supabase.functions.invoke("credit-report-latest", {
+    body: { userId },
+  });
+  if (error) throw new Error(((data as any)?.error as string) || error.message);
+  return data as { runId: string; collectedAt: string; version: string; report: any; counts?: any };
+}
+
+export async function fetchAccountsByCategory(category: string, limit = 50, cursor?: string) {
+  const { data, error } = await supabase.functions.invoke("credit-report-accounts", {
+    body: { category, limit, cursor },
+  });
+  if (error) throw new Error(((data as any)?.error as string) || error.message);
+  return data as { items: any[]; nextCursor?: string | null };
+}
+
+export async function ingestCreditReport(payload: any) {
+  const { data, error } = await supabase.functions.invoke("credit-report-ingest", {
+    body: payload,
+  });
+  if (error) throw new Error(((data as any)?.message as string) || error.message);
+  return data as { ok: boolean; runId: string };
 }

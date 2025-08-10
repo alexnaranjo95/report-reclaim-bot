@@ -71,3 +71,39 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+
+## Credit Report Pipeline Checks
+
+Use these cURL commands to verify the end-to-end flow.
+
+1) Ingest (dry run) — requires service role header
+
+```bash
+curl -X POST \
+  "https://rcrpqdhfawtpjicttgvx.functions.supabase.co/credit-report-ingest" \
+  -H "Content-Type: application/json" \
+  -H "x-service-role-key: $SUPABASE_SERVICE_ROLE_KEY" \
+  -d '{
+    "dryRun": 1,
+    "runId": "dry-test-run",
+    "userId": "00000000-0000-0000-0000-000000000000"
+  }'
+```
+
+2) Latest for current user (requires user JWT in Authorization header)
+
+```bash
+curl -X POST \
+  "https://rcrpqdhfawtpjicttgvx.functions.supabase.co/credit-report-latest" \
+  -H "Authorization: Bearer $USER_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{ "userId": "00000000-0000-0000-0000-000000000000" }'
+```
+
+3) Accounts pagination
+
+```bash
+curl -X GET \
+  "https://rcrpqdhfawtpjicttgvx.functions.supabase.co/credit-report-accounts?category=revolving&limit=50" \
+  -H "Authorization: Bearer $USER_JWT"
+```

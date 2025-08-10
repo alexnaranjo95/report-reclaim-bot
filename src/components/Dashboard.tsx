@@ -4,9 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-// Smart Credit UI removed
-// Keep UI slot placeholder and prevent missing refs after purge
-import SmartCreditImportMonitor from './SmartCreditImportMonitor';
+// Smart Credit UI
+import SmartCreditLoginForm from './SmartCreditLoginForm';
 
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
@@ -779,7 +778,7 @@ export const Dashboard = () => {
       id="smart-credit-import-panel"
       data-testid="smart-credit-import-panel"
     >
-      <SmartCreditImportMonitor />
+      <SmartCreditLoginForm />
     </section>
   </div>
 )}

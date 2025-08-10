@@ -15,7 +15,7 @@ interface LogItem { level: "info" | "warn" | "error" | "event"; message: string;
 
 const levels: LogItem["level"][] = ["info", "warn", "error", "event"]; 
 
-export const SmartCreditImportMonitor: React.FC = () => {
+export const SmartCreditImportMonitor: React.FC<{ initialRun?: StartImportResponse | null; simulate?: boolean } > = ({ initialRun, simulate = false }) => {
   const [running, setRunning] = useState(false);
   const [percent, setPercent] = useState(0);
   const [status, setStatus] = useState<string>("idle");
@@ -39,13 +39,13 @@ export const SmartCreditImportMonitor: React.FC = () => {
 
   useEffect(() => {
     const id = setInterval(() => {
-      if (stalled && autoRetry && runInfo?.runId) {
+      if (stalled && autoRetry && runInfo?.runId && !simulate) {
         appendLog({ level: "warn", message: "No events for 20s — reconnecting stream", ts: Date.now() });
         reconnect();
       }
     }, 5000);
     return () => clearInterval(id);
-  }, [stalled, autoRetry, runInfo?.runId]);
+  }, [stalled, autoRetry, runInfo?.runId, simulate]);
 
   const appendLog = (l: LogItem) => setLogs((prev) => [...prev, l]);
 
@@ -102,10 +102,54 @@ export const SmartCreditImportMonitor: React.FC = () => {
     });
   }, [colKeys.length, percent, rows.length]);
 
+  // If initialRun was provided (from login form), auto-connect once
+  useEffect(() => {
+    if (initialRun && !runInfo) {
+      setError(null);
+      setLogs([]);
+      setRows([]);
+      setColKeys([]);
+      setPercent(0);
+      setRunning(true);
+      setStatus("queued");
+      setRunInfo(initialRun);
+      if (simulate) {
+        // simple simulated progress + logs
+        appendLog({ level: "event", message: `Simulated init for run ${initialRun.runId}`, ts: Date.now() });
+        let p = 0;
+        const steps = [5, 25, 50, 75, 100];
+        const labels = ["Init", "Authenticate", "Launch Robot", "Stream Data", "Finalize"];
+        const iv = setInterval(() => {
+          const next = steps.shift();
+          const label = labels.shift();
+          if (next !== undefined) {
+            p = next;
+            setPercent(p);
+            setStatus(p < 100 ? "in-progress" : "done");
+            appendLog({ level: p < 100 ? "info" : "event", message: `${label} step`, ts: Date.now() });
+            if (p === 50) {
+              // add a few fake rows
+              const fakeRows = [
+                { creditor: "Sample Bank", balance: 1200, status: "Open" },
+                { creditor: "Example Card", balance: 560, status: "Closed" },
+              ];
+              setRows((prev) => [...prev, ...fakeRows]);
+              setColKeys(["creditor", "balance", "status"]);
+            }
+          } else {
+            clearInterval(iv);
+          }
+        }, 800);
+      } else {
+        connect(initialRun);
+      }
+    }
+  }, [initialRun, runInfo, simulate, connect]);
+
   const reconnect = useCallback(() => {
-    if (!runInfo?.runId) return;
+    if (!runInfo?.runId || simulate) return;
     connect(runInfo);
-  }, [connect, runInfo]);
+  }, [connect, runInfo, simulate]);
 
   const onStart = async () => {
     try {

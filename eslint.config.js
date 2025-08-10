@@ -50,5 +50,22 @@ export default tseslint.config(
         }
       ],
     },
+  },
+  {
+    files: ["src/pages/CreditReports.tsx", "src/pages/CreditReport*.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            "**/src/credit-report/**",
+            "*BrowseAi*",
+            "*documentai*",
+            "*textract*",
+            "*pdf*"
+          ]
+        }
+      ]
+    }
   }
 );

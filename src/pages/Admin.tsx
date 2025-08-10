@@ -15,8 +15,8 @@ import { DataAIConfiguration } from '@/components/DataAIConfiguration';
 import TemplateManager from '@/components/TemplateManager';
 import { AdminSettings } from '@/components/AdminSettings';
 import { LogOut, Settings } from 'lucide-react';
-import { SmartCreditImport } from '@/components/SmartCreditImport';
-import SmartCreditImportPanel from '@/components/SmartCreditImportPanel';
+// Smart Credit admin UI removed
+
 
 const Admin = () => {
   const navigate = useNavigate();
@@ -212,11 +212,10 @@ const Admin = () => {
           </Card>
         )}
 
-        {/* AI Training Tab */}
         {activeView === 'ai' && (
           <>
             <DataAIConfiguration />
-            <SmartCreditImport />
+            <div id="smart-credit-slot" aria-hidden="true" />
           </>
         )}
 

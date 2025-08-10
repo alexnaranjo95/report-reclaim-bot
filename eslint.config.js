@@ -24,6 +24,21 @@ export default tseslint.config(
         { allowConstantExport: true },
       ],
       "@typescript-eslint/no-unused-vars": "off",
+      // Block reintroduction of removed SDKs
+      "no-restricted-imports": [
+        "error",
+        {
+          "patterns": [
+            "@aws-sdk/*",
+            "@google-cloud/documentai*",
+            "@google-cloud/*",
+            "@adobe/pdfservices*",
+            "pdfservices-sdk*",
+            "aws-sdk*",
+            "textract*"
+          ]
+        }
+      ],
     },
   }
 );

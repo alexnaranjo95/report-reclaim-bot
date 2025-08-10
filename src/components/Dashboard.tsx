@@ -4,8 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import SmartCreditLoginForm from './SmartCreditLoginForm';
-import { SmartCreditImportPanel } from './SmartCreditImportPanel';
+// Smart Credit UI removed
+
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
 import { DisputeLetterDrafts } from './DisputeLetterDrafts';
@@ -816,12 +816,7 @@ export const Dashboard = () => {
       id="smart-credit-import-panel"
       data-testid="smart-credit-import-panel"
     >
-      <header>
-        <h2 className="text-xl font-semibold">Smart Credit</h2>
-        <p className="text-muted-foreground">Import and monitor live extraction from SmartCredit.</p>
-      </header>
-      <SmartCreditLoginForm />
-      <SmartCreditImportPanel />
+      <div id="smart-credit-slot" aria-hidden="true" />
     </section>
   </div>
 )}

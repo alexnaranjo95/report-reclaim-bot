@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.credit-report-latest]
 verify_jwt = true
+
+[functions.credit-report-latest-raw]
+verify_jwt = true

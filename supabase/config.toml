@@ -32,3 +32,9 @@ verify_jwt = true
 
 [functions.smart-credit-items]
 verify_jwt = true
+
+[functions.browseai-start]
+verify_jwt = false
+
+[functions.browseai-status]
+verify_jwt = false

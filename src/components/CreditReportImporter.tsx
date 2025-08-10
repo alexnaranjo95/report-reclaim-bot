@@ -22,57 +22,55 @@ export const CreditReportImporter: React.FC<CreditReportImporterProps> = ({ onIm
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setError("Please enter both email and password");
+    
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter both email and password');
       return;
     }
 
     setLoading(true);
-    setError(null);
+    setError('');
 
     try {
-      // Generate unique run ID
-      const runId = crypto.randomUUID();
-      
-      // Start the import process by calling the SSE endpoint
-      const session = await supabase.auth.getSession();
-      const response = await fetch(`https://rcrpqdhfawtpjicttgvx.supabase.co/functions/v1/smart-credit-import-stream`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.data.session?.access_token}`,
-          "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjcnBxZGhmYXd0cGppY3R0Z3Z4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQwODgwODcsImV4cCI6MjA2OTY2NDA4N30.VRL8ce0_R1Qmkp5BlgYm5oL-1DaTFMMFlttSCrF7CxU",
-        },
-        body: JSON.stringify({
-          runId,
-          email,
-          password
-        })
+      // Call the BrowseAI connection service
+      const { data, error } = await supabase.functions.invoke('smart-credit-connect-and-start', {
+        body: { email: email.trim(), password: password.trim() },
       });
 
-      if (response.ok) {
-        // Navigate to credit report page with runId
-        onImportStart?.(runId);
-        navigate(`/credit-report?runId=${runId}`);
-      } else {
-        const errorText = await response.text();
-        throw new Error(`Import failed: ${errorText}`);
+      if (error) {
+        throw new Error(error.message || 'Failed to connect to service');
       }
-    } catch (error: any) {
-      console.error("Import error:", error);
-      
-      // Map error messages for user-friendly display
-      let errorMessage = error?.message || "Failed to start credit report import";
-      
-      if (errorMessage.includes("AUTH_BAD_CREDENTIALS")) {
-        errorMessage = "Invalid email or password for your credit report account";
-      } else if (errorMessage.includes("E_AUTH")) {
-        errorMessage = "Authentication required. Please log in to continue.";
-      } else if (errorMessage.includes("E_CONFIG")) {
-        errorMessage = "Service configuration error. Please contact support.";
+
+      if (!data?.ok) {
+        // Handle specific error codes from the service
+        const errorCode = data?.code || 'UNKNOWN_ERROR';
+        const errorMessage = data?.message || 'Failed to start import';
+        
+        if (errorCode === 'AUTH_BAD_KEY') {
+          throw new Error('Service configuration error. Please contact support.');
+        } else if (errorCode === 'ROBOT_NOT_FOUND') {
+          throw new Error('Import service not available. Please contact support.');
+        } else if (errorCode === 'RUN_FAILED') {
+          throw new Error(`Import failed: ${errorMessage}`);
+        } else if (errorCode === 'E_INPUT') {
+          throw new Error('Please enter valid email and password');
+        } else {
+          throw new Error(errorMessage);
+        }
       }
+
+      const runId = data.runId;
+      if (!runId) {
+        throw new Error('Invalid response from service - no run ID received');
+      }
+
+      console.log('Import connection successful, runId:', runId);
       
-      setError(errorMessage);
+      // Call parent callback with runId (this will trigger navigation and monitoring)
+      onImportStart?.(runId);
+    } catch (err: any) {
+      console.error('Import connection error:', err);
+      setError(err.message || 'Failed to start credit report import');
     } finally {
       setLoading(false);
     }

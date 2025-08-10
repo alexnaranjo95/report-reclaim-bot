@@ -13,6 +13,7 @@ import VirtualizedHtmlList from "@/components/VirtualizedHtmlList";
 import JsonView from "@/components/JsonView";
 import { fetchLatestWithFallback } from "@/services/NormalizedReportService";
 import { supabase } from "@/integrations/supabase/client";
+import { CreditReportImporter } from "@/components/CreditReportImporter";
 
 interface LoadingStep {
   id: string;
@@ -123,9 +124,63 @@ const CreditReportsPage: React.FC = () => {
   const [renderSuccess, setRenderSuccess] = React.useState(false);
   const [pollingActive, setPollingActive] = React.useState(false);
   const [checkingStatus, setCheckingStatus] = React.useState(false);
+  const [showImporter, setShowImporter] = React.useState(false);
+  const [activeRunId, setActiveRunId] = React.useState<string | undefined>(undefined);
 
   const params = new URLSearchParams(window.location.search);
   const runId = params.get("runId") || undefined;
+
+  const handleImportStart = async (runId: string) => {
+    console.log('Import started with runId:', runId);
+    
+    // Update URL with runId and start monitoring
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.set('runId', runId);
+    window.history.pushState({}, '', newUrl.toString());
+    
+    setActiveRunId(runId);
+    setShowImporter(false);
+    setCheckingStatus(true);
+    
+    // Reset steps to initial state - start with connecting
+    setSteps([
+      { id: 'connecting', label: 'Connecting', status: 'active' },
+      { id: 'scraping', label: 'Scraping', status: 'pending' },
+      { id: 'saving', label: 'Saving & Rendering', status: 'pending' }
+    ]);
+    
+    // Start the streaming process
+    startEventSourceMonitoring(runId);
+  };
+
+  // Monitor active runId from URL  
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const runId = params.get('runId');
+    
+    if (runId && runId !== activeRunId) {
+      setActiveRunId(runId);
+      setCheckingStatus(true);
+      
+      // Reset steps to initial state
+      setSteps([
+        { id: 'connecting', label: 'Connecting', status: 'active' },
+        { id: 'scraping', label: 'Scraping', status: 'pending' },
+        { id: 'saving', label: 'Saving & Rendering', status: 'pending' }
+      ]);
+      
+      startEventSourceMonitoring(runId);
+    } else if (!runId) {
+      setShowImporter(true);
+      setLoading(false);
+    }
+  }, [activeRunId]);
+
+  // Separate function for starting event source monitoring
+  const startEventSourceMonitoring = (runId: string) => {
+    // Implementation moved to useEffect below
+    setActiveRunId(runId);
+  };
 
   // EventSource and polling logic
   React.useEffect(() => {
@@ -179,58 +234,92 @@ const CreditReportsPage: React.FC = () => {
 
     const startEventSource = () => {
       try {
-        eventSource = new EventSource(`/functions/v1/smart-credit-import-stream?runId=${runId}`);
+        // Create EventSource with proper URL
+        const streamUrl = `${window.location.origin}/functions/v1/smart-credit-import-stream`;
+        console.log('Creating EventSource for:', streamUrl);
         
-        if (eventSource) {
-          eventSource.onopen = () => {
-            console.log('EventSource opened');
-            setSteps(prev => prev.map(s => s.id === 'connecting' ? { ...s, status: 'completed' } : s));
-          };
-
-          eventSource.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            console.log('EventSource message:', data);
-            
-            if (data.type === 'connecting') {
-              setSteps(prev => prev.map(s => s.id === 'connecting' ? { ...s, status: 'active' } : s));
-            } else if (data.type === 'scraping') {
-              setSteps(prev => prev.map(s => 
-                s.id === 'connecting' ? { ...s, status: 'completed' } :
-                s.id === 'scraping' ? { ...s, status: 'active' } : s
-              ));
-            } else if (data.type === 'snapshot' || data.type === 'done') {
-              setSteps(prev => prev.map(s => ({ ...s, status: 'completed' })));
-              setCheckingStatus(false);
-              setPollingActive(false);
-              if (eventSource) {
-                eventSource.close();
-                eventSource = null;
+        // Use POST request for EventSource with runId in body
+        supabase.auth.getSession().then(({ data }) => {
+          return fetch(streamUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${data.session?.access_token || ''}`,
+            },
+            body: JSON.stringify({ runId })
+          });
+        }).then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error('No response body reader');
+          
+          const pump = () => {
+            return reader.read().then(({ done, value }) => {
+              if (done) {
+                console.log('Stream complete');
+                return;
               }
-              // Trigger data refetch
-              fetchData();
-            }
+              
+              const chunk = new TextDecoder().decode(value);
+              const lines = chunk.split('\n');
+              
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    console.log('Stream message:', data);
+                    
+                    if (data.type === 'status' && data.status === 'connecting') {
+                      setSteps(prev => prev.map(s => s.id === 'connecting' ? { ...s, status: 'active' } : s));
+                    } else if (data.type === 'status' && data.status === 'scraping') {
+                      setSteps(prev => prev.map(s => 
+                        s.id === 'connecting' ? { ...s, status: 'completed' } :
+                        s.id === 'scraping' ? { ...s, status: 'active' } : s
+                      ));
+                    } else if (data.type === 'snapshot' || data.type === 'done') {
+                      setSteps(prev => prev.map(s => ({ ...s, status: 'completed' })));
+                      setCheckingStatus(false);
+                      setPollingActive(false);
+                      // Trigger data refetch
+                      fetchData();
+                      return;
+                    } else if (data.type === 'error') {
+                      console.error('Stream error:', data);
+                      setSteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' } : s));
+                      setCheckingStatus(false);
+                      setPollingActive(false);
+                      return;
+                    }
+                  } catch (parseError) {
+                    console.warn('Failed to parse stream data:', parseError);
+                  }
+                }
+              }
+              
+              return pump();
+            });
           };
-
-          eventSource.onerror = (error) => {
-            console.error('EventSource error:', error);
-            if (eventSource) {
-              eventSource.close();
-              eventSource = null;
-            }
-            // Start polling fallback after 15s
-            silenceTimer = setTimeout(() => {
-              startPolling();
-            }, 15000);
-          };
-        }
+          
+          return pump();
+        }).catch(error => {
+          console.error('Stream fetch error:', error);
+          // Start polling fallback after 15s
+          silenceTimer = setTimeout(() => {
+            startPolling();
+          }, 15000);
+        });
+        
       } catch (error) {
-        console.error('Failed to create EventSource:', error);
+        console.error('Failed to create stream:', error);
         // Fallback to polling immediately
         startPolling();
       }
     };
 
-    // Try EventSource first, fallback to polling
+    // Try streaming first, fallback to polling
     startEventSource();
 
     // Initial data fetch
@@ -341,7 +430,11 @@ const CreditReportsPage: React.FC = () => {
       )}
 
       <div className="container mx-auto px-6 py-8 space-y-6">
-        {loading ? (
+        {showImporter ? (
+          <div className="flex items-center justify-center min-h-[50vh]">
+            <CreditReportImporter onImportStart={handleImportStart} />
+          </div>
+        ) : loading ? (
           <div className="space-y-4">
             <Skeleton className="h-8 w-64" />
             <Skeleton className="h-10 w-full" />

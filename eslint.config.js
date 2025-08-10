@@ -42,7 +42,10 @@ export default tseslint.config(
             "pdf-lib",
             "pdf-parse",
             "jspdf",
-            "html2pdf.js"
+            "html2pdf.js",
+            "*documentai*",
+            "*textract*",
+            "*pdf*"
           ]
         }
       ],

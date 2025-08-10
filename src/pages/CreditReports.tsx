@@ -198,7 +198,7 @@ const CreditReportsPage: React.FC = () => {
     }
     return (
       <div className="rounded-md border border-success/30 bg-success/10 px-4 py-3 text-success">
-        Loaded {rows} rows · {loadedAt}
+        Saved & Rendered at {loadedAt}
       </div>
     );
   }, [loading, errorCode, rows, loadedAt]);

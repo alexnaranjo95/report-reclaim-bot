@@ -28,7 +28,7 @@ export async function startRun({ robotId, username, password }: StartRunParams):
   const payload: Record<string, any> = { username, password };
   if (robotId) payload.robotId = robotId;
 
-  const { data, error } = await supabase.functions.invoke("browseai-start", {
+  const { data, error } = await supabase.functions.invoke("smart-credit-connect-and-start", {
     body: payload,
   });
 

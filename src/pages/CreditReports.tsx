@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { Separator } from "@/components/ui/separator";
 import AccountHeader from "@/components/AccountHeader";
 import { fetchLatestWithFallback, ingestCreditReport } from "@/services/NormalizedReportService";
@@ -8,6 +8,8 @@ import { CreditReportDashboard, CreditReportData } from "@/components/CreditRepo
 import { Skeleton } from "@/components/ui/skeleton";
 import { EnhancedProgressBar } from "@/components/EnhancedProgressBar";
 import JsonView from "@/components/JsonView";
+import { Input } from "@/components/ui/input";
+import { startRun } from "@/lib/browseAi";
 
 
 const FUNCTIONS_BASE = "https://rcrpqdhfawtpjicttgvx.functions.supabase.co/functions/v1";
@@ -80,6 +82,12 @@ const CreditReportsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   
   const runId = searchParams.get("runId");
+
+  const navigate = useNavigate();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [isStarting, setIsStarting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -187,7 +195,22 @@ const CreditReportsPage: React.FC = () => {
       await refetchLatest();
     } catch {}
   };
-
+  const handleStart = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setIsStarting(true);
+    try {
+      const { runId } = await startRun({ username, password });
+      setIsProcessing(true);
+      setCurrentStep(1);
+      setCurrentStatus("connecting");
+      navigate(`/credit-report?runId=${encodeURIComponent(runId)}`);
+    } catch (err: any) {
+      setFormError(err?.message || "Failed to start import");
+    } finally {
+      setIsStarting(false);
+    }
+  };
 
 
   const banner = useMemo(() => {
@@ -212,17 +235,35 @@ const CreditReportsPage: React.FC = () => {
       <div className="container mx-auto px-6 py-8 space-y-6">
         <h1 id="credit-report-title" className="text-2xl font-semibold tracking-tight">{isProcessing ? "Importing Credit Report" : "Credit Report"}</h1>
 
-        {runId && (
-          <div data-testid="smart-import-progress">
-            <EnhancedProgressBar
-              currentStep={currentStep}
-              totalSteps={totalSteps}
-              currentStatus={currentStatus}
-              isProcessing={isProcessing}
-              hasError={false}
-            />
-          </div>
-        )}
+        <section className="rounded-md border bg-card p-4 space-y-3" aria-labelledby="smart-credit-connect">
+          <h2 id="smart-credit-connect" className="text-base font-medium">Smart Credit Connection</h2>
+          <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={handleStart}>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="sc-username" className="text-sm">Username</label>
+              <Input id="sc-username" type="text" required value={username} onChange={(e) => setUsername(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="sc-password" className="text-sm">Password</label>
+              <Input id="sc-password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            <div className="sm:col-span-2 flex items-center gap-3">
+              <Button type="submit" disabled={isStarting || !username || !password}>
+                {isStarting ? "Connecting..." : "Connect & Import"}
+              </Button>
+              {formError && <span className="text-destructive text-sm">{formError}</span>}
+            </div>
+          </form>
+        </section>
+
+        <div data-testid="smart-import-progress">
+          <EnhancedProgressBar
+            currentStep={currentStep}
+            totalSteps={totalSteps}
+            currentStatus={currentStatus}
+            isProcessing={isProcessing}
+            hasError={false}
+          />
+        </div>
 
         {banner}
 

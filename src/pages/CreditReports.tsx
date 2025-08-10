@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import CreditReportRawDashboard from "@/components/CreditReportRawDashboard";
-
+import CreditReportDataPanel from "@/components/CreditReportDataPanel";
+import { Separator } from "@/components/ui/separator";
 const CreditReportsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-dashboard">
@@ -18,9 +19,9 @@ const CreditReportsPage: React.FC = () => {
                 </Link>
               </Button>
               <div>
-                <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                <p className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
                   Credit Report (Raw Import)
-                </h1>
+                </p>
                 <p className="text-muted-foreground">
                   Lossless view of your latest scraper payload
                 </p>
@@ -29,9 +30,9 @@ const CreditReportsPage: React.FC = () => {
           </div>
         </div>
       </header>
-
-      {/* Preserve container spacing/gaps */}
-      <div className="container mx-auto px-6 py-8 space-y-6">
+      <div className="container mx-auto px-6 py-8 space-y-8">
+        <CreditReportDataPanel />
+        <Separator />
         <CreditReportRawDashboard />
       </div>
     </div>

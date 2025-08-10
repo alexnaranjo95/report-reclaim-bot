@@ -46,17 +46,19 @@ serve(async (req: Request) => {
       return json({ code: "E_CONFIG", message: "Missing Supabase config" }, 500);
     }
 
-    // Enforce service role only via custom header
-    const providedServiceKey = req.headers.get("x-service-role-key");
-    if (!providedServiceKey || providedServiceKey !== serviceKey) {
-      return json({ code: "E_RLS_DENIED", message: "Service role required" }, 403);
-    }
-
+    // Parse body first to allow public dryRun mode
     const body = (await req.json().catch(() => ({}))) as IngestBody;
     const runId = body.runId?.trim();
     const userId = body.userId?.trim();
     const dryRun = body.dryRun === true || body.dryRun === 1 || body.dryRun === "1";
 
+    // Enforce service role header for real ingests only
+    if (!dryRun) {
+      const providedServiceKey = req.headers.get("x-service-role-key");
+      if (!providedServiceKey || providedServiceKey !== serviceKey) {
+        return json({ code: "E_RLS_DENIED", message: "Service role required" }, 403);
+      }
+    }
     if (!dryRun) {
       if (!runId || !userId || !body.payload) {
         return json({ code: "E_SCHEMA_INVALID", message: "runId, userId and payload are required" }, 400);

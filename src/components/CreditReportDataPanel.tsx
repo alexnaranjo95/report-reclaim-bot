@@ -171,8 +171,9 @@ const CreditReportDataPanel: React.FC = () => {
     setError(null);
     try {
       const data = await fetchLatestNormalizedByUser(user.id);
-      setLatest(data as any);
-      const total = (data.counts?.realEstate || 0) + (data.counts?.revolving || 0) + (data.counts?.other || 0);
+      const counts = (data as any)?.counts || {};
+      setLatest({ ...(data as any), counts } as any);
+      const total = (counts.realEstate || 0) + (counts.revolving || 0) + (counts.other || 0);
       setSuccessRows(total);
     } catch (e: any) {
       setError(e?.message || 'Failed to load report');
@@ -266,8 +267,25 @@ const CreditReportDataPanel: React.FC = () => {
         </Alert>
       )}
 
+      {/* Empty state when no report */}
+      {!loading && !error && (!latest || !latest.report) && (
+        <Card>
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <div className="font-medium">No normalized report yet.</div>
+              <div className="text-sm text-muted-foreground">Run a dry import to preview the UI instantly.</div>
+            </div>
+            <Button size="sm" onClick={() => {
+              supabase.functions.invoke('credit-report-ingest', { body: { dryRun: 1 } } as any)
+                .then(() => { loadLatest(); loadAccounts(category); })
+                .catch((e) => toast.error((e as any)?.message || 'Failed to start dry run'))
+            }}>Run Import (Dry Run)</Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Scores */}
-      {!loading && latest && (
+      {!loading && latest?.report && (
         <div data-testid="credit-report-scores">
           <SectionTitle>Credit Scores</SectionTitle>
           <div className="mt-3 flex flex-wrap gap-3">
@@ -279,7 +297,7 @@ const CreditReportDataPanel: React.FC = () => {
       )}
 
       {/* Consumer Statements */}
-      {!loading && latest && (
+      {!loading && latest?.report && (
         <div>
           <SectionTitle>Consumer Statements</SectionTitle>
           <div className="mt-3">
@@ -319,7 +337,7 @@ const CreditReportDataPanel: React.FC = () => {
       )}
 
       {/* Public Records */}
-      {!loading && latest && (
+      {!loading && latest?.report && (
         <div>
           <SectionTitle id="public-records">Public Records</SectionTitle>
           <div className="mt-3" data-testid="credit-report-public-records">
@@ -333,7 +351,7 @@ const CreditReportDataPanel: React.FC = () => {
       )}
 
       {/* Collections */}
-      {!loading && latest && (
+      {!loading && latest?.report && (
         <div>
           <SectionTitle>Collections</SectionTitle>
           <div className="mt-3" data-testid="credit-report-collections">
@@ -347,7 +365,7 @@ const CreditReportDataPanel: React.FC = () => {
       )}
 
       {/* Inquiries */}
-      {!loading && latest && (
+      {!loading && latest?.report && (
         <div>
           <SectionTitle>Inquiries</SectionTitle>
           <div className="mt-3" data-testid="credit-report-inquiries">
@@ -361,7 +379,7 @@ const CreditReportDataPanel: React.FC = () => {
       )}
 
       {/* Creditor Addresses */}
-      {!loading && latest && (
+      {!loading && latest?.report && (
         <div>
           <SectionTitle>Creditor Addresses</SectionTitle>
           <div className="mt-3" data-testid="credit-report-addresses">
@@ -375,7 +393,7 @@ const CreditReportDataPanel: React.FC = () => {
       )}
 
       {/* Raw JSON viewer */}
-      {!loading && latest && (
+      {!loading && latest?.report && (
         <CollapsibleRaw data={latest.report} />
       )}
     </div>

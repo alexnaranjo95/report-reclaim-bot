@@ -54,15 +54,18 @@ serve(async (req: Request) => {
         .maybeSingle();
 
       if (error) {
-        console.error("credit-report-latest select error", error.message);
-        return new Response(JSON.stringify({ error: "Database error" }), {
-          status: 500,
+        const msg = error.message || "Database error";
+        const isRls = /permission denied/i.test(msg);
+        const code = isRls ? "E_RLS_DENIED" : "E_DB_SELECT";
+        const status = isRls ? 403 : 500;
+        return new Response(JSON.stringify({ code, message: msg }), {
+          status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       if (!data) {
-        return new Response(JSON.stringify({ error: "Not found" }), {
+        return new Response(JSON.stringify({ code: "E_NOT_FOUND", message: "Report not found" }), {
           status: 404,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -89,18 +92,27 @@ serve(async (req: Request) => {
       .maybeSingle();
 
     if (latestErr) {
-      console.error("credit-report-latest select latest error", latestErr.message);
-      return new Response(JSON.stringify({ error: "Database error" }), {
-        status: 500,
+      const msg = latestErr.message || "Database error";
+      const isRls = /permission denied/i.test(msg);
+      const code = isRls ? "E_RLS_DENIED" : "E_DB_SELECT";
+      const status = isRls ? 403 : 500;
+      return new Response(JSON.stringify({ code, message: msg }), {
+        status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     if (!latest) {
-      return new Response(JSON.stringify({ error: "Not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          runId: null,
+          collectedAt: null,
+          version: "v1",
+          report: null,
+          counts: { realEstate: 0, revolving: 0, other: 0 },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // Derived counts

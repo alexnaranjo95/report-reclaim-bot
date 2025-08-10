@@ -89,18 +89,49 @@ export async function fetchLatestNormalized(runId: string) {
   const { data, error } = await supabase.functions.invoke("credit-report-latest", {
     body: { runId },
   });
-  if (error) throw new Error(((data as any)?.error as string) || error.message);
-  return data as { runId: string; collectedAt: string; version: string; report: any; counts?: any };
+  if (error) {
+    const status = (error as any)?.context?.response?.status;
+    const code = (data as any)?.code;
+    if (status === 404 || code === "E_NOT_FOUND") {
+      return {
+        runId: null,
+        collectedAt: null,
+        version: "v1",
+        report: null,
+        counts: { realEstate: 0, revolving: 0, other: 0 },
+      };
+    }
+    const message = ((data as any)?.message || (data as any)?.error || error.message) as string;
+    throw new Error(message);
+  }
+  const rawCounts = (data as any)?.counts;
+  const flattenedCounts = rawCounts?.accounts ? rawCounts.accounts : rawCounts;
+  return { ...(data as any), counts: flattenedCounts } as { runId: string | null; collectedAt: string | null; version: string; report: any; counts?: any };
 }
 
 export async function fetchLatestNormalizedByUser(userId: string) {
   const { data, error } = await supabase.functions.invoke("credit-report-latest", {
     body: { userId },
   });
-  if (error) throw new Error(((data as any)?.error as string) || error.message);
-  return data as { runId: string; collectedAt: string; version: string; report: any; counts?: any };
+  if (error) {
+    const status = (error as any)?.context?.response?.status;
+    const code = (data as any)?.code;
+    if (status === 404 || code === "E_NOT_FOUND") {
+      return {
+        runId: null,
+        collectedAt: null,
+        version: "v1",
+        report: null,
+        counts: { realEstate: 0, revolving: 0, other: 0 },
+      };
+    }
+    const message = ((data as any)?.message || (data as any)?.error || error.message) as string;
+    throw new Error(message);
+  }
+  const rawCounts = (data as any)?.counts;
+  const flattenedCounts = rawCounts?.accounts ? rawCounts.accounts : rawCounts;
+  return { ...(data as any), counts: flattenedCounts } as { runId: string | null; collectedAt: string | null; version: string; report: any; counts?: any };
 }
-
 export async function fetchAccountsByCategory(category: string, limit = 50, cursor?: string) {
   const { data, error } = await supabase.functions.invoke("credit-report-accounts", {
     body: { category, limit, cursor },

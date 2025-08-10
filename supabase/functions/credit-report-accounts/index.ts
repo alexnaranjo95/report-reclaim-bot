@@ -34,7 +34,9 @@ serve(async (req: Request) => {
     const limit = Number((isGet ? url.searchParams.get("limit") : body?.limit) ?? 50);
     const cursor = (isGet ? url.searchParams.get("cursor") : body?.cursor) ?? null;
 
-    if (!category) return json({ error: "category is required" }, 400);
+    const allowed = new Set(["realEstate", "revolving", "other"]);
+    if (!category) return json({ code: "E_SCHEMA_INVALID", message: "category is required" }, 400);
+    if (!allowed.has(String(category))) return json({ code: "E_SCHEMA_INVALID", message: "Invalid category" }, 400);
 
     let query = supabase
       .from("normalized_credit_accounts")

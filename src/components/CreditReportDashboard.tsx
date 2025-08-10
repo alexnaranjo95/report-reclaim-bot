@@ -356,7 +356,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
           <PaymentHistoryHeatmap accounts={data.accounts} />
         </TabsContent>
 
-        <TabsContent value="inquiries">
+        <TabsContent value="inquiries" data-testid="credit-report-inquiries">
           <InquiriesTimeline inquiries={data.inquiries} />
         </TabsContent>
 

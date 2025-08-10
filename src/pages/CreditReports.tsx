@@ -8,6 +8,7 @@ import { CreditReportDashboard, CreditReportData } from "@/components/CreditRepo
 import { Skeleton } from "@/components/ui/skeleton";
 import { EnhancedProgressBar } from "@/components/EnhancedProgressBar";
 import JsonView from "@/components/JsonView";
+import { supabase } from "@/integrations/supabase/client";
 
 const FUNCTIONS_BASE = "https://rcrpqdhfawtpjicttgvx.functions.supabase.co/functions/v1";
 
@@ -89,8 +90,8 @@ const CreditReportsPage: React.FC = () => {
   // Progress / SSE
   const [isProcessing, setIsProcessing] = useState<boolean>(!!runId);
   const [currentStep, setCurrentStep] = useState<number>(1);
-  const totalSteps = 10;
-  const [currentStatus, setCurrentStatus] = useState<string>("uploading");
+  const totalSteps = 3;
+  const [currentStatus, setCurrentStatus] = useState<string>("connecting");
 
   const esRef = useRef<EventSource | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -145,11 +146,14 @@ const CreditReportsPage: React.FC = () => {
       es.onmessage = (evt) => {
         lastEventAtRef.current = Date.now();
         const payload = (() => { try { return JSON.parse(evt.data); } catch { return {}; } })();
-        // advance progress heuristically
-        setCurrentStep((s) => Math.min(totalSteps, s + 1));
-        setCurrentStatus(payload?.status || "parsing");
-        // snapshot/done triggers immediate refresh
+        const status = (payload?.status || "connecting") as string;
+        // map status to steps
+        const step = status === "connecting" ? 1 : status === "scraping" ? 2 : 3;
+        setCurrentStep(step);
+        setCurrentStatus(status);
+        // snapshot/done triggers immediate refresh + custom event
         if (payload?.type === "snapshot" || payload?.type === "done") {
+          window.dispatchEvent(new CustomEvent("credit_report_ingested", { detail: { runId } }));
           refetchLatest();
         }
       };
@@ -212,14 +216,12 @@ const CreditReportsPage: React.FC = () => {
 
   // Start Import flow
   const startImport = async () => {
-    const res = await fetch(`${FUNCTIONS_BASE}/smart-credit-connect-and-start`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
+    if (!username || !password) return;
+    const { data, error } = await supabase.functions.invoke("smart-credit-connect-and-start", {
+      body: { username, password },
     });
-    const j = await res.json().catch(() => ({}));
-    if (j?.ok && j?.runId) {
-      navigate(`/credit-report?runId=${encodeURIComponent(j.runId)}`);
+    if (!error && (data as any)?.ok && (data as any)?.runId) {
+      navigate(`/credit-report?runId=${encodeURIComponent((data as any).runId)}`);
     }
   };
 
@@ -234,41 +236,33 @@ const CreditReportsPage: React.FC = () => {
     }
     return (
       <div className="rounded-md border border-success/30 bg-success/10 px-4 py-3 text-success">
-        Loaded {rows} rows at {loadedAt}
+        Loaded {rows} rows · {loadedAt}
       </div>
     );
   }, [loading, errorCode, rows, loadedAt]);
 
   return (
     <div className="min-h-screen bg-gradient-dashboard">
-      <AccountHeader title="Credit Report" subtitle="Lossless view of your latest scraper payload" backTo="/" />
+      <AccountHeader title={isProcessing ? "Importing Credit Report" : "Credit Report"} subtitle="Lossless view of your latest scraper payload" backTo="/" />
       <div className="container mx-auto px-6 py-8 space-y-6">
-        <h1 id="credit-report-title" className="text-2xl font-semibold tracking-tight">Credit Report</h1>
+        <h1 id="credit-report-title" className="text-2xl font-semibold tracking-tight">{isProcessing ? "Importing Credit Report" : "Credit Report"}</h1>
 
-        {/* Credentials + Import Controls (does not block rendering) */}
+        {/* Credentials + Import Controls */}
         <div className="rounded-lg border bg-card text-card-foreground p-4">
-          {!credsSaved ? (
-            <div className="flex flex-col md:flex-row items-start md:items-end gap-3">
-              <div className="flex flex-col gap-1 w-full md:w-64">
-                <label className="text-sm text-muted-foreground">Username</label>
-                <input className="px-3 py-2 rounded-md border bg-background" value={username} onChange={e=>setUsername(e.target.value)} required />
-              </div>
-              <div className="flex flex-col gap-1 w-full md:w-64">
-                <label className="text-sm text-muted-foreground">Password</label>
-                <input className="px-3 py-2 rounded-md border bg-background" type="password" value={password} onChange={e=>setPassword(e.target.value)} required />
-              </div>
-              <Button onClick={saveCreds} disabled={saving || !username || !password}>Save</Button>
-              <Button variant="secondary" onClick={startImport} disabled={!username || !password}>Connect & Import</Button>
+          <form
+            className="flex flex-col md:flex-row items-start md:items-end gap-3"
+            onSubmit={(e) => { e.preventDefault(); startImport(); }}
+          >
+            <div className="flex flex-col gap-1 w-full md:w-64">
+              <label className="text-sm text-muted-foreground">Username</label>
+              <input className="px-3 py-2 rounded-md border bg-background" value={username} onChange={e=>setUsername(e.target.value)} required />
             </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div className="text-sm">Credentials saved • {username ? `${username.slice(0,2)}***` : "***"}</div>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={startImport}>Start Import</Button>
-                <Button variant="outline" onClick={resetCreds}>Reset</Button>
-              </div>
+            <div className="flex flex-col gap-1 w-full md:w-64">
+              <label className="text-sm text-muted-foreground">Password</label>
+              <input className="px-3 py-2 rounded-md border bg-background" type="password" value={password} onChange={e=>setPassword(e.target.value)} required />
             </div>
-          )}
+            <Button type="submit" disabled={!username || !password}>Connect & Import</Button>
+          </form>
         </div>
 
         {runId && (
@@ -294,6 +288,38 @@ const CreditReportsPage: React.FC = () => {
         ) : (
           <>
             <CreditReportDashboard data={mapToDashboard(latest)} />
+
+            {/* Consumer Statements */}
+            <section className="space-y-3" data-testid="credit-report-statements">
+              <h3 className="text-lg font-semibold">Consumer Statements</h3>
+              <div className="rounded-md border bg-card p-4 space-y-2">
+                {(latest?.report?.consumerStatements || []).length === 0 ? (
+                  <p className="text-muted-foreground">N/A</p>
+                ) : (
+                  (latest?.report?.consumerStatements || []).map((s: any, i: number) => (
+                    <div key={i} className="text-sm">
+                      <span className="font-medium">{s?.bureau || ""}</span>: {s?.statement || s?.text || "N/A"}
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+            {/* Creditor Addresses */}
+            <section className="space-y-3" data-testid="credit-report-addresses">
+              <h3 className="text-lg font-semibold">Creditor Addresses</h3>
+              <div className="rounded-md border bg-card p-4 space-y-2">
+                {(latest?.report?.addresses || []).length === 0 ? (
+                  <p className="text-muted-foreground">N/A</p>
+                ) : (
+                  (latest?.report?.addresses || []).map((a: any, i: number) => (
+                    <div key={i} className="text-sm">
+                      {a?.creditor ? (<span className="font-medium">{a.creditor}:</span>) : null} {a?.address || a?.text || "N/A"}
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
 
             {/* Raw JSON viewer */}
             <section className="space-y-3" data-testid="credit-report-raw">

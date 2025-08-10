@@ -113,6 +113,8 @@ const CreditReportsPage: React.FC = () => {
       console.log("[CreditReports] latest source:", (data as any)?.source, "counts:", counts, "runId:", runId);
       if (total > 0 || (data as any)?.report) {
         setIsProcessing(false);
+        setCurrentStep(3);
+        setCurrentStatus("done");
       }
     } catch (e: any) {
       setErrorCode(e?.code || "E_FETCH_FAILED");
@@ -161,6 +163,7 @@ const CreditReportsPage: React.FC = () => {
       silenceRef.current = window.setInterval(() => {
         const silentMs = Date.now() - lastEventAtRef.current;
         if (silentMs > 15000 && !pollRef.current) {
+          setCurrentStatus("checking");
           pollRef.current = window.setInterval(refetchLatest, 2000);
         }
       }, 5000);
@@ -204,20 +207,21 @@ const CreditReportsPage: React.FC = () => {
   }, [loading, errorCode, rows, loadedAt]);
 
   return (
-    <div className="min-h-screen bg-gradient-dashboard">
+    <div className="min-h-screen bg-gradient-dashboard" data-testid="credit-report-root">
       <AccountHeader title={isProcessing ? "Importing Credit Report" : "Credit Report"} subtitle="Lossless view of your latest scraper payload" backTo="/" />
       <div className="container mx-auto px-6 py-8 space-y-6">
         <h1 id="credit-report-title" className="text-2xl font-semibold tracking-tight">{isProcessing ? "Importing Credit Report" : "Credit Report"}</h1>
 
-
         {runId && (
-          <EnhancedProgressBar
-            currentStep={currentStep}
-            totalSteps={totalSteps}
-            currentStatus={currentStatus}
-            isProcessing={isProcessing}
-            hasError={false}
-          />
+          <div data-testid="smart-import-progress">
+            <EnhancedProgressBar
+              currentStep={currentStep}
+              totalSteps={totalSteps}
+              currentStatus={currentStatus}
+              isProcessing={isProcessing}
+              hasError={false}
+            />
+          </div>
         )}
 
         {banner}
@@ -269,7 +273,12 @@ const CreditReportsPage: React.FC = () => {
             {/* JSON Return panel (fail-open) */}
             <section className="space-y-3" data-testid="credit-report-raw">
               <h3 className="text-lg font-semibold">JSON Return</h3>
-              <JsonView data={latest?.report ?? latest?.raw ?? latest?.remote ?? {}} />
+              <details className="rounded-md border bg-card p-0" open>
+                <summary className="cursor-pointer list-none rounded-md bg-muted px-4 py-2 text-sm">Toggle Raw JSON</summary>
+                <div className="p-4">
+                  <JsonView data={latest?.report ?? latest?.raw ?? latest?.remote ?? {}} />
+                </div>
+              </details>
             </section>
 
             {errorCode && (

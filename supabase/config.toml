@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.browseai-status]
 verify_jwt = false
+
+[functions.credit-report-latest]
+verify_jwt = true

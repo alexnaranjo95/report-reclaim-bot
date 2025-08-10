@@ -751,6 +751,27 @@ export type Database = {
         }
         Relationships: []
       }
+      credit_reports_raw: {
+        Row: {
+          created_at: string
+          raw_json: Json
+          run_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          raw_json: Json
+          run_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          raw_json?: Json
+          run_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       credit_scores: {
         Row: {
           bureau: Database["public"]["Enums"]["bureau_enum"]
@@ -1092,6 +1113,180 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      normalized_credit_accounts: {
+        Row: {
+          account_number_mask: string | null
+          account_rating: string | null
+          account_status: string | null
+          account_type: string | null
+          balance: number | null
+          bureau: string | null
+          closed_on: string | null
+          collected_at: string | null
+          created_at: string
+          credit_limit: number | null
+          creditor: string | null
+          days_late_7y: Json | null
+          description: string | null
+          dispute_status: string | null
+          high_balance: number | null
+          id: string
+          last_activity_on: string | null
+          last_payment_on: string | null
+          opened_on: string | null
+          past_due: number | null
+          payment_amount: number | null
+          payment_frequency: string | null
+          payment_status: string | null
+          position: number | null
+          remarks: Json | null
+          reported_on: string | null
+          run_id: string
+          status: string | null
+          term_length_months: number | null
+          two_year_history: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_number_mask?: string | null
+          account_rating?: string | null
+          account_status?: string | null
+          account_type?: string | null
+          balance?: number | null
+          bureau?: string | null
+          closed_on?: string | null
+          collected_at?: string | null
+          created_at?: string
+          credit_limit?: number | null
+          creditor?: string | null
+          days_late_7y?: Json | null
+          description?: string | null
+          dispute_status?: string | null
+          high_balance?: number | null
+          id?: string
+          last_activity_on?: string | null
+          last_payment_on?: string | null
+          opened_on?: string | null
+          past_due?: number | null
+          payment_amount?: number | null
+          payment_frequency?: string | null
+          payment_status?: string | null
+          position?: number | null
+          remarks?: Json | null
+          reported_on?: string | null
+          run_id: string
+          status?: string | null
+          term_length_months?: number | null
+          two_year_history?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_number_mask?: string | null
+          account_rating?: string | null
+          account_status?: string | null
+          account_type?: string | null
+          balance?: number | null
+          bureau?: string | null
+          closed_on?: string | null
+          collected_at?: string | null
+          created_at?: string
+          credit_limit?: number | null
+          creditor?: string | null
+          days_late_7y?: Json | null
+          description?: string | null
+          dispute_status?: string | null
+          high_balance?: number | null
+          id?: string
+          last_activity_on?: string | null
+          last_payment_on?: string | null
+          opened_on?: string | null
+          past_due?: number | null
+          payment_amount?: number | null
+          payment_frequency?: string | null
+          payment_status?: string | null
+          position?: number | null
+          remarks?: Json | null
+          reported_on?: string | null
+          run_id?: string
+          status?: string | null
+          term_length_months?: number | null
+          two_year_history?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      normalized_credit_reports: {
+        Row: {
+          collected_at: string | null
+          created_at: string
+          report_json: Json
+          run_id: string
+          updated_at: string
+          user_id: string
+          version: string
+        }
+        Insert: {
+          collected_at?: string | null
+          created_at?: string
+          report_json: Json
+          run_id: string
+          updated_at?: string
+          user_id: string
+          version?: string
+        }
+        Update: {
+          collected_at?: string | null
+          created_at?: string
+          report_json?: Json
+          run_id?: string
+          updated_at?: string
+          user_id?: string
+          version?: string
+        }
+        Relationships: []
+      }
+      normalized_credit_scores: {
+        Row: {
+          bureau: string
+          collected_at: string | null
+          created_at: string
+          id: string
+          position: number | null
+          run_id: string
+          score: number | null
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bureau: string
+          collected_at?: string | null
+          created_at?: string
+          id?: string
+          position?: number | null
+          run_id: string
+          score?: number | null
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bureau?: string
+          collected_at?: string | null
+          created_at?: string
+          id?: string
+          position?: number | null
+          run_id?: string
+          score?: number | null
+          status?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       organizations: {
         Row: {

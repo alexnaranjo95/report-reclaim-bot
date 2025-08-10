@@ -21,6 +21,7 @@ import {
   RefreshCw,
   AlertCircle
 } from 'lucide-react';
+import NormalizedReportPanel from '@/components/NormalizedReportPanel';
 
 const CreditReportsPage: React.FC = () => {
   const { user } = useAuth();
@@ -348,6 +349,15 @@ const CreditReportsPage: React.FC = () => {
             </CardContent>
           </Card>
         )}
+
+        {/* Normalized Report Mount (no layout shifts) */}
+        <div>
+          {/* This mounts the normalized report renderer when ?runId=... is present */}
+          {typeof window !== 'undefined' && new URL(window.location.href).searchParams.get('runId') && (
+            <div className="mt-4">{/* keep spacing unchanged */}<NormalizedReportPanel /></div>
+          )}
+
+        </div>
 
         {/* Reports Content */}
         {loading ? (

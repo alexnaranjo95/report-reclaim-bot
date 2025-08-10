@@ -126,6 +126,7 @@ serve(async (req: Request) => {
         // Step 2: Scraping - Poll for task completion
         send({ type: "status", status: "scraping", step: 2, runId });
         
+        let browseAiTaskResult: any = null;
         let attempts = 0;
         const maxAttempts = 90; // 90 seconds max wait
         

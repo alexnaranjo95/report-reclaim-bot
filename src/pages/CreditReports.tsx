@@ -126,6 +126,7 @@ const CreditReportsPage: React.FC = () => {
   const [checkingStatus, setCheckingStatus] = React.useState(false);
   const [showImporter, setShowImporter] = React.useState(false);
   const [activeRunId, setActiveRunId] = React.useState<string | undefined>(undefined);
+  const [savedAt, setSavedAt] = React.useState<string | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const runId = params.get("runId") || undefined;
@@ -260,6 +261,12 @@ const CreditReportsPage: React.FC = () => {
           const reader = response.body?.getReader();
           if (!reader) throw new Error('No response body reader');
           
+          // Start silence timer to fallback to polling if no SSE within 15s
+          if (silenceTimer) clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(() => {
+            startPolling();
+          }, 15000);
+          
           const pump = () => {
             return reader.read().then(({ done, value }) => {
               if (done) {
@@ -275,6 +282,9 @@ const CreditReportsPage: React.FC = () => {
                   try {
                     const data = JSON.parse(line.slice(6));
                     console.log('Stream message:', data);
+                    // Reset silence timer on every message
+                    if (silenceTimer) clearTimeout(silenceTimer);
+                    silenceTimer = setTimeout(() => { startPolling(); }, 15000);
                     
                     if (data.type === 'status' && data.status === 'connecting') {
                       setSteps(prev => prev.map(s => s.id === 'connecting' ? { ...s, status: 'active' } : s));

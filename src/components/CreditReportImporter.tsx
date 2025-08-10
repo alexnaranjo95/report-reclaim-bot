@@ -79,7 +79,7 @@ export const CreditReportImporter: React.FC<CreditReportImporterProps> = ({ onIm
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
-        <CardTitle>Import Credit Report</CardTitle>
+        <CardTitle>Smart Credit</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -91,13 +91,13 @@ export const CreditReportImporter: React.FC<CreditReportImporterProps> = ({ onIm
           )}
           
           <div className="space-y-2">
-            <Label htmlFor="email">Credit Report Account Email</Label>
+            <Label htmlFor="username">Username</Label>
             <Input
-              id="email"
-              type="email"
+              id="username"
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
+              placeholder="your-username"
               disabled={loading}
               required
             />
@@ -120,10 +120,10 @@ export const CreditReportImporter: React.FC<CreditReportImporterProps> = ({ onIm
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Starting Import...
+                Connecting...
               </>
             ) : (
-              "Import Credit Report"
+              "Connect & Import"
             )}
           </Button>
         </form>

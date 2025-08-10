@@ -12,7 +12,10 @@ import DOMPurify from "dompurify";
 import Papa from "papaparse";
 import { RawReportService } from "@/services/RawReportService";
 import { Download, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
-
+import { normalizeBrowseAI } from "@/services/BrowseAINormalizer";
+import { saveNormalizedReport } from "@/services/NormalizedReportService";
+import { SessionService } from "@/services/SessionService";
+import { Link } from "react-router-dom";
 function isHtmlString(value: any): boolean {
   return (
     typeof value === "string" && /<[^>]+>/.test(value)
@@ -223,7 +226,8 @@ const CreditReportRawDashboard: React.FC = () => {
   const [expandedAll, setExpandedAll] = useState(true);
   const [expandedMap, setExpandedMap] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
-
+  const [saving, setSaving] = useState(false);
+  const [savedRoundId, setSavedRoundId] = useState<string | null>(null);
   const queryRunId = typeof window !== "undefined" ? new URL(window.location.href).searchParams.get("runId") : null;
 
   useEffect(() => {
@@ -298,6 +302,34 @@ const CreditReportRawDashboard: React.FC = () => {
     }
   };
 
+  const onSaveAsRoundOne = async () => {
+    if (!user) {
+      toast.error("You must be signed in.");
+      return;
+    }
+    if (!data || !runId) {
+      toast.error("No report to save.");
+      return;
+    }
+    try {
+      setSaving(true);
+      const report = normalizeBrowseAI(runId, user.id, data);
+      await saveNormalizedReport(user.id, report);
+      const session = await SessionService.createSession("Round 1", {} as any);
+      const round = await SessionService.createOrUpdateRound(session.id, 1, {
+        runId,
+        collectedAt: collectedAt || new Date().toISOString(),
+        scores: report.scores,
+      });
+      setSavedRoundId(round.id);
+      toast.success("Saved as Round 1");
+    } catch (e: any) {
+      toast.error(e?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div data-testid="credit-report-raw-dashboard" className="container mx-auto px-6 py-8 space-y-6">
       <header className="flex items-center justify-between">
@@ -313,6 +345,14 @@ const CreditReportRawDashboard: React.FC = () => {
           <Button variant="outline" onClick={() => fetchData()} disabled={refreshing} className="flex items-center gap-2">
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
           </Button>
+          <Button onClick={onSaveAsRoundOne} disabled={!data || saving}>
+            {saving ? "Saving..." : "Save as Round 1"}
+          </Button>
+          {savedRoundId && (
+            <Button variant="outline" asChild>
+              <Link to="/">Open Round 1</Link>
+            </Button>
+          )}
         </div>
       </header>
 

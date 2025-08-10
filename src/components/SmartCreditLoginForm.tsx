@@ -62,18 +62,40 @@ const SmartCreditLoginForm: React.FC = () => {
         return;
       }
 
+      // Primary path
       const { data, error } = await supabase.functions.invoke("smart-credit-connect-and-start", {
         body: { username, password },
       });
 
-      if (error || !(data as any)?.ok) {
+      let resp: StartImportResponse | null = null;
+
+      if (!error && (data as any)?.ok) {
+        resp = data as StartImportResponse;
+      } else {
         const code = (data as any)?.code || (error as any)?.name || "UNKNOWN_ERROR";
-        const message = errorMessageForCode[code] || (data as any)?.message || (error as any)?.message || "Failed to start import";
-        setError({ code, message });
-        return;
+        const gone = code === "GONE" || (error as any)?.message?.includes("410");
+        if (!gone) {
+          const message = errorMessageForCode[code] || (data as any)?.message || (error as any)?.message || "Failed to start import";
+          setError({ code, message });
+          return;
+        }
+        // Fallback to legacy path
+        const { data: data2, error: err2 } = await supabase.functions.invoke("browseai-start", {
+          body: { username, password },
+        });
+        if (err2) {
+          setError({ message: (err2 as any)?.message || "Failed to start import (fallback)" });
+          return;
+        }
+        const runId = (data2 as any)?.runId;
+        const robotId = (data2 as any)?.robotId;
+        if (!runId) {
+          setError({ message: "No run id returned by scraper (fallback)." });
+          return;
+        }
+        resp = { ok: true, runId, browseai: { taskId: runId, jobId: robotId } };
       }
 
-      const resp = data as StartImportResponse;
       // Minimal guard
       if (!resp?.runId) {
         setError({ message: "No run id returned by scraper." });

@@ -237,31 +237,74 @@ serve(async (req: Request) => {
     }
 
     // Normalize minimal: preserve raw in rawSections for audit
-    const report = { rawSections: rawPayload, scores: [] as any[], consumerStatements: [] as any[], accounts: { realEstate: [] as any[], revolving: [] as any[], other: [] as any[] }, inquiries: [], collections: [], addresses: [] } as any;
+    let normalizedOk = true;
+    const report = { rawSections: rawPayload, scores: [] as any[], consumerStatements: [] as any[], accounts: { realEstate: [] as any[], revolving: [] as any[], other: [] as any[] }, inquiries: [] as any[], collections: [] as any[], addresses: [] as any[], personalInfo: {} as any } as any;
 
-    // Extremely permissive mapping for scores
+    // Extremely permissive mapping for scores and truncated list names
     try {
       const lists: any[] = rawPayload?.capturedLists ?? [];
       for (const lst of lists) {
         const name = String(lst?.name ?? "").toLowerCase();
+        const items = lst?.items ?? [];
+
+        // Scores e.g. "Credit Score" with values like "Transunion®\n620"
         if (name.includes("score")) {
-          const items = lst?.items ?? [];
           for (const it of items) {
-            const braw = it?.bureau ?? it?.Bureau ?? it?.source ?? "";
-            const bureau = String(braw).match(/experian|equifax|transunion/i)?.[0] ?? "";
-            const scoreVal = Number(String(it?.score ?? it?.value ?? it?.Score ?? "").replace(/[^0-9]/g, "")) || null;
-            report.scores.push({ bureau: bureau ? bureau[0].toUpperCase() + bureau.slice(1).toLowerCase() : "", score: scoreVal, status: it?.status ?? it?.Status ?? null, position: it?.position ?? null });
+            const rawText = String(it?.value ?? it?.score ?? it?.Score ?? it?.text ?? "");
+            const bureauFromText = rawText.match(/experian|equifax|transunion/i)?.[0] ?? "";
+            const bureauRaw = (it?.bureau ?? it?.Bureau ?? it?.source ?? bureauFromText) as string;
+            const bureau = bureauRaw ? bureauRaw.replace(/®/g, "").trim() : "";
+            const scoreVal = Number(String(it?.score ?? it?.value ?? it?.Score ?? rawText).replace(/[^0-9]/g, "")) || null;
+            report.scores.push({
+              bureau: bureau ? bureau[0].toUpperCase() + bureau.slice(1).toLowerCase() : "",
+              score: scoreVal,
+              status: it?._STATUS ?? it?.status ?? it?.Status ?? null,
+              position: it?.Position ?? it?.position ?? null,
+            });
           }
+          continue;
         }
+
+        // Consumer statements (truncated label: "Consumer Stateme")
         if (name.startsWith("consumer stateme")) {
-          const items = lst?.items ?? [];
           for (const it of items) {
-            report.consumerStatements.push({ bureau: it?.bureau ?? it?.Bureau ?? null, statement: stripHtml(it?.statement ?? it?.Statement).text });
+            const { text, html } = stripHtml(it?.statement ?? it?.Statement ?? it?.value ?? it?.Text ?? "");
+            report.consumerStatements.push({ bureau: it?.bureau ?? it?.Bureau ?? null, statement: text, statement_html: html });
           }
+          continue;
         }
+
+        // Personal Information (truncated label: "Personal Inform")
+        if (name.startsWith("personal inform")) {
+          // Preserve as-is under personalInfo; do not drop fields
+          report.personalInfo = { ...(report.personalInfo || {}), source: items };
+          continue;
+        }
+
+        // Inquiries (common truncated label: "Inquiries Credit")
+        if (name.includes("inquiries")) {
+          for (const it of items) {
+            report.inquiries.push({
+              inquirer_name: it?.inquirer_name ?? it?.name ?? it?.Inquirer ?? null,
+              inquiry_date: toDateISO(it?.inquiry_date ?? it?.date ?? it?.Date) ?? null,
+              bureau: it?.bureau ?? it?.Bureau ?? null,
+            });
+          }
+          continue;
+        }
+
+        // Creditor Addresses (label may be "Creditors Addresses")
+        if (name.includes("address")) {
+          for (const it of items) {
+            const { text } = stripHtml(it?.address ?? it?.Address ?? it?.value ?? "");
+            report.addresses.push({ creditor: it?.creditor ?? it?.Creditor ?? it?.name ?? null, address: text });
+          }
+          continue;
+        }
+
+        // Accounts buckets ("Real Estate Accounts", "Revolving Accounts", or others)
         if (name.startsWith("real estate") || name.startsWith("revolving") || name.startsWith("other")) {
           const category = name.startsWith("real estate") ? "realEstate" : name.startsWith("revolving") ? "revolving" : "other";
-          const items = lst?.items ?? [];
           for (const it of items) {
             const base = {
               bureau: it?.bureau ?? it?.Bureau ?? null,
@@ -278,6 +321,7 @@ serve(async (req: Request) => {
               account_status: it?.account_status ?? null,
               payment_status: it?.payment_status ?? null,
               description: it?.description ?? null,
+              description_html: stripHtml(it?.description ?? "").html,
               remarks: it?.remarks ?? [],
               two_year_history: it?.two_year_history ?? {},
               days_late_7y: it?.days_late_7y ?? { "30": 0, "60": 0, "90": 0 },
@@ -286,13 +330,15 @@ serve(async (req: Request) => {
             };
             (report.accounts[category] as any[]).push(base);
           }
+          continue;
         }
       }
     } catch (_) {
-      // If mapping fails, continue with raw only
+      normalizedOk = false; // mapping failed, but we will still persist raw
     }
 
     // Upsert normalized report (delete then insert to ensure idempotency without unique)
+    console.log("[ingest] Upserting normalized_credit_reports for run", runId);
     await supabaseService.from("normalized_credit_reports").delete().eq("run_id", runId!).eq("user_id", userId!);
     {
       const { error } = await supabaseService.from("normalized_credit_reports").insert({
@@ -302,7 +348,12 @@ serve(async (req: Request) => {
         version: "v1",
         report_json: report,
       });
-      if (error) return json({ code: "E_DB_UPSERT", message: error.message }, 500);
+      if (error) {
+        console.error("[ingest] normalized_credit_reports insert error", error.message);
+        return json({ code: "E_DB_UPSERT", message: error.message }, 500);
+      } else {
+        console.log("[ingest] normalized_credit_reports insert ok");
+      }
     }
 
     // Upsert scores
@@ -319,7 +370,12 @@ serve(async (req: Request) => {
       const { error } = await supabaseService
         .from("normalized_credit_scores")
         .upsert(rows, { onConflict: "user_id,bureau,run_id" });
-      if (error) return json({ code: "E_DB_UPSERT", message: error.message }, 500);
+      if (error) {
+        console.error("[ingest] normalized_credit_scores upsert error", error.message);
+        return json({ code: "E_DB_UPSERT", message: error.message }, 500);
+      } else {
+        console.log("[ingest] normalized_credit_scores upsert ok", rows.length);
+      }
     }
 
     // Upsert accounts
@@ -365,10 +421,15 @@ serve(async (req: Request) => {
       const { error } = await supabaseService
         .from("normalized_credit_accounts")
         .upsert(rows, { onConflict: "user_id,creditor,account_number_mask,bureau,opened_on,category" });
-      if (error) return json({ code: "E_DB_UPSERT", message: error.message }, 500);
+      if (error) {
+        console.error("[ingest] normalized_credit_accounts upsert error", error.message);
+        return json({ code: "E_DB_UPSERT", message: error.message }, 500);
+      } else {
+        console.log("[ingest] normalized_credit_accounts upsert ok", rows.length);
+      }
     }
 
-    return json({ ok: true, runId });
+    return json({ ok: true, runId, normalized: normalizedOk });
   } catch (err) {
     console.error("credit-report-ingest error", err);
     return json({ code: "E_UNEXPECTED", message: (err as any)?.message || "Unexpected error" }, 500);

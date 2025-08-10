@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useSearchParams } from "react-router-dom";
 import { Separator } from "@/components/ui/separator";
 import AccountHeader from "@/components/AccountHeader";
-import { fetchLatestNormalized, ingestCreditReport } from "@/services/NormalizedReportService";
+import { fetchLatestWithFallback, ingestCreditReport } from "@/services/NormalizedReportService";
 import { CreditReportDashboard, CreditReportData } from "@/components/CreditReportDashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EnhancedProgressBar } from "@/components/EnhancedProgressBar";
@@ -103,15 +103,15 @@ const CreditReportsPage: React.FC = () => {
 
   const refetchLatest = async () => {
     try {
-      const data = await fetchLatestNormalized(runId || undefined as any);
+      const data = await fetchLatestWithFallback(runId || undefined);
       const counts = (data as any)?.counts || {};
       const total = computeRows(counts);
       setLatest(data);
       setRows(total);
       setLoadedAt((data as any)?.collectedAt || new Date().toISOString());
       setErrorCode(total > 0 || (data as any)?.report ? null : "E_NO_REPORT");
-      console.log("[CreditReports] latest counts:", counts, "runId:", runId);
-      if (total > 0) {
+      console.log("[CreditReports] latest source:", (data as any)?.source, "counts:", counts, "runId:", runId);
+      if (total > 0 || (data as any)?.report) {
         setIsProcessing(false);
       }
     } catch (e: any) {
@@ -266,10 +266,10 @@ const CreditReportsPage: React.FC = () => {
               </div>
             </section>
 
-            {/* Raw JSON viewer */}
+            {/* JSON Return panel (fail-open) */}
             <section className="space-y-3" data-testid="credit-report-raw">
-              <h3 className="text-lg font-semibold">Raw JSON</h3>
-              <JsonView data={latest?.report ?? {}} />
+              <h3 className="text-lg font-semibold">JSON Return</h3>
+              <JsonView data={latest?.report ?? latest?.raw ?? latest?.remote ?? {}} />
             </section>
 
             {errorCode && (

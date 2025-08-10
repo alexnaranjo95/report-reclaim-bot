@@ -93,12 +93,14 @@ export async function saveNormalizedReport(userId: string, report: CreditReport)
   }
 }
 
-export async function fetchLatestNormalized(runId: string) {
+export async function fetchLatestNormalized(runId?: string) {
   if (!isCreditReportRoute()) {
     return { runId: null, collectedAt: null, version: "v1", report: null, counts: { realEstate: 0, revolving: 0, other: 0 } };
   }
+  const payload: any = {};
+  if (runId) payload.runId = runId;
   const { data, error } = await supabase.functions.invoke("credit-report-latest", {
-    body: { runId },
+    body: payload,
   });
   if (error) {
     const status = (error as any)?.context?.response?.status;
@@ -146,6 +148,7 @@ export async function fetchLatestNormalizedByUser(userId: string) {
   const flattenedCounts = rawCounts?.accounts ? rawCounts.accounts : rawCounts;
   return { ...(data as any), counts: flattenedCounts } as { runId: string | null; collectedAt: string | null; version: string; report: any; counts?: any };
 }
+
 export async function fetchAccountsByCategory(category: string, limit = 50, cursor?: string) {
   if (!isCreditReportRoute()) {
     return { items: [], nextCursor: null } as { items: any[]; nextCursor?: string | null };
@@ -163,4 +166,55 @@ export async function ingestCreditReport(payload: any) {
   });
   if (error) throw new Error(((data as any)?.message as string) || error.message);
   return data as { ok: boolean; runId: string };
+}
+
+// New helpers for fail-open rendering
+async function getCurrentUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getUser();
+  return data.user?.id ?? null;
+}
+
+export async function fetchLatestRaw(runId?: string) {
+  const body: any = {};
+  if (runId) body.runId = runId; else {
+    const uid = await getCurrentUserId();
+    if (!uid) return { ok: false } as any;
+    body.userId = uid;
+  }
+  const { data, error } = await supabase.functions.invoke("credit-report-latest-raw", { body });
+  if (error) return { ok: false } as any;
+  return data as any;
+}
+
+export async function fetchLatestWithFallback(runId?: string) {
+  // Try normalized first (by run or by user)
+  try {
+    const norm = await fetchLatestNormalized(runId);
+    if (norm?.report) {
+      return { ...norm, source: "normalized" as const };
+    }
+  } catch {}
+
+  // Fallback to raw
+  const raw = await fetchLatestRaw(runId);
+  if (raw?.ok && raw?.raw) {
+    return {
+      runId: raw.runId ?? null,
+      collectedAt: raw.collectedAt ?? null,
+      version: "v1",
+      report: raw.raw,
+      counts: { realEstate: 0, revolving: 0, other: 0 },
+      source: "raw" as const,
+    };
+  }
+
+  // Nothing found
+  return {
+    runId: null,
+    collectedAt: null,
+    version: "v1",
+    report: null,
+    counts: { realEstate: 0, revolving: 0, other: 0 },
+    source: "none" as const,
+  } as const;
 }

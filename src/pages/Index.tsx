@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Dashboard } from '@/components/Dashboard';
 import { useRole } from '@/hooks/useRole';
 import { useAccessControl } from '@/hooks/useAccessControl';
-import AccountHeader from '@/components/AccountHeader';
 
 const Index = () => {
   const navigate = useNavigate();
@@ -47,11 +46,8 @@ const Index = () => {
 
   
   return (
-    <div className="min-h-screen w-full bg-gradient-dashboard">
-      <AccountHeader title="Dashboard" breadcrumbs={[{ label: 'Home' }]} />
-      <div className="container mx-auto px-0 md:px-0">
-        <Dashboard />
-      </div>
+    <div className="min-h-screen w-full">
+      <Dashboard />
     </div>
   );
 };

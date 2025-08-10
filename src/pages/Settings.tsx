@@ -15,7 +15,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { DocumentPreview } from '@/components/DocumentPreview';
 import { ImageEditor } from '@/components/ImageEditor';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import AccountHeader from "@/components/AccountHeader";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -395,21 +394,40 @@ const Settings = () => {
 
   return (
     <div className="min-h-screen bg-gradient-dashboard">
-      <AccountHeader 
-        title="Settings"
-        breadcrumbs={[{ label: "Home", to: "/" }, { label: "Settings" }]}
-        actions={
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={handleSignOut}
-            className="flex items-center gap-2"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </Button>
-        }
-      />
+      {/* Header */}
+      <header className="border-b bg-card/80 backdrop-blur-sm">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => navigate('/')}
+                className="flex items-center gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Dashboard
+              </Button>
+              <div className="h-6 w-px bg-border" />
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                  Settings
+                </h1>
+                <p className="text-muted-foreground">Manage your preferences</p>
+              </div>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleSignOut}
+              className="flex items-center gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </Button>
+          </div>
+        </div>
+      </header>
 
       <div className="container mx-auto px-6 py-8 max-w-2xl">
         {loading ? (

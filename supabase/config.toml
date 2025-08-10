@@ -16,7 +16,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.smart-credit-import-stream]
-verify_jwt = false
+verify_jwt = true
 
 [functions.smart-credit-connect-and-start]
 verify_jwt = true

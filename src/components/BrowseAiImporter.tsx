@@ -5,6 +5,7 @@ import DashboardView from "@/components/DashboardView";
 import { APP_CONFIG, isMockMode } from "@/config";
 import { getRunStatus, startRun, BrowseAiStatus } from "@/lib/browseAi";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 const Button = (
   {
@@ -38,6 +39,8 @@ const BrowseAiImporter: React.FC = () => {
   const [debug] = useState<boolean>(() => new URL(window.location.href).searchParams.get("debug") === "1");
 
   const canSubmit = Boolean(username.trim() && password.trim());
+
+  const navigate = useNavigate();
 
   const intervalRef = useRef<number | null>(null);
   const startTsRef = useRef<number>(0);
@@ -100,10 +103,9 @@ const BrowseAiImporter: React.FC = () => {
       const start = await startRun({ username: username.trim(), password });
       setRunId(start.runId);
 
-      setStatusText("Polling status…");
-      intervalRef.current = window.setInterval(() => {
-        setElapsed(Math.floor((Date.now() - startTsRef.current) / 1000));
-      }, 1000);
+      // Redirect to Credit Reports page immediately to show live progress
+      navigate(`/credit-report?runId=${encodeURIComponent(start.runId)}`);
+      return;
 
       const deadline = Date.now() + APP_CONFIG.POLL_TIMEOUT_MS;
       let currentStatus: BrowseAiStatus = "queued";

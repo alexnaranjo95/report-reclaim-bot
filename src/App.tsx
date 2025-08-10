@@ -67,13 +67,14 @@ const App = () => {
                   <TemplateEditorPage />
                 </ProtectedRoute>
               } />
-              <Route path="/credit-reports" element={
+              <Route path="/credit-report" element={
                 <ProtectedRoute>
                   <div className="min-h-screen w-full">
                     <CreditReports />
                   </div>
                 </ProtectedRoute>
               } />
+              <Route path="/credit-reports" element={<Navigate to="/credit-report" replace />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
               </Routes>

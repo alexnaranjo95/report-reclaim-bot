@@ -77,8 +77,8 @@ const columns = [
   { key: "dispute_status", label: "Dispute Status" },
 ];
 
-const formatMoney = (v: any) => (v == null ? "—" : `$${Number(v).toLocaleString()}`);
-const formatDate = (s?: string | null) => (s ? new Date(s).toLocaleDateString() : "—");
+const formatMoney = (v: any) => (v == null ? "N/A" : `$${Number(v).toLocaleString()}`);
+const formatDate = (s?: string | null) => (s ? new Date(s).toLocaleDateString() : "N/A");
 
 const AccountsVirtualTable: React.FC<{ items: any[]; height?: number }>
  = ({ items, height = 360 }) => {

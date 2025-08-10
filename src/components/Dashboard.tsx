@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 // Smart Credit UI removed
 // Keep UI slot placeholder and prevent missing refs after purge
 const SmartCreditLoginForm = () => null;
-
+import BrowseAiImporter from './BrowseAiImporter';
 
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
@@ -810,6 +810,19 @@ export const Dashboard = () => {
               setProcessingStep('');
               setProcessingProgress(0);
             }} /> : <>
+                {/* Upload Section */}
+{!uploadedFile && !analysisComplete && (
+  <div className="animate-fade-in">
+    <section
+      aria-label="Smart Credit Import"
+      className="space-y-3"
+      id="smart-credit-import-panel"
+      data-testid="smart-credit-import-panel"
+    >
+      <BrowseAiImporter />
+    </section>
+  </div>
+)}
               </>}
 
             {/* Analysis Section */}

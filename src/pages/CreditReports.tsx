@@ -177,8 +177,61 @@ const CreditReportsPage: React.FC = () => {
       }
     };
 
-    // Start polling immediately (no EventSource for now)
-    startPolling();
+    const startEventSource = () => {
+      try {
+        eventSource = new EventSource(`/functions/v1/smart-credit-import-stream?runId=${runId}`);
+        
+        if (eventSource) {
+          eventSource.onopen = () => {
+            console.log('EventSource opened');
+            setSteps(prev => prev.map(s => s.id === 'connecting' ? { ...s, status: 'completed' } : s));
+          };
+
+          eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            console.log('EventSource message:', data);
+            
+            if (data.type === 'connecting') {
+              setSteps(prev => prev.map(s => s.id === 'connecting' ? { ...s, status: 'active' } : s));
+            } else if (data.type === 'scraping') {
+              setSteps(prev => prev.map(s => 
+                s.id === 'connecting' ? { ...s, status: 'completed' } :
+                s.id === 'scraping' ? { ...s, status: 'active' } : s
+              ));
+            } else if (data.type === 'snapshot' || data.type === 'done') {
+              setSteps(prev => prev.map(s => ({ ...s, status: 'completed' })));
+              setCheckingStatus(false);
+              setPollingActive(false);
+              if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+              }
+              // Trigger data refetch
+              fetchData();
+            }
+          };
+
+          eventSource.onerror = (error) => {
+            console.error('EventSource error:', error);
+            if (eventSource) {
+              eventSource.close();
+              eventSource = null;
+            }
+            // Start polling fallback after 15s
+            silenceTimer = setTimeout(() => {
+              startPolling();
+            }, 15000);
+          };
+        }
+      } catch (error) {
+        console.error('Failed to create EventSource:', error);
+        // Fallback to polling immediately
+        startPolling();
+      }
+    };
+
+    // Try EventSource first, fallback to polling
+    startEventSource();
 
     // Initial data fetch
     fetchData();

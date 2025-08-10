@@ -189,7 +189,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
   }, [data]);
 
   return (
-    <div className="min-h-screen bg-gradient-dashboard p-6">
+    <div className="min-h-screen bg-gradient-dashboard p-6" id="credit-report-root" data-testid="credit-report-root">
       {/* Alert Bar */}
       {data.reportHeader.alerts.length > 0 && (
         <div className="mb-6 space-y-2">
@@ -222,8 +222,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
         </div>
       )}
 
-      {/* Credit Score Hero Section */}
-      <div className="mb-8">
+      <div className="mb-8" data-testid="credit-report-scores">
         <CreditScoreHero creditScores={data.creditScores} />
       </div>
 
@@ -353,7 +352,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
           <ActionItemsPanel creditScores={data.creditScores} accounts={data.accounts} />
         </TabsContent>
 
-        <TabsContent value="accounts">
+        <TabsContent value="accounts" data-testid="credit-report-accounts">
           <AccountsGrid accounts={filteredAccounts} />
         </TabsContent>
 

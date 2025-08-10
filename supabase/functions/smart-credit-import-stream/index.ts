@@ -52,10 +52,10 @@ serve(async (req: Request) => {
     });
   }
 
-  const { runId, email, password } = body;
+  const { runId } = body;
   
-  if (!runId || !email || !password) {
-    return new Response(sse({ ok: false, code: "E_INPUT", message: "runId, email, and password are required" }), { 
+  if (!runId) {
+    return new Response(sse({ ok: false, code: "E_INPUT", message: "runId is required" }), { 
       status: 400, 
       headers: corsHeaders 
     });
@@ -118,52 +118,10 @@ serve(async (req: Request) => {
       try {
         console.log(`[SSE] Starting BrowseAI scrape for runId: ${runId}, user: ${userIdentifier}`);
         
-        // Step 1: Connecting - Start BrowseAI robot task
+        // Step 1: Connecting - acknowledge connection; task should already exist from connect-and-start
         send({ type: "status", status: "connecting", step: 1, runId });
         
-        const robotTaskPayload = {
-          id: runId,
-          robotId: BROWSE_AI_ROBOT_ID,
-          inputParameters: {
-            "Email": email,
-            "Password": password,
-            "originUrl": "https://www.identityiq.com/",
-            "robotSlowMo": 1000,
-            "robotTimeout": 240000,
-            "dataExtractionTimeoutForAnyElement": 10000,
-            "dataExtractionTimeoutForAllElements": 60000
-          }
-        };
-
-        let taskCreated = false;
-        let browseAiTaskResult: any = null;
-
-        // Try to create BrowseAI task
-        try {
-          const createUrl = `https://api.browse.ai/v2/robots/${BROWSE_AI_ROBOT_ID}/tasks`;
-          const createResponse = await fetch(createUrl, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${BROWSE_AI_API_KEY}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(robotTaskPayload)
-          });
-
-          if (createResponse.ok) {
-            const createData = await createResponse.json();
-            console.log(`[SSE] BrowseAI task created:`, createData);
-            taskCreated = true;
-          } else if (createResponse.status === 400) {
-            // Task might already exist with this ID
-            console.log(`[SSE] Task might already exist, checking status`);
-          } else {
-            const errorText = await createResponse.text();
-            throw new Error(`BrowseAI task creation failed: ${errorText}`);
-          }
-        } catch (error) {
-          console.warn("[SSE] Task creation error:", error);
-        }
+        console.log(`[SSE] Using existing BrowseAI task for runId: ${runId}`);
 
         // Step 2: Scraping - Poll for task completion
         send({ type: "status", status: "scraping", step: 2, runId });

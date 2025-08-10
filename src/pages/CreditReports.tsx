@@ -12,7 +12,7 @@ import HtmlBlock from "@/components/HtmlBlock";
 import VirtualizedHtmlList from "@/components/VirtualizedHtmlList";
 import JsonView from "@/components/JsonView";
 import { fetchLatestWithFallback } from "@/services/NormalizedReportService";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_URL } from "@/integrations/supabase/client";
 import { CreditReportImporter } from "@/components/CreditReportImporter";
 
 interface LoadingStep {
@@ -224,7 +224,11 @@ const CreditReportsPage: React.FC = () => {
           setCapturedUrl(capUrl);
           setLoading(false);
           setRenderSuccess(true);
-          setSteps(prev => prev.map(s => ({ ...s, status: 'completed' })));
+          setSteps(prev => prev.map(s => 
+            s.id === 'connecting' ? { ...s, status: 'completed' } :
+            s.id === 'scraping' ? { ...s, status: 'completed' } :
+            s.id === 'saving' ? { ...s, status: 'completed' } : s
+          ));
         }
       } catch (e) {
         console.error("credit-report: fetch error", e);
@@ -235,7 +239,7 @@ const CreditReportsPage: React.FC = () => {
     const startEventSource = () => {
       try {
         // Create EventSource with proper URL
-        const streamUrl = `${window.location.origin}/functions/v1/smart-credit-import-stream`;
+        const streamUrl = `${SUPABASE_URL}/functions/v1/smart-credit-import-stream`;
         console.log('Creating EventSource for:', streamUrl);
         
         // Use POST request for EventSource with runId in body
@@ -280,9 +284,13 @@ const CreditReportsPage: React.FC = () => {
                         s.id === 'scraping' ? { ...s, status: 'active' } : s
                       ));
                     } else if (data.type === 'snapshot' || data.type === 'done') {
-                      setSteps(prev => prev.map(s => ({ ...s, status: 'completed' })));
-                      setCheckingStatus(false);
-                      setPollingActive(false);
+                      setSteps(prev => prev.map(s => 
+                        s.id === 'connecting' ? { ...s, status: 'completed' } :
+                        s.id === 'scraping' ? { ...s, status: 'completed' } :
+                        s.id === 'saving' ? { ...s, status: 'active' } : s
+                      ));
+                      setCheckingStatus(true);
+                      setPollingActive(true);
                       // Trigger data refetch
                       fetchData();
                       return;

@@ -1,12 +1,24 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ArrowLeft, CheckCircle, AlertCircle } from "lucide-react";
+import { Link } from "react-router-dom";
 import HtmlBlock from "@/components/HtmlBlock";
 import VirtualizedHtmlList from "@/components/VirtualizedHtmlList";
 import JsonView from "@/components/JsonView";
 import { fetchLatestWithFallback } from "@/services/NormalizedReportService";
+import { supabase } from "@/integrations/supabase/client";
+
+interface LoadingStep {
+  id: string;
+  label: string;
+  status: 'pending' | 'active' | 'completed' | 'error';
+}
 
 function stripTags(s: string) {
   if (!s) return "";
@@ -52,7 +64,7 @@ function parseScores(source: any): { bureau: string; score: number | null }[] {
   return Array.from(map.entries()).map(([bureau, score]) => ({ bureau, score }));
 }
 
-const Section: React.FC<{ title: string; items: string[] } > = ({ title, items }) => {
+const Section: React.FC<{ title: string; items: string[] }> = ({ title, items }) => {
   if (!items || items.length === 0) {
     return (
       <Card>
@@ -97,36 +109,144 @@ const Section: React.FC<{ title: string; items: string[] } > = ({ title, items }
 };
 
 const CreditReportsPage: React.FC = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = React.useState(true);
   const [normalized, setNormalized] = React.useState<any>(null);
   const [raw, setRaw] = React.useState<any>(null);
   const [capturedUrl, setCapturedUrl] = React.useState<string | undefined>(undefined);
   const [externalRaw, setExternalRaw] = React.useState<any>(null);
+  const [steps, setSteps] = React.useState<LoadingStep[]>([
+    { id: 'connecting', label: 'Connecting', status: 'pending' },
+    { id: 'scraping', label: 'Scraping', status: 'pending' },
+    { id: 'saving', label: 'Saving & Rendering', status: 'pending' }
+  ]);
+  const [renderSuccess, setRenderSuccess] = React.useState(false);
+  const [pollingActive, setPollingActive] = React.useState(false);
+  const [checkingStatus, setCheckingStatus] = React.useState(false);
 
+  const params = new URLSearchParams(window.location.search);
+  const runId = params.get("runId") || undefined;
+
+  // EventSource and polling logic
   React.useEffect(() => {
-    let isMounted = true;
-    const run = async () => {
+    if (!runId) return;
+
+    let eventSource: EventSource | null = null;
+    let pollingInterval: NodeJS.Timeout | null = null;
+    let silenceTimer: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      setPollingActive(true);
+      setCheckingStatus(true);
+      pollingInterval = setInterval(async () => {
+        try {
+          const result = await supabase.functions.invoke("credit-report-latest", {
+            body: { runId }
+          });
+          if (result.data?.report && Object.keys(result.data.report).length > 0) {
+            setCheckingStatus(false);
+            setPollingActive(false);
+            if (pollingInterval) clearInterval(pollingInterval);
+            // Trigger data refetch
+            fetchData();
+          }
+        } catch (error) {
+          console.error("Polling error:", error);
+        }
+      }, 2000);
+    };
+
+    const fetchData = async () => {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const runId = params.get("runId") || undefined;
         const res: any = await fetchLatestWithFallback(runId);
-        if (!isMounted) return;
-        const norm = res?.normalized || res?.normalizedReport || res?.report || res?.normalized?.report_json || res?.report_json || null;
-        const rawData = res?.raw || res?.rawReport || res?.raw_json || res?.raw?.raw_json || null;
-        const capUrl = res?.capturedDataTemporaryUrl || res?.raw?.capturedDataTemporaryUrl || res?.report?.capturedDataTemporaryUrl || res?.raw_json?.capturedDataTemporaryUrl;
-        setNormalized(norm || null);
-        setRaw(rawData || null);
-        setCapturedUrl(capUrl);
+        const norm = res?.report || null;
+        const rawData = res?.raw || null;
+        const capUrl = res?.capturedDataTemporaryUrl;
+        
+        if (norm || rawData) {
+          setNormalized(norm);
+          setRaw(rawData);
+          setCapturedUrl(capUrl);
+          setLoading(false);
+          setRenderSuccess(true);
+          setSteps(prev => prev.map(s => ({ ...s, status: 'completed' })));
+        }
       } catch (e) {
         console.error("credit-report: fetch error", e);
-      } finally {
-        if (isMounted) setLoading(false);
+        setLoading(false);
       }
     };
-    run();
-    return () => { isMounted = false; };
-  }, []);
 
+    // Start EventSource
+    eventSource = new EventSource(`/functions/v1/smart-credit-import-stream?runId=${runId}`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (silenceTimer) {
+          clearTimeout(silenceTimer);
+          silenceTimer = null;
+        }
+        
+        setCheckingStatus(false);
+        
+        switch (data.status) {
+          case 'connecting':
+            setSteps(prev => prev.map(s => 
+              s.id === 'connecting' ? { ...s, status: 'active' } : s
+            ));
+            break;
+          case 'scraping':
+            setSteps(prev => prev.map(s => {
+              if (s.id === 'connecting') return { ...s, status: 'completed' };
+              if (s.id === 'scraping') return { ...s, status: 'active' };
+              return s;
+            }));
+            break;
+          case 'snapshot':
+          case 'done':
+            setSteps(prev => prev.map(s => 
+              s.id === 'saving' ? { ...s, status: 'active' } : 
+              s.status === 'active' ? { ...s, status: 'completed' } : s
+            ));
+            // Trigger data fetch
+            fetchData();
+            break;
+        }
+        
+        // Reset silence timer
+        silenceTimer = setTimeout(() => {
+          console.log("EventSource silent for 15s, switching to polling");
+          startPolling();
+        }, 15000);
+      } catch (error) {
+        console.error("EventSource message parse error:", error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("EventSource error:", error);
+      startPolling();
+    };
+
+    // Initial silence timer
+    silenceTimer = setTimeout(() => {
+      console.log("EventSource initial silence, switching to polling");
+      startPolling();
+    }, 15000);
+
+    // Initial data fetch
+    fetchData();
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (pollingInterval) clearInterval(pollingInterval);
+      if (silenceTimer) clearTimeout(silenceTimer);
+    };
+  }, [runId]);
+
+  // External captured URL fetch
   React.useEffect(() => {
     let aborted = false;
     if (!normalized && !raw && capturedUrl) {
@@ -139,7 +259,6 @@ const CreditReportsPage: React.FC = () => {
   }, [normalized, raw, capturedUrl]);
 
   const source = React.useMemo(() => {
-    // Prefer raw when HTML lists likely live there, else normalized, else external
     return raw || normalized || externalRaw || null;
   }, [raw, normalized, externalRaw]);
 
@@ -154,10 +273,78 @@ const CreditReportsPage: React.FC = () => {
   const personalInfo = React.useMemo(() => extractList(source, ["personal inform", "personal info"]), [source]);
   const creditorAddresses = React.useMemo(() => extractList(source, ["creditors addresses", "creditor addresses"]), [source]);
 
+  const getStepIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle className="h-4 w-4 text-emerald-500" />;
+      case 'active':
+        return <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />;
+      case 'error':
+        return <AlertCircle className="h-4 w-4 text-destructive" />;
+      default:
+        return <div className="h-4 w-4 rounded-full border-2 border-muted" />;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background" data-testid="credit-report-root">
+      {/* Navigation Header */}
+      <header className="border-b bg-card/80 backdrop-blur-sm" data-testid="credit-report-navbar">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="outline" size="sm" asChild aria-label="Back to previous page">
+                <Link to="/">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back
+                </Link>
+              </Button>
+              <div>
+                <p className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                  Credit Report
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Import Progress */}
+      <div className="border-b bg-card/50" data-testid="smart-import-progress">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Importing Credit Report</h2>
+              {checkingStatus && <p className="text-sm text-muted-foreground">Checking...</p>}
+            </div>
+            <div className="flex items-center gap-6">
+              {steps.map((step, index) => (
+                <div key={step.id} className="flex items-center gap-2">
+                  {getStepIcon(step.status)}
+                  <span className={`text-sm ${step.status === 'completed' ? 'text-emerald-600' : step.status === 'active' ? 'text-primary' : 'text-muted-foreground'}`}>
+                    {step.label}
+                  </span>
+                  {index < steps.length - 1 && (
+                    <div className="ml-4 h-px w-8 bg-border" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Success Banner */}
+      {renderSuccess && (
+        <Alert className="mx-6 mt-4">
+          <CheckCircle className="h-4 w-4" />
+          <AlertDescription>
+            Saved & Rendered at {new Date().toLocaleString()}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="container mx-auto px-6 py-8 space-y-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Credit Report</h1>
         {loading ? (
           <div className="space-y-4">
             <Skeleton className="h-8 w-64" />
@@ -167,16 +354,16 @@ const CreditReportsPage: React.FC = () => {
         ) : (
           <Tabs defaultValue="overview" className="w-full">
             <TabsList>
-              <TabsTrigger value="overview" data-testid="credit-report-tabs-overview">Overview</TabsTrigger>
-              <TabsTrigger value="scores" data-testid="credit-report-tabs-scores">Scores</TabsTrigger>
-              <TabsTrigger value="accounts" data-testid="credit-report-tabs-accounts">Accounts</TabsTrigger>
-              <TabsTrigger value="consumer-statements" data-testid="credit-report-tabs-consumer-statements">Consumer Statements</TabsTrigger>
-              <TabsTrigger value="public-records" data-testid="credit-report-tabs-public-records">Public Records</TabsTrigger>
-              <TabsTrigger value="collections" data-testid="credit-report-tabs-collections">Collections</TabsTrigger>
-              <TabsTrigger value="inquiries" data-testid="credit-report-tabs-inquiries">Inquiries</TabsTrigger>
-              <TabsTrigger value="personal-info" data-testid="credit-report-tabs-personal-info">Personal Info</TabsTrigger>
-              <TabsTrigger value="creditor-addresses" data-testid="credit-report-tabs-creditor-addresses">Creditor Addresses</TabsTrigger>
-              <TabsTrigger value="raw-json" data-testid="credit-report-tabs-raw-json">Raw JSON</TabsTrigger>
+              <TabsTrigger value="overview" data-testid="credit-report-tab-overview">Overview</TabsTrigger>
+              <TabsTrigger value="scores" data-testid="credit-report-tab-scores">Scores</TabsTrigger>
+              <TabsTrigger value="accounts" data-testid="credit-report-tab-accounts">Accounts</TabsTrigger>
+              <TabsTrigger value="consumer-statements" data-testid="credit-report-tab-consumer-statements">Consumer Statements</TabsTrigger>
+              <TabsTrigger value="public-records" data-testid="credit-report-tab-public-records">Public Records</TabsTrigger>
+              <TabsTrigger value="collections" data-testid="credit-report-tab-collections">Collections</TabsTrigger>
+              <TabsTrigger value="inquiries" data-testid="credit-report-tab-inquiries">Inquiries</TabsTrigger>
+              <TabsTrigger value="personal-info" data-testid="credit-report-tab-personal-info">Personal Info</TabsTrigger>
+              <TabsTrigger value="creditor-addresses" data-testid="credit-report-tab-creditor-addresses">Creditor Addresses</TabsTrigger>
+              <TabsTrigger value="raw-json" data-testid="credit-report-tab-raw-json">Raw JSON</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview">

@@ -32,10 +32,17 @@ export default tseslint.config(
             "@aws-sdk/*",
             "@google-cloud/documentai*",
             "@google-cloud/*",
+            "@adobe/*",
             "@adobe/pdfservices*",
             "pdfservices-sdk*",
             "aws-sdk*",
-            "textract*"
+            "textract*",
+            "pdfjs-dist",
+            "react-pdf",
+            "pdf-lib",
+            "pdf-parse",
+            "jspdf",
+            "html2pdf.js"
           ]
         }
       ],

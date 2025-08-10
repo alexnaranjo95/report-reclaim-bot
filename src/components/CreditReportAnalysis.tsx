@@ -6,7 +6,6 @@ import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { 
-  Download,
   FileText,
   User,
   CreditCard,
@@ -120,9 +119,6 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
     }
   };
 
-  const handleDownloadReport = () => {
-    toast.info('Download functionality will be implemented');
-  };
 
   const handleForceReparse = async () => {
     try {
@@ -239,10 +235,6 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
                 <Search className="w-4 h-4" />
                 Process Report
               </Button>
-              <Button onClick={handleDownloadReport} className="flex items-center gap-2">
-                <Download className="w-4 h-4" />
-                Download Report
-              </Button>
             </div>
           </div>
           
@@ -259,7 +251,6 @@ export const CreditReportAnalysis: React.FC<CreditReportAnalysisProps> = ({
           rounds={realRounds}
           currentRound={1}
           onUploadReport={(round) => toast.info(`Upload for round ${round}`)}
-          onPreviewReport={(report) => toast.info(`Preview ${report.file_name}`)}
           onViewReport={(id) => toast.info(`View report ${id}`)}
         />
 

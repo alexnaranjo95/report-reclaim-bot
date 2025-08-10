@@ -1,14 +1,13 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Upload, Eye, Download } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { CreditReport } from '@/services/CreditReportService';
 
 interface CreditReportTimelineProps {
   rounds: Record<number, CreditReport | undefined>;
   currentRound: number;
   onUploadReport: (roundNumber: number) => void;
-  onPreviewReport: (report: CreditReport) => void;
   onViewReport: (reportId: string) => void;
 }
 
@@ -16,7 +15,6 @@ export const CreditReportTimeline: React.FC<CreditReportTimelineProps> = ({
   rounds,
   currentRound,
   onUploadReport,
-  onPreviewReport,
   onViewReport,
 }) => {
   const getMonthYear = (roundNumber: number) => {
@@ -106,15 +104,6 @@ export const CreditReportTimeline: React.FC<CreditReportTimelineProps> = ({
                   <div className="mt-2 flex flex-col gap-1 w-full">
                     {report ? (
                       <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => onPreviewReport(report)}
-                          className="text-xs h-7"
-                        >
-                          <Eye className="w-3 h-3 mr-1" />
-                          Preview
-                        </Button>
                         <Button
                           variant="default"
                           size="sm"

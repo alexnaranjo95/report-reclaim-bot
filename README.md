@@ -107,3 +107,7 @@ curl -X GET \
   "https://rcrpqdhfawtpjicttgvx.functions.supabase.co/credit-report-accounts?category=revolving&limit=50" \
   -H "Authorization: Bearer $USER_JWT"
 ```
+
+## PDF Processing Removal
+
+PDF processing and preview/download have been removed. Only SmartCredit scraper data is supported. Any legacy PDF preview endpoints now return HTTP 410 Gone.

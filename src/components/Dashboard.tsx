@@ -6,8 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 // Smart Credit UI removed
 // Keep UI slot placeholder and prevent missing refs after purge
-const SmartCreditLoginForm = () => null;
-import BrowseAiImporter from './BrowseAiImporter';
+import SmartCreditImportMonitor from './SmartCreditImportMonitor';
 
 import { DocumentNotificationBanner } from './DocumentNotificationBanner';
 import { ProfileIncompleteWarning } from './ProfileIncompleteWarning';
@@ -610,45 +609,6 @@ export const Dashboard = () => {
     return null;
   };
   return <div className="min-h-screen bg-gradient-dashboard">
-      {/* Header */}
-      <header className="border-b bg-card/80 backdrop-blur-sm">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-                CreditFix Pro
-              </h1>
-              <p className="text-muted-foreground">DIY Credit Repair Platform</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <Badge variant="outline" className="px-3 py-1">
-                <Shield className="h-3 w-3 mr-1" />
-                Secure
-              </Badge>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/credit-reports">
-                  <BarChart3 className="h-4 w-4 mr-2" />
-                  Credit Reports
-                </Link>
-              </Button>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/settings">
-                  Settings
-                </Link>
-              </Button>
-              {isSuperAdmin && <Button variant="outline" size="sm" asChild>
-                <Link to="/admin">
-                  Admin
-                </Link>
-              </Button>}
-              <Button variant="outline" size="sm" onClick={handleLogout} className="flex items-center gap-2">
-                <LogOut className="h-4 w-4" />
-                Logout
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
 
       <div className="container mx-auto px-6 py-8">
         
@@ -819,7 +779,7 @@ export const Dashboard = () => {
       id="smart-credit-import-panel"
       data-testid="smart-credit-import-panel"
     >
-      <BrowseAiImporter />
+      <SmartCreditImportMonitor />
     </section>
   </div>
 )}

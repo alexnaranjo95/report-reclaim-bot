@@ -2,14 +2,31 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-service-role-key",
-};
+function getCorsHeaders(req: Request) {
+  const defaults = [
+    "https://app.disputelab.io",
+    "https://localhost:5173",
+    "https://b05e793f-f8ba-43e5-8d44-abd5fb386f93.lovableproject.com",
+  ];
+  const envList = (Deno.env.get("APP_ALLOWED_ORIGINS") || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const allowed = envList.length ? envList : defaults;
+  const origin = req.headers.get("origin") || "*";
+  const allowOrigin = allowed.includes(origin) ? origin : "*";
+  
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-service-role-key, x-device-id",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+const corsHeaders = getCorsHeaders({} as Request);
 
 type IngestBody = {
   runId?: string;
   userId?: string;
+  deviceId?: string;
   collectedAt?: string;
   payload?: any;
   dryRun?: boolean | number | string;
@@ -44,6 +61,7 @@ function normalizeMoney(v: any): number | null {
 }
 
 serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -59,7 +77,11 @@ serve(async (req: Request) => {
     const body = (await req.json().catch(() => ({}))) as IngestBody;
     const runId = body.runId?.trim();
     const userId = body.userId?.trim();
+    const deviceId = body.deviceId?.trim();
     const dryRun = body.dryRun === true || body.dryRun === 1 || body.dryRun === "1";
+    
+    // Use userId or deviceId as identifier
+    const userIdentifier = userId || deviceId;
 
     // Enforce service role header for real ingests only
     if (!dryRun) {
@@ -69,8 +91,8 @@ serve(async (req: Request) => {
       }
     }
 
-    if (!dryRun && (!runId || !userId || !body.payload)) {
-      return json({ code: "E_SCHEMA_INVALID", message: "runId, userId and payload are required" }, 400);
+    if (!dryRun && (!runId || !userIdentifier || !body.payload)) {
+      return json({ code: "E_SCHEMA_INVALID", message: "runId, userId/deviceId and payload are required" }, 400);
     }
 
     const supabaseService = createClient(supabaseUrl, serviceKey);
@@ -79,7 +101,7 @@ serve(async (req: Request) => {
     // Sample data path for dry run
     if (dryRun) {
       const sampleRunId = runId ?? `dry_${Date.now()}`;
-      const sampleUserId = userId ?? crypto.randomUUID();
+      const sampleUserId = userIdentifier ?? crypto.randomUUID();
 
       console.log(`[ingest] Dry run mode - creating sample data for runId: ${sampleRunId}`);
 
@@ -264,12 +286,12 @@ serve(async (req: Request) => {
       return json({ code: "E_SCHEMA_INVALID", message: "payload must be an object" }, 400);
     }
 
-    console.log(`[ingest] Processing real data for runId: ${runId}, userId: ${userId}`);
+    console.log(`[ingest] Processing real data for runId: ${runId}, userId: ${userIdentifier}`);
 
     // Persist raw payload
     try {
       const { error } = await supabaseService.from("credit_reports_raw").upsert(
-        { run_id: runId!, user_id: userId!, collected_at: collectedAt, raw_json: rawPayload },
+        { run_id: runId!, user_id: userIdentifier!, collected_at: collectedAt, raw_json: rawPayload },
         { onConflict: "run_id" },
       );
       
@@ -298,12 +320,22 @@ serve(async (req: Request) => {
     };
 
     try {
-      // Parse BrowseAI capturedLists structure
-      const lists: any[] = rawPayload?.capturedLists ?? [];
+      // Parse BrowseAI capturedLists structure - handle both array and object formats
+      let listsToProcess: any[] = [];
       
-      for (const lst of lists) {
+      if (Array.isArray(rawPayload?.capturedLists)) {
+        listsToProcess = rawPayload.capturedLists;
+      } else if (rawPayload?.capturedLists && typeof rawPayload.capturedLists === 'object') {
+        // Convert object to array format
+        listsToProcess = Object.entries(rawPayload.capturedLists).map(([name, items]) => ({
+          name,
+          items: Array.isArray(items) ? items : [items]
+        }));
+      }
+      
+      for (const lst of listsToProcess) {
         const name = String(lst?.name ?? "").toLowerCase();
-        const items = lst?.items ?? [];
+        const items = Array.isArray(lst?.items) ? lst.items : [];
 
         // Credit Scores
         if (name.includes("score")) {
@@ -411,11 +443,11 @@ serve(async (req: Request) => {
     
     try {
       await supabaseService.from("normalized_credit_reports").delete()
-        .eq("run_id", runId!).eq("user_id", userId!);
+        .eq("run_id", runId!).eq("user_id", userIdentifier!);
       
       const { error } = await supabaseService.from("normalized_credit_reports").insert({
         run_id: runId!,
-        user_id: userId!,
+        user_id: userIdentifier!,
         collected_at: collectedAt,
         version: "v1",
         report_json: report,
@@ -436,7 +468,7 @@ serve(async (req: Request) => {
     if (Array.isArray(report.scores) && report.scores.length) {
       try {
         const rows = report.scores.map((s: any, i: number) => ({
-          user_id: userId!,
+          user_id: userIdentifier!,
           run_id: runId!,
           bureau: s.bureau,
           score: s.score ?? null,
@@ -469,7 +501,7 @@ serve(async (req: Request) => {
     if (allAccounts.length) {
       try {
         const rows = allAccounts.map((a: any) => ({
-          user_id: userId!,
+          user_id: userIdentifier!,
           run_id: runId!,
           bureau: a.bureau ?? null,
           creditor: a.creditor ?? null,

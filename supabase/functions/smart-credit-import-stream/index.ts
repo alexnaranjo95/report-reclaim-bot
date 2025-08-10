@@ -14,8 +14,8 @@ function getCorsHeaders(req: Request) {
   
   return {
     "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-device-id",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Max-Age": "86400",
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -34,23 +34,37 @@ serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
   
-  if (req.method !== "GET") {
+  if (req.method !== "POST") {
     return new Response(sse({ ok: false, code: 405, message: "Method not allowed" }), { 
       status: 405, 
       headers: corsHeaders 
     });
   }
 
-  const url = new URL(req.url);
-  const runId = url.searchParams.get("runId");
-  
-  if (!runId) {
-    return new Response(sse({ ok: false, code: "E_INPUT", message: "runId required" }), { 
+  // Parse request body for credentials and runId
+  let body: any = {};
+  try {
+    body = await req.json();
+  } catch (error) {
+    return new Response(sse({ ok: false, code: "E_INPUT", message: "Invalid JSON body" }), { 
       status: 400, 
       headers: corsHeaders 
     });
   }
 
+  const { runId, email, password } = body;
+  
+  if (!runId || !email || !password) {
+    return new Response(sse({ ok: false, code: "E_INPUT", message: "runId, email, and password are required" }), { 
+      status: 400, 
+      headers: corsHeaders 
+    });
+  }
+
+  // Get user context from JWT
+  const authHeader = req.headers.get("authorization");
+  const deviceId = req.headers.get("x-device-id");
+  
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const BROWSE_AI_API_KEY = Deno.env.get("BROWSE_AI_API_KEY");
@@ -71,6 +85,25 @@ serve(async (req: Request) => {
   }
 
   const service = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  
+  // Get user ID from JWT or use device ID
+  let userId: string | null = null;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const { data: { user } } = await service.auth.getUser(authHeader.replace("Bearer ", ""));
+      userId = user?.id || null;
+    } catch (error) {
+      console.warn("[SSE] Could not parse JWT:", error);
+    }
+  }
+  
+  const userIdentifier = userId || deviceId;
+  if (!userIdentifier) {
+    return new Response(sse({ ok: false, code: "E_AUTH", message: "User authentication required" }), { 
+      status: 401, 
+      headers: corsHeaders 
+    });
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -83,111 +116,174 @@ serve(async (req: Request) => {
       };
 
       try {
-        console.log(`[SSE] Starting stream for runId: ${runId}`);
+        console.log(`[SSE] Starting BrowseAI scrape for runId: ${runId}, user: ${userIdentifier}`);
         
-        // Get userId from the normalized_credit_reports table
-        let userId: string | null = null;
-        try {
-          const { data: reportData } = await service
-            .from("normalized_credit_reports")
-            .select("user_id")
-            .eq("run_id", runId)
-            .maybeSingle();
-          userId = reportData?.user_id || null;
-        } catch (error) {
-          console.warn("[SSE] Could not resolve userId:", error);
-        }
-
-        if (!userId) {
-          throw new Error("Could not resolve user ID for this runId");
-        }
-        
-        // Step 1: Connecting - Check if BrowseAI task already exists
+        // Step 1: Connecting - Start BrowseAI robot task
         send({ type: "status", status: "connecting", step: 1, runId });
         
+        const robotTaskPayload = {
+          id: runId,
+          robotId: BROWSE_AI_ROBOT_ID,
+          inputParameters: {
+            "Email": email,
+            "Password": password,
+            "originUrl": "https://www.identityiq.com/",
+            "robotSlowMo": 1000,
+            "robotTimeout": 240000,
+            "dataExtractionTimeoutForAnyElement": 10000,
+            "dataExtractionTimeoutForAllElements": 60000
+          }
+        };
+
+        let taskCreated = false;
         let browseAiTaskResult: any = null;
+
+        // Try to create BrowseAI task
         try {
-          // Check if we already have the task result by checking the status
-          const statusUrl = `https://api.browse.ai/v2/robots/${BROWSE_AI_ROBOT_ID}/tasks/${runId}`;
-          const statusResponse = await fetch(statusUrl, {
-            headers: { Authorization: `Bearer ${BROWSE_AI_API_KEY}` }
+          const createUrl = `https://api.browse.ai/v2/robots/${BROWSE_AI_ROBOT_ID}/tasks`;
+          const createResponse = await fetch(createUrl, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${BROWSE_AI_API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(robotTaskPayload)
           });
-          
-          if (statusResponse.ok) {
-            const statusData = await statusResponse.json();
-            browseAiTaskResult = statusData?.result || statusData?.task || statusData;
-            console.log(`[SSE] Found existing BrowseAI task:`, { status: browseAiTaskResult?.status });
+
+          if (createResponse.ok) {
+            const createData = await createResponse.json();
+            console.log(`[SSE] BrowseAI task created:`, createData);
+            taskCreated = true;
+          } else if (createResponse.status === 400) {
+            // Task might already exist with this ID
+            console.log(`[SSE] Task might already exist, checking status`);
+          } else {
+            const errorText = await createResponse.text();
+            throw new Error(`BrowseAI task creation failed: ${errorText}`);
           }
         } catch (error) {
-          console.warn("[SSE] Could not check existing BrowseAI status:", error);
+          console.warn("[SSE] Task creation error:", error);
         }
 
-        // Step 2: Scraping - Get the actual data from BrowseAI
+        // Step 2: Scraping - Poll for task completion
         send({ type: "status", status: "scraping", step: 2, runId });
         
-        if (!browseAiTaskResult || browseAiTaskResult.status !== "successful") {
-          // If no successful task found, we need to wait or create one
-          // For now, let's assume the task exists but may be in progress
-          let attempts = 0;
-          const maxAttempts = 30; // 30 seconds max wait
+        let attempts = 0;
+        const maxAttempts = 90; // 90 seconds max wait
+        
+        while (attempts < maxAttempts) {
+          await new Promise(r => setTimeout(r, 1000));
+          attempts++;
           
-          while (attempts < maxAttempts && (!browseAiTaskResult || browseAiTaskResult.status === "in-progress")) {
-            await new Promise(r => setTimeout(r, 1000));
-            attempts++;
+          try {
+            const statusUrl = `https://api.browse.ai/v2/robots/${BROWSE_AI_ROBOT_ID}/tasks/${runId}`;
+            const statusResponse = await fetch(statusUrl, {
+              headers: { Authorization: `Bearer ${BROWSE_AI_API_KEY}` }
+            });
             
-            try {
-              const statusUrl = `https://api.browse.ai/v2/robots/${BROWSE_AI_ROBOT_ID}/tasks/${runId}`;
-              const statusResponse = await fetch(statusUrl, {
-                headers: { Authorization: `Bearer ${BROWSE_AI_API_KEY}` }
+            if (statusResponse.ok) {
+              const statusData = await statusResponse.json();
+              browseAiTaskResult = statusData?.result || statusData?.task || statusData;
+              
+              console.log(`[SSE] Task status check ${attempts}:`, { 
+                status: browseAiTaskResult?.status,
+                runId 
               });
               
-              if (statusResponse.ok) {
-                const statusData = await statusResponse.json();
-                browseAiTaskResult = statusData?.result || statusData?.task || statusData;
+              // Send progress updates
+              if (attempts % 5 === 0) {
+                const progress = Math.min(95, (attempts / maxAttempts) * 100);
+                send({ 
+                  type: "status", 
+                  status: "scraping", 
+                  step: 2, 
+                  runId, 
+                  progress: Math.round(progress) 
+                });
+              }
+              
+              if (browseAiTaskResult?.status === "successful") {
+                console.log(`[SSE] BrowseAI task completed successfully`);
+                break;
+              } else if (browseAiTaskResult?.status === "failed") {
+                const errorMsg = browseAiTaskResult?.userFriendlyError || browseAiTaskResult?.error || "Task failed";
+                console.error(`[SSE] BrowseAI task failed:`, errorMsg);
                 
-                if (browseAiTaskResult?.status === "successful") {
-                  break;
-                } else if (browseAiTaskResult?.status === "failed") {
-                  throw new Error(`BrowseAI task failed: ${browseAiTaskResult?.userFriendlyError || "Unknown error"}`);
+                // Map common errors
+                if (errorMsg.includes("authentication") || errorMsg.includes("login")) {
+                  throw new Error("AUTH_BAD_CREDENTIALS: Invalid email or password");
+                } else if (errorMsg.includes("robot") || errorMsg.includes("not found")) {
+                  throw new Error("ROBOT_NOT_FOUND: BrowseAI robot configuration error");
+                } else {
+                  throw new Error(`RUN_FAILED: ${errorMsg}`);
                 }
               }
-            } catch (error) {
-              console.warn(`[SSE] Status check attempt ${attempts} failed:`, error);
+            } else if (statusResponse.status === 404) {
+              if (attempts < 5) {
+                // Task might still be initializing
+                continue;
+              } else {
+                throw new Error("ROBOT_NOT_FOUND: BrowseAI task not found");
+              }
+            } else {
+              console.warn(`[SSE] Status check failed: ${statusResponse.status}`);
+            }
+          } catch (fetchError) {
+            console.warn(`[SSE] Status check attempt ${attempts} failed:`, fetchError);
+            if (fetchError instanceof Error && fetchError.message.includes("AUTH_BAD_")) {
+              throw fetchError; // Re-throw auth errors immediately
             }
           }
         }
 
         if (!browseAiTaskResult || browseAiTaskResult.status !== "successful") {
-          throw new Error("BrowseAI task did not complete successfully within timeout");
+          throw new Error("RUN_TIMEOUT: BrowseAI task did not complete within 90 seconds");
         }
 
         // Step 3: Saving & Rendering
         send({ type: "snapshot", status: "saving", step: 3, runId });
+
+        // Download captured data if available
+        let capturedData = null;
+        if (browseAiTaskResult.capturedDataTemporaryUrl) {
+          try {
+            const dataResponse = await fetch(browseAiTaskResult.capturedDataTemporaryUrl);
+            if (dataResponse.ok) {
+              capturedData = await dataResponse.json();
+              console.log(`[SSE] Downloaded captured data from temporary URL`);
+            }
+          } catch (downloadError) {
+            console.warn("[SSE] Could not download captured data:", downloadError);
+          }
+        }
         
-        // Extract the actual credit report data from BrowseAI result
+        // Prepare payload for ingestion
         const creditReportPayload = {
           runId,
           status: "completed",
-          capturedLists: browseAiTaskResult?.capturedLists || {},
-          capturedTexts: browseAiTaskResult?.capturedTexts || {},
+          capturedLists: capturedData?.capturedLists || browseAiTaskResult?.capturedLists || {},
+          capturedTexts: capturedData?.capturedTexts || browseAiTaskResult?.capturedTexts || {},
+          capturedDataTemporaryUrl: browseAiTaskResult.capturedDataTemporaryUrl,
           rawBrowseAiResult: browseAiTaskResult
         };
 
-        // Ingest the real credit report data
+        // Ingest the credit report data
         try {
+          const ingestPayload = { 
+            runId, 
+            userId: userIdentifier,
+            collectedAt: new Date().toISOString(),
+            payload: creditReportPayload
+          };
+
           const { data: ingestData, error: ingestError } = await service.functions.invoke("credit-report-ingest", {
-            body: { 
-              runId, 
-              userId,
-              collectedAt: new Date().toISOString(),
-              payload: creditReportPayload
-            },
+            body: ingestPayload,
             headers: { "x-service-role-key": SUPABASE_SERVICE_ROLE_KEY }
           });
 
           if (ingestError) {
             console.error("[SSE] Ingest error:", ingestError);
-            throw new Error(`Failed to ingest credit report: ${ingestError.message}`);
+            throw new Error(`Failed to ingest credit report: ${ingestError.message || "Unknown error"}`);
           } else {
             console.log("[SSE] Ingest success:", ingestData);
           }
@@ -196,17 +292,51 @@ serve(async (req: Request) => {
           throw ingestError;
         }
 
+        // Broadcast completion event (for real-time UI updates)
+        try {
+          await service.from("normalized_credit_reports")
+            .select("run_id")
+            .eq("run_id", runId)
+            .maybeSingle();
+          // This helps trigger any real-time subscriptions
+        } catch (broadcastError) {
+          console.warn("[SSE] Broadcast error:", broadcastError);
+        }
+
         // Final done event
         await new Promise((r) => setTimeout(r, 300));
-        send({ type: "done", status: "done", step: 3, runId });
+        send({ type: "done", status: "done", step: 3, runId, timestamp: new Date().toISOString() });
         
-        console.log(`[SSE] Stream completed for runId: ${runId}`);
+        console.log(`[SSE] Stream completed successfully for runId: ${runId}`);
       } catch (error: any) {
         console.error("[SSE] Stream error:", error);
+        
+        // Map error messages for frontend
+        let errorCode = "UNKNOWN_ERROR";
+        let errorMessage = error?.message || "Unexpected error during import";
+        
+        if (errorMessage.includes("AUTH_BAD_KEY")) {
+          errorCode = "AUTH_BAD_KEY";
+          errorMessage = "Invalid BrowseAI API key";
+        } else if (errorMessage.includes("AUTH_BAD_CREDENTIALS")) {
+          errorCode = "AUTH_BAD_CREDENTIALS";
+          errorMessage = "Invalid email or password for credit report access";
+        } else if (errorMessage.includes("ROBOT_NOT_FOUND")) {
+          errorCode = "ROBOT_NOT_FOUND";
+          errorMessage = "BrowseAI robot configuration error";
+        } else if (errorMessage.includes("RUN_FAILED")) {
+          errorCode = "RUN_FAILED";
+          errorMessage = errorMessage.replace("RUN_FAILED: ", "");
+        } else if (errorMessage.includes("RUN_TIMEOUT")) {
+          errorCode = "RUN_TIMEOUT";
+          errorMessage = "Credit report scraping timed out";
+        }
+        
         send({ 
           type: "error", 
           status: "error", 
-          message: error?.message || "Unexpected error during import",
+          code: errorCode,
+          message: errorMessage,
           runId 
         });
       } finally {

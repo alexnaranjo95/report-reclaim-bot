@@ -177,70 +177,13 @@ const CreditReportsPage: React.FC = () => {
       }
     };
 
-    // Start EventSource
-    eventSource = new EventSource(`/functions/v1/smart-credit-import-stream?runId=${runId}`);
-    
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (silenceTimer) {
-          clearTimeout(silenceTimer);
-          silenceTimer = null;
-        }
-        
-        setCheckingStatus(false);
-        
-        switch (data.status) {
-          case 'connecting':
-            setSteps(prev => prev.map(s => 
-              s.id === 'connecting' ? { ...s, status: 'active' } : s
-            ));
-            break;
-          case 'scraping':
-            setSteps(prev => prev.map(s => {
-              if (s.id === 'connecting') return { ...s, status: 'completed' };
-              if (s.id === 'scraping') return { ...s, status: 'active' };
-              return s;
-            }));
-            break;
-          case 'snapshot':
-          case 'done':
-            setSteps(prev => prev.map(s => 
-              s.id === 'saving' ? { ...s, status: 'active' } : 
-              s.status === 'active' ? { ...s, status: 'completed' } : s
-            ));
-            // Trigger data fetch
-            fetchData();
-            break;
-        }
-        
-        // Reset silence timer
-        silenceTimer = setTimeout(() => {
-          console.log("EventSource silent for 15s, switching to polling");
-          startPolling();
-        }, 15000);
-      } catch (error) {
-        console.error("EventSource message parse error:", error);
-      }
-    };
-
-    eventSource.onerror = (error) => {
-      console.error("EventSource error:", error);
-      startPolling();
-    };
-
-    // Initial silence timer
-    silenceTimer = setTimeout(() => {
-      console.log("EventSource initial silence, switching to polling");
-      startPolling();
-    }, 15000);
+    // Start polling immediately (no EventSource for now)
+    startPolling();
 
     // Initial data fetch
     fetchData();
 
     return () => {
-      if (eventSource) eventSource.close();
       if (pollingInterval) clearInterval(pollingInterval);
       if (silenceTimer) clearTimeout(silenceTimer);
     };

@@ -236,7 +236,10 @@ const CreditReportsPage: React.FC = () => {
           </div>
         ) : (
           <>
-            <CreditReportDashboard data={mapToDashboard(latest)} />
+            <div data-testid="credit-report-scores" />
+            <div data-testid="credit-report-accounts">
+              <CreditReportDashboard data={mapToDashboard(latest)} />
+            </div>
 
             {/* Consumer Statements */}
             <section className="space-y-3" data-testid="credit-report-statements">

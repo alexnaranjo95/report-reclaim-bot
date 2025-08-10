@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { Separator } from "@/components/ui/separator";
 import AccountHeader from "@/components/AccountHeader";
 import { fetchLatestNormalized, ingestCreditReport } from "@/services/NormalizedReportService";
@@ -8,7 +8,7 @@ import { CreditReportDashboard, CreditReportData } from "@/components/CreditRepo
 import { Skeleton } from "@/components/ui/skeleton";
 import { EnhancedProgressBar } from "@/components/EnhancedProgressBar";
 import JsonView from "@/components/JsonView";
-import { supabase } from "@/integrations/supabase/client";
+
 
 const FUNCTIONS_BASE = "https://rcrpqdhfawtpjicttgvx.functions.supabase.co/functions/v1";
 
@@ -78,7 +78,7 @@ const mapToDashboard = (latest: any): CreditReportData => {
 
 const CreditReportsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
+  
   const runId = searchParams.get("runId");
 
   const [loading, setLoading] = useState(true);
@@ -98,11 +98,6 @@ const CreditReportsPage: React.FC = () => {
   const silenceRef = useRef<number | null>(null);
   const lastEventAtRef = useRef<number>(Date.now());
 
-  // Credentials UI
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [credsSaved, setCredsSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const computeRows = (counts?: any) => (counts?.realEstate || 0) + (counts?.revolving || 0) + (counts?.other || 0);
 
@@ -190,40 +185,7 @@ const CreditReportsPage: React.FC = () => {
     } catch {}
   };
 
-  // Save credentials
-  const saveCreds = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch(`${FUNCTIONS_BASE}/smart-credit-credentials`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
-      });
-      const j = await res.json().catch(() => ({}));
-      if (res.ok && j?.ok) {
-        setCredsSaved(true);
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-  const resetCreds = async () => {
-    await fetch(`${FUNCTIONS_BASE}/smart-credit-credentials/reset`, { method: "POST" });
-    setCredsSaved(false);
-    setUsername("");
-    setPassword("");
-  };
 
-  // Start Import flow
-  const startImport = async () => {
-    if (!username || !password) return;
-    const { data, error } = await supabase.functions.invoke("smart-credit-connect-and-start", {
-      body: { username, password },
-    });
-    if (!error && (data as any)?.ok && (data as any)?.runId) {
-      navigate(`/credit-report?runId=${encodeURIComponent((data as any).runId)}`);
-    }
-  };
 
   const banner = useMemo(() => {
     if (loading) return null;
@@ -247,23 +209,6 @@ const CreditReportsPage: React.FC = () => {
       <div className="container mx-auto px-6 py-8 space-y-6">
         <h1 id="credit-report-title" className="text-2xl font-semibold tracking-tight">{isProcessing ? "Importing Credit Report" : "Credit Report"}</h1>
 
-        {/* Credentials + Import Controls */}
-        <div className="rounded-lg border bg-card text-card-foreground p-4">
-          <form
-            className="flex flex-col md:flex-row items-start md:items-end gap-3"
-            onSubmit={(e) => { e.preventDefault(); startImport(); }}
-          >
-            <div className="flex flex-col gap-1 w-full md:w-64">
-              <label className="text-sm text-muted-foreground">Username</label>
-              <input className="px-3 py-2 rounded-md border bg-background" value={username} onChange={e=>setUsername(e.target.value)} required />
-            </div>
-            <div className="flex flex-col gap-1 w-full md:w-64">
-              <label className="text-sm text-muted-foreground">Password</label>
-              <input className="px-3 py-2 rounded-md border bg-background" type="password" value={password} onChange={e=>setPassword(e.target.value)} required />
-            </div>
-            <Button type="submit" disabled={!username || !password}>Connect & Import</Button>
-          </form>
-        </div>
 
         {runId && (
           <EnhancedProgressBar

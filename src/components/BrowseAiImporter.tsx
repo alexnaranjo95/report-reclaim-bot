@@ -39,7 +39,6 @@ const BrowseAiImporter: React.FC = () => {
   const [debug] = useState<boolean>(() => new URL(window.location.href).searchParams.get("debug") === "1");
 
   const canSubmit = Boolean(username.trim() && password.trim());
-
   const navigate = useNavigate();
 
   const intervalRef = useRef<number | null>(null);
@@ -60,17 +59,6 @@ const BrowseAiImporter: React.FC = () => {
     };
   }, []);
 
-  const downloadJson = useCallback(() => {
-    if (!result) return;
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `browseai-result-${runId ?? "unknown"}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [result, runId]);
-
   const mockFlow = useCallback(async () => {
     setStatusText("Starting run…");
     await new Promise((r) => setTimeout(r, 1000));
@@ -78,7 +66,15 @@ const BrowseAiImporter: React.FC = () => {
     await new Promise((r) => setTimeout(r, 1000));
     const fakeId = "mock-" + Math.random().toString(36).slice(2);
     setRunId(fakeId);
-    setResult({ id: fakeId, status: "successful", items: [ { name: "Example A", value: 1 }, { name: "Example B", value: 2 } ], summary: "Mock result after 2s." });
+    setResult({ 
+      id: fakeId, 
+      status: "successful", 
+      items: [ 
+        { name: "Example A", value: 1 }, 
+        { name: "Example B", value: 2 } 
+      ], 
+      summary: "Mock result after 2s." 
+    });
     setPhase("results");
   }, []);
 
@@ -100,36 +96,19 @@ const BrowseAiImporter: React.FC = () => {
       startTsRef.current = Date.now();
       setElapsed(0);
       setStatusText("Starting run…");
+      
       const start = await startRun({ username: username.trim(), password });
       setRunId(start.runId);
 
-      // Redirect to Credit Reports page immediately to show live progress
+      // Immediately redirect to Credit Reports page to show live progress
       navigate(`/credit-report?runId=${encodeURIComponent(start.runId)}`);
+      
+      toast.success("Import started successfully", {
+        description: "Redirecting to view real-time progress..."
+      });
+      
       return;
 
-      const deadline = Date.now() + APP_CONFIG.POLL_TIMEOUT_MS;
-      let currentStatus: BrowseAiStatus = "queued";
-      while (Date.now() < deadline) {
-        const status = await getRunStatus({ runId: start.runId });
-        currentStatus = status.status;
-        if (currentStatus === "successful") {
-          setResult(status.result);
-          setPhase("results");
-          break;
-        }
-        if (currentStatus === "failed") {
-          setError(status.errorMessage || "Run failed");
-          setPhase("error");
-          break;
-        }
-        setStatusText(`Polling status… (${Math.floor((APP_CONFIG.POLL_TIMEOUT_MS - (deadline - Date.now())) / 1000)}s)`);
-        await new Promise((r) => setTimeout(r, APP_CONFIG.POLL_INTERVAL_MS));
-      }
-
-      if (Date.now() >= deadline && (currentStatus === "queued" || currentStatus === "in-progress")) {
-        setStatusText("Still working…");
-        // Stay on loading; user can press Keep polling
-      }
     } catch (err: any) {
       const message = err?.message || "Unknown error";
       setError(message);
@@ -138,16 +117,18 @@ const BrowseAiImporter: React.FC = () => {
     } finally {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
     }
-  }, [canSubmit, mockFlow, password, username]);
+  }, [canSubmit, mockFlow, password, username, navigate]);
 
   const keepPolling = useCallback(async () => {
     if (!runId) return;
     setStatusText("Polling status…");
     const deadline = Date.now() + APP_CONFIG.POLL_TIMEOUT_MS;
     let currentStatus: BrowseAiStatus = "in-progress";
+    
     while (Date.now() < deadline) {
       const status = isMockMode() ? { status: "successful" as BrowseAiStatus, result } : await getRunStatus({ runId });
       currentStatus = status.status;
+      
       if (currentStatus === "successful") {
         setResult(status.result);
         setPhase("results");
@@ -167,24 +148,43 @@ const BrowseAiImporter: React.FC = () => {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h2 className="text-xl font-semibold tracking-tight">Browse.ai Importer</h2>
-        <p className="text-muted-foreground text-sm">Credentials are sent only to Browse.ai for this run and are not stored.</p>
+        <h2 className="text-xl font-semibold tracking-tight">Smart Credit Import</h2>
+        <p className="text-muted-foreground text-sm">
+          Connect to Smart Credit to import your latest credit report data. Credentials are sent securely and not stored.
+        </p>
       </header>
 
       {phase === "form" && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="grid gap-2">
-              <label className="text-sm font-medium" htmlFor="username">Username</label>
-              <input id="username" className="h-9 rounded-md border bg-background px-3" value={username} onChange={(e) => setUsername(e.target.value)} />
+              <label className="text-sm font-medium" htmlFor="username">Smart Credit Username</label>
+              <input 
+                id="username" 
+                className="h-9 rounded-md border bg-background px-3" 
+                value={username} 
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter your username"
+                required
+              />
             </div>
             <div className="grid gap-2">
-              <label className="text-sm font-medium" htmlFor="password">Password</label>
-              <input id="password" type="password" className="h-9 rounded-md border bg-background px-3" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <label className="text-sm font-medium" htmlFor="password">Smart Credit Password</label>
+              <input 
+                id="password" 
+                type="password" 
+                className="h-9 rounded-md border bg-background px-3" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                required
+              />
             </div>
           </div>
           <div className="flex items-center justify-end">
-            <Button type="submit" disabled={!canSubmit}>Import</Button>
+            <Button type="submit" disabled={!canSubmit}>
+              Connect & Import
+            </Button>
           </div>
         </form>
       )}
@@ -229,8 +229,16 @@ const BrowseAiImporter: React.FC = () => {
       {phase === "results" && (
         <div className="space-y-6">
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={downloadJson}>Download JSON</Button>
-            <Button variant="secondary" onClick={reset}>Run Again</Button>
+            <Button onClick={() => {
+              const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `smart-credit-result-${runId || "unknown"}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}>Download JSON</Button>
+            <Button variant="secondary" onClick={reset}>Import Again</Button>
           </div>
           <DashboardView result={result} runId={runId ?? undefined} />
           <TableView data={result?.items ?? result?.capturedLists ?? result} />
@@ -240,7 +248,7 @@ const BrowseAiImporter: React.FC = () => {
 
       {phase === "error" && (
         <div className="space-y-4 rounded-md border bg-card p-6 text-card-foreground">
-          <h3 className="text-lg font-medium">Run failed</h3>
+          <h3 className="text-lg font-medium">Import failed</h3>
           <p className="text-muted-foreground">{error}</p>
           <div className="flex gap-3">
             <Button onClick={reset}>Try Again</Button>

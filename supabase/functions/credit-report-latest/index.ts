@@ -15,6 +15,7 @@ serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnon = Deno.env.get("SUPABASE_ANON_KEY");
+    
     if (!supabaseUrl || !supabaseAnon) {
       return new Response(JSON.stringify({ error: "Missing Supabase config" }), {
         status: 500,
@@ -25,6 +26,7 @@ serve(async (req: Request) => {
     const url = new URL(req.url);
     let runId: string | null = null;
     let userId: string | null = null;
+    
     if (req.method === "GET") {
       runId = url.searchParams.get("runId");
       userId = url.searchParams.get("userId");
@@ -39,6 +41,18 @@ serve(async (req: Request) => {
       global: { headers: { Authorization: authHeader } },
     });
 
+    // Get authenticated user if no specific userId provided
+    if (!userId && !runId) {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError || !userData?.user?.id) {
+        return new Response(JSON.stringify({ error: "Authentication required" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = userData.user.id;
+    }
+
     if (!runId && !userId) {
       return new Response(JSON.stringify({ error: "runId or userId is required" }), {
         status: 400,
@@ -46,6 +60,7 @@ serve(async (req: Request) => {
       });
     }
 
+    // Fetch by runId if provided
     if (runId) {
       const { data, error } = await supabase
         .from("normalized_credit_reports")
@@ -58,6 +73,7 @@ serve(async (req: Request) => {
         const isRls = /permission denied/i.test(msg);
         const code = isRls ? "E_RLS_DENIED" : "E_DB_SELECT";
         const status = isRls ? 403 : 500;
+        
         return new Response(JSON.stringify({ code, message: msg }), {
           status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -65,28 +81,52 @@ serve(async (req: Request) => {
       }
 
       if (!data) {
-        return new Response(JSON.stringify({ code: "E_NOT_FOUND", message: "Report not found" }), {
+        return new Response(JSON.stringify({ 
+          code: "E_NOT_FOUND", 
+          message: "Report not found",
+          runId: null,
+          collectedAt: null,
+          version: "v1",
+          report: null,
+          counts: { realEstate: 0, revolving: 0, other: 0 }
+        }), {
           status: 404,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      return new Response(
-        JSON.stringify({
-          runId: data.run_id,
-          collectedAt: data.collected_at,
-          version: data.version,
-          report: data.report_json,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      // Calculate counts for this specific run
+      const [reCnt, rvCnt, otCnt] = await Promise.all([
+        supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true })
+          .eq("run_id", runId).eq("category", "realEstate"),
+        supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true })
+          .eq("run_id", runId).eq("category", "revolving"),
+        supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true })
+          .eq("run_id", runId).eq("category", "other"),
+      ]);
+
+      const counts = {
+        realEstate: reCnt.count ?? 0,
+        revolving: rvCnt.count ?? 0,
+        other: otCnt.count ?? 0,
+      };
+
+      return new Response(JSON.stringify({
+        runId: data.run_id,
+        collectedAt: data.collected_at,
+        version: data.version,
+        report: data.report_json,
+        counts,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    // Latest by user
+    // Fetch latest by userId
     const { data: latest, error: latestErr } = await supabase
       .from("normalized_credit_reports")
       .select("run_id, user_id, collected_at, version, report_json")
-      .eq("user_id", userId)
+      .eq("user_id", userId!)
       .order("collected_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -96,6 +136,7 @@ serve(async (req: Request) => {
       const isRls = /permission denied/i.test(msg);
       const code = isRls ? "E_RLS_DENIED" : "E_DB_SELECT";
       const status = isRls ? 403 : 500;
+      
       return new Response(JSON.stringify({ code, message: msg }), {
         status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -103,46 +144,53 @@ serve(async (req: Request) => {
     }
 
     if (!latest) {
-      return new Response(
-        JSON.stringify({
-          runId: null,
-          collectedAt: null,
-          version: "v1",
-          report: null,
-          counts: { realEstate: 0, revolving: 0, other: 0 },
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({
+        runId: null,
+        collectedAt: null,
+        version: "v1",
+        report: null,
+        counts: { realEstate: 0, revolving: 0, other: 0 },
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    // Derived counts
+    // Calculate counts for the latest run
     const [reCnt, rvCnt, otCnt] = await Promise.all([
-      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("category", "realEstate"),
-      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("category", "revolving"),
-      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("category", "other"),
+      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true })
+        .eq("user_id", userId!).eq("run_id", latest.run_id).eq("category", "realEstate"),
+      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true })
+        .eq("user_id", userId!).eq("run_id", latest.run_id).eq("category", "revolving"),
+      supabase.from("normalized_credit_accounts").select("id", { count: "exact", head: true })
+        .eq("user_id", userId!).eq("run_id", latest.run_id).eq("category", "other"),
     ]);
 
     const counts = {
-      accounts: {
-        realEstate: reCnt.count ?? 0,
-        revolving: rvCnt.count ?? 0,
-        other: otCnt.count ?? 0,
-      },
+      realEstate: reCnt.count ?? 0,
+      revolving: rvCnt.count ?? 0,
+      other: otCnt.count ?? 0,
     };
 
-    return new Response(
-      JSON.stringify({
-        runId: latest.run_id,
-        collectedAt: latest.collected_at,
-        version: latest.version,
-        report: latest.report_json,
-        counts,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({
+      runId: latest.run_id,
+      collectedAt: latest.collected_at,
+      version: latest.version,
+      report: latest.report_json,
+      counts,
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
   } catch (err) {
     console.error("credit-report-latest error", (err as any)?.message || err);
-    return new Response(JSON.stringify({ error: "Unexpected error" }), {
+    return new Response(JSON.stringify({ 
+      error: "Unexpected error",
+      runId: null,
+      collectedAt: null,
+      version: "v1", 
+      report: null,
+      counts: { realEstate: 0, revolving: 0, other: 0 }
+    }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

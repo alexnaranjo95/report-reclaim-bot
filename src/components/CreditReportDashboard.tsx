@@ -94,6 +94,11 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
   const [filterBureau, setFilterBureau] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
+  // Log data counts on mount for verification
+  useEffect(() => {
+    console.log(`[CreditReportDashboard] Mounted with data - Accounts: ${data.accounts.length}, Inquiries: ${data.inquiries.length}, Scores: ${Object.keys(data.creditScores).length}`);
+  }, [data]);
+
   // Filtered accounts based on search and filters
   const filteredAccounts = useMemo(() => {
     return data.accounts.filter(account => {
@@ -114,6 +119,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
     return totalLimit > 0 ? (totalBalance / totalLimit) * 100 : 0;
   }, [data.accounts]);
 
+  // Transform data for TriBureauReportViewer
   const triBureauDocsumo = useMemo(() => {
     const formatMoney = (n?: number) => (typeof n === 'number' ? `$${n.toLocaleString()}` : '—');
     const s = data.accountSummary;
@@ -139,8 +145,9 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
       'Experian Alerts': [],
       'Equifax Alerts': [],
     };
+    
     (data.reportHeader.alerts || []).forEach(al => {
-      const key = `${al.bureau ?? ''} Alerts`;
+      const key = `${al.bureau ?? 'TransUnion'} Alerts`;
       if (alertsByBureau[key]) {
         alertsByBureau[key].push({ text: al.message, type: al.type, severity: al.severity });
       }
@@ -149,7 +156,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
     return {
       data: {
         'Basic Information': {
-          'Report Title': { value: 'Three Bureau Credit Report' },
+          'Report Title': { value: 'Smart Credit Report' },
           'Report Date': { value: data.reportHeader.reportDate },
           'Reference Number': { value: data.reportHeader.referenceNumber },
         },
@@ -222,6 +229,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
         </div>
       )}
 
+      {/* Credit Scores Hero Section */}
       <div className="mb-8" data-testid="credit-report-scores">
         <CreditScoreHero creditScores={data.creditScores} />
       </div>
@@ -268,6 +276,10 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
             <Printer className="h-4 w-4 mr-2" />
             Print
           </Button>
+          <Button variant="outline" size="sm">
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
         </div>
       </div>
 
@@ -307,7 +319,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
               <CardContent className="pb-4">
                 <div className="text-2xl font-bold">${data.accountSummary.totalBalances.toLocaleString()}</div>
                 <div className="text-sm text-muted-foreground">
-                  ${data.accountSummary.monthlyPayments} monthly payments
+                  ${data.accountSummary.monthlyPayments.toLocaleString()} monthly payments
                 </div>
               </CardContent>
             </Card>
@@ -369,7 +381,6 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
         </TabsContent>
 
         <TabsContent value="tri-bureau">
-          {/* Pass Docsumo-like JSON mapped from current data */}
           <TriBureauReportViewer docsumo={triBureauDocsumo} />
         </TabsContent>
       </Tabs>

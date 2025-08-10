@@ -4,7 +4,7 @@ import type { CreditReport } from "./BrowseAINormalizer";
 function isCreditReportRoute() {
   if (typeof window === 'undefined') return true;
   const p = window.location?.pathname || '';
-  return p === '/credit-report' || p === '/credit-report/';
+  return p === '/credit-report' || p === '/credit-report/' || p.startsWith('/credit-reports');
 }
 
 export async function saveRawReport(runId: string, userId: string, raw: any) {
@@ -48,12 +48,13 @@ export async function saveNormalizedReport(userId: string, report: CreditReport)
     }
   }
 
-  // Upsert accounts across categories; unique (user_id, bureau, creditor, account_number_mask, opened_on, category)
+  // Upsert accounts across categories
   const allAccounts = [
     ...(report.accounts?.realEstate || []).map((a: any) => ({ ...a, category: 'realEstate' })),
     ...(report.accounts?.revolving || []).map((a: any) => ({ ...a, category: 'revolving' })),
     ...(report.accounts?.other || []).map((a: any) => ({ ...a, category: 'other' })),
   ];
+  
   if (allAccounts.length) {
     const rows = allAccounts.map((a) => ({
       user_id: userId,
@@ -97,14 +98,18 @@ export async function fetchLatestNormalized(runId?: string) {
   if (!isCreditReportRoute()) {
     return { runId: null, collectedAt: null, version: "v1", report: null, counts: { realEstate: 0, revolving: 0, other: 0 } };
   }
+  
   const payload: any = {};
   if (runId) payload.runId = runId;
+  
   const { data, error } = await supabase.functions.invoke("credit-report-latest", {
     body: payload,
   });
+  
   if (error) {
     const status = (error as any)?.context?.response?.status;
     const code = (data as any)?.code;
+    
     if (status === 404 || code === "E_NOT_FOUND") {
       return {
         runId: null,
@@ -114,24 +119,35 @@ export async function fetchLatestNormalized(runId?: string) {
         counts: { realEstate: 0, revolving: 0, other: 0 },
       };
     }
+    
     const message = ((data as any)?.message || (data as any)?.error || error.message) as string;
     throw new Error(message);
   }
+  
   const rawCounts = (data as any)?.counts;
   const flattenedCounts = rawCounts?.accounts ? rawCounts.accounts : rawCounts;
-  return { ...(data as any), counts: flattenedCounts } as { runId: string | null; collectedAt: string | null; version: string; report: any; counts?: any };
+  return { ...(data as any), counts: flattenedCounts } as { 
+    runId: string | null; 
+    collectedAt: string | null; 
+    version: string; 
+    report: any; 
+    counts?: any 
+  };
 }
 
 export async function fetchLatestNormalizedByUser(userId: string) {
   if (!isCreditReportRoute()) {
     return { runId: null, collectedAt: null, version: "v1", report: null, counts: { realEstate: 0, revolving: 0, other: 0 } };
   }
+  
   const { data, error } = await supabase.functions.invoke("credit-report-latest", {
     body: { userId },
   });
+  
   if (error) {
     const status = (error as any)?.context?.response?.status;
     const code = (data as any)?.code;
+    
     if (status === 404 || code === "E_NOT_FOUND") {
       return {
         runId: null,
@@ -141,21 +157,31 @@ export async function fetchLatestNormalizedByUser(userId: string) {
         counts: { realEstate: 0, revolving: 0, other: 0 },
       };
     }
+    
     const message = ((data as any)?.message || (data as any)?.error || error.message) as string;
     throw new Error(message);
   }
+  
   const rawCounts = (data as any)?.counts;
   const flattenedCounts = rawCounts?.accounts ? rawCounts.accounts : rawCounts;
-  return { ...(data as any), counts: flattenedCounts } as { runId: string | null; collectedAt: string | null; version: string; report: any; counts?: any };
+  return { ...(data as any), counts: flattenedCounts } as { 
+    runId: string | null; 
+    collectedAt: string | null; 
+    version: string; 
+    report: any; 
+    counts?: any 
+  };
 }
 
 export async function fetchAccountsByCategory(category: string, limit = 50, cursor?: string) {
   if (!isCreditReportRoute()) {
     return { items: [], nextCursor: null } as { items: any[]; nextCursor?: string | null };
   }
+  
   const { data, error } = await supabase.functions.invoke("credit-report-accounts", {
     body: { category, limit, cursor },
   });
+  
   if (error) throw new Error(((data as any)?.error as string) || error.message);
   return data as { items: any[]; nextCursor?: string | null };
 }
@@ -164,11 +190,12 @@ export async function ingestCreditReport(payload: any) {
   const { data, error } = await supabase.functions.invoke("credit-report-ingest", {
     body: payload,
   });
+  
   if (error) throw new Error(((data as any)?.message as string) || error.message);
   return data as { ok: boolean; runId: string };
 }
 
-// New helpers for fail-open rendering
+// Enhanced helpers for fail-open rendering
 async function getCurrentUserId(): Promise<string | null> {
   const { data } = await supabase.auth.getUser();
   return data.user?.id ?? null;
@@ -176,11 +203,14 @@ async function getCurrentUserId(): Promise<string | null> {
 
 export async function fetchLatestRaw(runId?: string) {
   const body: any = {};
-  if (runId) body.runId = runId; else {
+  if (runId) {
+    body.runId = runId;
+  } else {
     const uid = await getCurrentUserId();
     if (!uid) return { ok: false } as any;
     body.userId = uid;
   }
+  
   const { data, error } = await supabase.functions.invoke("credit-report-latest-raw", { body });
   if (error) return { ok: false } as any;
   return data as any;
@@ -193,19 +223,25 @@ export async function fetchLatestWithFallback(runId?: string) {
     if (norm?.report) {
       return { ...norm, source: "normalized" as const };
     }
-  } catch {}
+  } catch (normError) {
+    console.warn("[NormalizedReportService] Normalized fetch failed:", normError);
+  }
 
   // Fallback to raw
-  const raw = await fetchLatestRaw(runId);
-  if (raw?.ok && raw?.raw) {
-    return {
-      runId: raw.runId ?? null,
-      collectedAt: raw.collectedAt ?? null,
-      version: "v1",
-      report: raw.raw,
-      counts: { realEstate: 0, revolving: 0, other: 0 },
-      source: "raw" as const,
-    };
+  try {
+    const raw = await fetchLatestRaw(runId);
+    if (raw?.ok && raw?.raw) {
+      return {
+        runId: raw.runId ?? null,
+        collectedAt: raw.collectedAt ?? null,
+        version: "v1",
+        report: raw.raw,
+        counts: { realEstate: 0, revolving: 0, other: 0 },
+        source: "raw" as const,
+      };
+    }
+  } catch (rawError) {
+    console.warn("[NormalizedReportService] Raw fetch failed:", rawError);
   }
 
   // Nothing found

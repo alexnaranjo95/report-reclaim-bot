@@ -1,6 +1,12 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { CreditReport } from "./BrowseAINormalizer";
 
+function isCreditReportRoute() {
+  if (typeof window === 'undefined') return true;
+  const p = window.location?.pathname || '';
+  return p === '/credit-report' || p === '/credit-report/';
+}
+
 export async function saveRawReport(runId: string, userId: string, raw: any) {
   const { error } = await supabase
     .from("credit_reports_raw")
@@ -42,11 +48,11 @@ export async function saveNormalizedReport(userId: string, report: CreditReport)
     }
   }
 
-  // Upsert accounts across categories; unique (user_id, bureau, creditor, account_number_mask, opened_on)
+  // Upsert accounts across categories; unique (user_id, bureau, creditor, account_number_mask, opened_on, category)
   const allAccounts = [
-    ...(report.accounts?.realEstate || []),
-    ...(report.accounts?.revolving || []),
-    ...(report.accounts?.other || []),
+    ...(report.accounts?.realEstate || []).map((a: any) => ({ ...a, category: 'realEstate' })),
+    ...(report.accounts?.revolving || []).map((a: any) => ({ ...a, category: 'revolving' })),
+    ...(report.accounts?.other || []).map((a: any) => ({ ...a, category: 'other' })),
   ];
   if (allAccounts.length) {
     const rows = allAccounts.map((a) => ({
@@ -79,6 +85,8 @@ export async function saveNormalizedReport(userId: string, report: CreditReport)
       status: a.status,
       position: a.position,
       collected_at: report.collectedAt,
+      category: a.category ?? null,
+      payload: a,
     }));
     const { error } = await supabase.from("normalized_credit_accounts").upsert(rows);
     if (error) throw new Error(error.message);
@@ -86,6 +94,9 @@ export async function saveNormalizedReport(userId: string, report: CreditReport)
 }
 
 export async function fetchLatestNormalized(runId: string) {
+  if (!isCreditReportRoute()) {
+    return { runId: null, collectedAt: null, version: "v1", report: null, counts: { realEstate: 0, revolving: 0, other: 0 } };
+  }
   const { data, error } = await supabase.functions.invoke("credit-report-latest", {
     body: { runId },
   });
@@ -110,6 +121,9 @@ export async function fetchLatestNormalized(runId: string) {
 }
 
 export async function fetchLatestNormalizedByUser(userId: string) {
+  if (!isCreditReportRoute()) {
+    return { runId: null, collectedAt: null, version: "v1", report: null, counts: { realEstate: 0, revolving: 0, other: 0 } };
+  }
   const { data, error } = await supabase.functions.invoke("credit-report-latest", {
     body: { userId },
   });
@@ -133,6 +147,9 @@ export async function fetchLatestNormalizedByUser(userId: string) {
   return { ...(data as any), counts: flattenedCounts } as { runId: string | null; collectedAt: string | null; version: string; report: any; counts?: any };
 }
 export async function fetchAccountsByCategory(category: string, limit = 50, cursor?: string) {
+  if (!isCreditReportRoute()) {
+    return { items: [], nextCursor: null } as { items: any[]; nextCursor?: string | null };
+  }
   const { data, error } = await supabase.functions.invoke("credit-report-accounts", {
     body: { category, limit, cursor },
   });

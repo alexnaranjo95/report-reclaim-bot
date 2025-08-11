@@ -108,7 +108,15 @@ serve(async (req: Request) => {
           "credit_report_details_transunion_limit": 50,
           "credit_report_details-experian_limit": 50,
           "credit_report_details-equifax_limit": 50,
-          "credit_bureaus_comments_limit": 20
+          "credit_bureaus_comments_limit": 20,
+          // Allow overriding/adding params via secret JSON
+          ...(function() {
+            const raw = Deno.env.get("BROWSEAI_INPUT_PARAMS");
+            try { return raw ? JSON.parse(raw) : {}; } catch { 
+              console.warn("[connect-and-start] Invalid BROWSEAI_INPUT_PARAMS JSON");
+              return {};
+            }
+          })()
         },
         recordVideo: false
       };

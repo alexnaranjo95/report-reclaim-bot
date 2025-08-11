@@ -63,8 +63,22 @@ serve(async (req: Request) => {
       }
     }
 
+    // Validate readiness before ingestion (basic bureau presence check)
+    const capturedLists = body?.capturedLists || body?.result?.capturedLists || body?.data?.capturedLists || {};
+    const scoreList: any[] = Array.isArray(capturedLists?.["Credit Score HTML"]) ? capturedLists["Credit Score HTML"] : [];
+    const bureauSeen = new Set<string>();
+    for (const item of scoreList) {
+      const text = String(item?.["Credit Score per bureau"] || item?.["Credit Scores"] || "").toLowerCase();
+      if (text.includes("transunion") && /\d{2,3}/.test(text)) bureauSeen.add("transunion");
+      if (text.includes("experian") && /\d{2,3}/.test(text)) bureauSeen.add("experian");
+      if (text.includes("equifax") && /\d{2,3}/.test(text)) bureauSeen.add("equifax");
+    }
+    const requiredBureaus = ["equifax", "experian", "transunion"];
+    const missingBureaus = requiredBureaus.filter((b) => !bureauSeen.has(b));
+    const status = missingBureaus.length ? "partial" : "completed";
+
     // Always call ingest (fail-open): saves raw_json verbatim and normalizes when possible
-    const ingestBody: Record<string, unknown> = { runId, userId, payload: body, collectedAt };
+    const ingestBody: Record<string, unknown> = { runId, userId, payload: { ...body, status, missingBureaus }, collectedAt };
     const { data: ingestData, error: ingestError } = await service.functions.invoke("credit-report-ingest", {
       body: ingestBody,
       headers: { "x-service-role-key": SERVICE_ROLE },

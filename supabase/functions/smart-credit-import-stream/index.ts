@@ -126,47 +126,50 @@ serve(async (req: Request) => {
         
         let browseAiTaskResult: any = null;
         let attempts = 0;
-        const maxAttempts = 90; // 90 seconds max wait
-        
-        while (attempts < maxAttempts) {
-          await new Promise(r => setTimeout(r, 1000));
+        const MAX_WAIT_MS = 15 * 60 * 1000; // 15 minutes overall timeout
+        const startTs = Date.now();
+        let lastProgressEmit = 0;
+
+        // Poll BrowseAI for task completion with adaptive interval
+        while (Date.now() - startTs < MAX_WAIT_MS) {
+          // Adaptive poll interval: start fast, then slow down up to 10s
+          const intervalMs = Math.min(10_000, 1_000 + attempts * 250);
+          await new Promise((r) => setTimeout(r, intervalMs));
           attempts++;
-          
+
           try {
             const statusUrl = `https://api.browse.ai/v2/robots/${BROWSE_AI_ROBOT_ID}/tasks/${runId}`;
             const statusResponse = await fetch(statusUrl, {
-              headers: { Authorization: `Bearer ${BROWSE_AI_API_KEY}` }
+              headers: { Authorization: `Bearer ${BROWSE_AI_API_KEY}` },
             });
-            
+
             if (statusResponse.ok) {
               const statusData = await statusResponse.json();
               browseAiTaskResult = statusData?.result || statusData?.task || statusData;
-              
-              console.log(`[SSE] Task status check ${attempts}:`, { 
+
+              console.log(`[SSE] Task status check #${attempts}:`, {
                 status: browseAiTaskResult?.status,
-                runId 
+                runId,
               });
-              
-              // Send progress updates every 5 seconds
-              if (attempts % 5 === 0) {
-                const progress = Math.min(95, (attempts / maxAttempts) * 100);
-                send({ 
-                  type: "status", 
-                  status: "scraping", 
-                  step: 2, 
-                  runId, 
-                  progress: Math.round(progress) 
-                });
+
+              // Emit progress roughly every 5 seconds
+              const elapsed = Date.now() - startTs;
+              if (elapsed - lastProgressEmit > 5_000) {
+                lastProgressEmit = elapsed;
+                const progress = Math.min(95, Math.round((elapsed / MAX_WAIT_MS) * 100));
+                send({ type: "status", status: "scraping", step: 2, runId, progress });
               }
-              
+
               if (browseAiTaskResult?.status === "successful") {
                 console.log(`[SSE] BrowseAI task completed successfully`);
                 break;
               } else if (browseAiTaskResult?.status === "failed") {
-                const errorMsg = browseAiTaskResult?.userFriendlyError || browseAiTaskResult?.error || "Task failed";
+                const errorMsg =
+                  browseAiTaskResult?.userFriendlyError ||
+                  browseAiTaskResult?.error ||
+                  "Task failed";
                 console.error(`[SSE] BrowseAI task failed:`, errorMsg);
-                
-                // Map common errors
+
                 if (errorMsg.includes("authentication") || errorMsg.includes("login")) {
                   throw new Error("AUTH_BAD_CREDENTIALS: Invalid email or password");
                 } else if (errorMsg.includes("robot") || errorMsg.includes("not found")) {
@@ -176,8 +179,8 @@ serve(async (req: Request) => {
                 }
               }
             } else if (statusResponse.status === 404) {
+              // Task might still be initializing early on
               if (attempts < 5) {
-                // Task might still be initializing
                 continue;
               } else {
                 throw new Error("ROBOT_NOT_FOUND: BrowseAI task not found");
@@ -188,40 +191,80 @@ serve(async (req: Request) => {
           } catch (fetchError) {
             console.warn(`[SSE] Status check attempt ${attempts} failed:`, fetchError);
             if (fetchError instanceof Error && fetchError.message.includes("AUTH_BAD_")) {
-              throw fetchError; // Re-throw auth errors immediately
+              // Re-throw auth errors immediately
+              throw fetchError;
             }
           }
         }
 
         if (!browseAiTaskResult || browseAiTaskResult.status !== "successful") {
-          throw new Error("RUN_TIMEOUT: BrowseAI task did not complete within 90 seconds");
+          throw new Error("RUN_TIMEOUT: BrowseAI task did not complete within 15 minutes");
         }
 
         // Step 3: Saving & Rendering - Send snapshot event
         send({ type: "snapshot", status: "saving", step: 3, runId });
 
-        // Download captured data if available
-        let capturedData = null;
+        // Helper: small randomized delay (200–600ms) to reduce spikes
+        const jitter = () => new Promise((r) => setTimeout(r, 200 + Math.floor(Math.random() * 400)));
+
+        // Download captured data if available with exponential backoff (0s, 30s, 90s)
+        let capturedData: any = null;
         if (browseAiTaskResult.capturedDataTemporaryUrl) {
-          try {
-            const dataResponse = await fetch(browseAiTaskResult.capturedDataTemporaryUrl);
-            if (dataResponse.ok) {
-              capturedData = await dataResponse.json();
-              console.log(`[SSE] Downloaded captured data from temporary URL`);
+          const downloadDelays = [0, 30_000, 90_000];
+          for (let i = 0; i < downloadDelays.length; i++) {
+            if (downloadDelays[i] > 0) await new Promise((r) => setTimeout(r, downloadDelays[i]));
+            try {
+              await jitter();
+              const dataResponse = await fetch(browseAiTaskResult.capturedDataTemporaryUrl);
+              if (dataResponse.ok) {
+                capturedData = await dataResponse.json();
+                console.log(`[SSE] Downloaded captured data (attempt ${i + 1})`);
+                break;
+              } else {
+                console.warn(`[SSE] Captured data fetch failed (attempt ${i + 1}):`, dataResponse.status);
+              }
+            } catch (downloadError) {
+              console.warn(`[SSE] Could not download captured data (attempt ${i + 1}):`, downloadError);
             }
-          } catch (downloadError) {
-            console.warn("[SSE] Could not download captured data:", downloadError);
           }
         }
         
+        // Validate readiness: ensure three bureaus detected with non-empty score entries
+        const lists = capturedData?.capturedLists || browseAiTaskResult?.capturedLists || {};
+        const scoreList: any[] = Array.isArray(lists?.["Credit Score HTML"]) ? lists["Credit Score HTML"] : [];
+        const bureauSeen = new Set<string>();
+
+        for (const item of scoreList) {
+          const text = String(item?.["Credit Score per bureau"] || item?.["Credit Scores"] || "").toLowerCase();
+          if (text.includes("transunion") && /\d{2,3}/.test(text)) bureauSeen.add("transunion");
+          if (text.includes("experian") && /\d{2,3}/.test(text)) bureauSeen.add("experian");
+          if (text.includes("equifax") && /\d{2,3}/.test(text)) bureauSeen.add("equifax");
+        }
+
+        const requiredBureaus = ["equifax", "experian", "transunion"];
+        const missingBureaus = requiredBureaus.filter((b) => !bureauSeen.has(b));
+        const isPartial = missingBureaus.length > 0;
+
+        if (isPartial) {
+          console.warn("[SSE] Data validation indicates partial result. Missing bureaus:", missingBureaus);
+          send({
+            type: "partial",
+            status: "partial",
+            runId,
+            missingBureaus,
+            message: "One or more bureaus missing or incomplete; proceeding as partial",
+          });
+        }
+
         // Prepare payload for ingestion
         const creditReportPayload = {
           runId,
-          status: "completed",
-          capturedLists: capturedData?.capturedLists || browseAiTaskResult?.capturedLists || {},
+          status: isPartial ? "partial" : "completed",
+          missingBureaus: isPartial ? missingBureaus : undefined,
+          capturedLists: lists,
           capturedTexts: capturedData?.capturedTexts || browseAiTaskResult?.capturedTexts || {},
           capturedDataTemporaryUrl: browseAiTaskResult.capturedDataTemporaryUrl,
-          rawBrowseAiResult: browseAiTaskResult
+          rawBrowseAiResult: browseAiTaskResult,
         };
 
         // Ingest the credit report data

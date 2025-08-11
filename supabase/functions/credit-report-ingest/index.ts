@@ -101,7 +101,7 @@ serve(async (req: Request) => {
     // Sample data path for dry run
     if (dryRun) {
       const sampleRunId = runId ?? `dry_${Date.now()}`;
-      const sampleUserId = userIdentifier ?? crypto.randomUUID();
+      const sampleUserId = (userIdentifier && /^[0-9a-fA-F-]{8}-[0-9a-fA-F-]{4}-[1-5][0-9a-fA-F-]{3}-[89abAB][0-9a-fA-F-]{3}-[0-9a-fA-F-]{12}$/.test(userIdentifier)) ? userIdentifier : crypto.randomUUID();
 
       console.log(`[ingest] Dry run mode - creating sample data for runId: ${sampleRunId}`);
 

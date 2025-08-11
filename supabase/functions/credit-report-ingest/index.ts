@@ -21,7 +21,7 @@ function getCorsHeaders(req: Request) {
   };
 }
 
-const corsHeaders = getCorsHeaders({} as Request);
+
 
 type IngestBody = {
   runId?: string;
@@ -32,12 +32,6 @@ type IngestBody = {
   dryRun?: boolean | number | string;
 };
 
-function json(res: unknown, status = 200) {
-  return new Response(JSON.stringify(res), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 function stripHtml(input: any): { text: string | null; html: string | null } {
   if (input == null) return { text: null, html: null };
@@ -63,7 +57,11 @@ function normalizeMoney(v: any): number | null {
 serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
+  const json = (res: unknown, status = 200) =>
+    new Response(JSON.stringify(res), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");

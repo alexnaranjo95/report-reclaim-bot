@@ -775,6 +775,59 @@ export type Database = {
         }
         Relationships: []
       }
+      credit_rounds: {
+        Row: {
+          created_at: string
+          customer_id: string
+          deleted_at: string | null
+          error_info: Json | null
+          id: string
+          idempotency_key: string
+          ingested_at: string | null
+          parser_version: string | null
+          round_no: number
+          source: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          customer_id: string
+          deleted_at?: string | null
+          error_info?: Json | null
+          id?: string
+          idempotency_key: string
+          ingested_at?: string | null
+          parser_version?: string | null
+          round_no: number
+          source?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string
+          deleted_at?: string | null
+          error_info?: Json | null
+          id?: string
+          idempotency_key?: string
+          ingested_at?: string | null
+          parser_version?: string | null
+          round_no?: number
+          source?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_rounds_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_scores: {
         Row: {
           bureau: Database["public"]["Enums"]["bureau_enum"]
@@ -898,6 +951,56 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      customer_users: {
+        Row: {
+          created_at: string
+          customer_id: string
+          id: string
+          role: Database["public"]["Enums"]["customer_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          customer_id: string
+          id?: string
+          role?: Database["public"]["Enums"]["customer_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string
+          id?: string
+          role?: Database["public"]["Enums"]["customer_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_users_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customers: {
+        Row: {
+          created_at: string
+          external_ref: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          external_ref?: string | null
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          external_ref?: string | null
+          id?: string
+        }
+        Relationships: []
       }
       dispute_templates: {
         Row: {
@@ -1570,6 +1673,38 @@ export type Database = {
           },
         ]
       }
+      raw_payloads: {
+        Row: {
+          bureau: string | null
+          created_at: string
+          credit_round_id: string
+          id: string
+          payload: Json
+        }
+        Insert: {
+          bureau?: string | null
+          created_at?: string
+          credit_round_id: string
+          id?: string
+          payload: Json
+        }
+        Update: {
+          bureau?: string | null
+          created_at?: string
+          credit_round_id?: string
+          id?: string
+          payload?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "raw_payloads_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       response_logs: {
         Row: {
           created_at: string
@@ -1621,6 +1756,296 @@ export type Database = {
           },
         ]
       }
+      round_addresses: {
+        Row: {
+          bureau: string | null
+          city: string | null
+          created_at: string
+          credit_round_id: string
+          date_reported: string | null
+          id: string
+          postal_code: string | null
+          state: string | null
+          street: string | null
+        }
+        Insert: {
+          bureau?: string | null
+          city?: string | null
+          created_at?: string
+          credit_round_id: string
+          date_reported?: string | null
+          id?: string
+          postal_code?: string | null
+          state?: string | null
+          street?: string | null
+        }
+        Update: {
+          bureau?: string | null
+          city?: string | null
+          created_at?: string
+          credit_round_id?: string
+          date_reported?: string | null
+          id?: string
+          postal_code?: string | null
+          state?: string | null
+          street?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_addresses_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      round_collections: {
+        Row: {
+          account_number: string | null
+          amount: number | null
+          bureau: string | null
+          collection_agency: string | null
+          created_at: string
+          credit_round_id: string
+          date_assigned: string | null
+          id: string
+          original_creditor: string | null
+          status: string | null
+        }
+        Insert: {
+          account_number?: string | null
+          amount?: number | null
+          bureau?: string | null
+          collection_agency?: string | null
+          created_at?: string
+          credit_round_id: string
+          date_assigned?: string | null
+          id?: string
+          original_creditor?: string | null
+          status?: string | null
+        }
+        Update: {
+          account_number?: string | null
+          amount?: number | null
+          bureau?: string | null
+          collection_agency?: string | null
+          created_at?: string
+          credit_round_id?: string
+          date_assigned?: string | null
+          id?: string
+          original_creditor?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_collections_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      round_employers: {
+        Row: {
+          bureau: string | null
+          created_at: string
+          credit_round_id: string
+          date_reported: string | null
+          employer_name: string | null
+          id: string
+          occupation: string | null
+        }
+        Insert: {
+          bureau?: string | null
+          created_at?: string
+          credit_round_id: string
+          date_reported?: string | null
+          employer_name?: string | null
+          id?: string
+          occupation?: string | null
+        }
+        Update: {
+          bureau?: string | null
+          created_at?: string
+          credit_round_id?: string
+          date_reported?: string | null
+          employer_name?: string | null
+          id?: string
+          occupation?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_employers_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      round_inquiries: {
+        Row: {
+          bureau: string | null
+          business_type: string | null
+          created_at: string
+          credit_round_id: string
+          id: string
+          inquiry_date: string | null
+          purpose: string | null
+          subscriber: string | null
+        }
+        Insert: {
+          bureau?: string | null
+          business_type?: string | null
+          created_at?: string
+          credit_round_id: string
+          id?: string
+          inquiry_date?: string | null
+          purpose?: string | null
+          subscriber?: string | null
+        }
+        Update: {
+          bureau?: string | null
+          business_type?: string | null
+          created_at?: string
+          credit_round_id?: string
+          id?: string
+          inquiry_date?: string | null
+          purpose?: string | null
+          subscriber?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_inquiries_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      round_personal_identifiers: {
+        Row: {
+          bureau: string | null
+          created_at: string
+          credit_round_id: string
+          date_of_birth: string | null
+          full_name: string | null
+          id: string
+          ssn_mask: string | null
+        }
+        Insert: {
+          bureau?: string | null
+          created_at?: string
+          credit_round_id: string
+          date_of_birth?: string | null
+          full_name?: string | null
+          id?: string
+          ssn_mask?: string | null
+        }
+        Update: {
+          bureau?: string | null
+          created_at?: string
+          credit_round_id?: string
+          date_of_birth?: string | null
+          full_name?: string | null
+          id?: string
+          ssn_mask?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_personal_identifiers_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      round_public_records: {
+        Row: {
+          amount: number | null
+          bureau: string | null
+          created_at: string
+          credit_round_id: string
+          filing_date: string | null
+          id: string
+          record_type: string | null
+          reference_number: string | null
+          status: string | null
+        }
+        Insert: {
+          amount?: number | null
+          bureau?: string | null
+          created_at?: string
+          credit_round_id: string
+          filing_date?: string | null
+          id?: string
+          record_type?: string | null
+          reference_number?: string | null
+          status?: string | null
+        }
+        Update: {
+          amount?: number | null
+          bureau?: string | null
+          created_at?: string
+          credit_round_id?: string
+          filing_date?: string | null
+          id?: string
+          record_type?: string | null
+          reference_number?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_public_records_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      round_scores: {
+        Row: {
+          bureau: string
+          created_at: string
+          credit_round_id: string
+          date: string | null
+          id: string
+          model: string | null
+          score: number | null
+        }
+        Insert: {
+          bureau: string
+          created_at?: string
+          credit_round_id: string
+          date?: string | null
+          id?: string
+          model?: string | null
+          score?: number | null
+        }
+        Update: {
+          bureau?: string
+          created_at?: string
+          credit_round_id?: string
+          date?: string | null
+          id?: string
+          model?: string | null
+          score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_scores_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       round_templates: {
         Row: {
           append_documents: Json | null
@@ -1664,6 +2089,109 @@ export type Database = {
             columns: ["layout_id"]
             isOneToOne: false
             referencedRelation: "template_layouts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      round_tradeline_history: {
+        Row: {
+          balance: number | null
+          created_at: string
+          credit_limit: number | null
+          id: string
+          month: string
+          payment: number | null
+          status_code: string | null
+          tradeline_id: string
+        }
+        Insert: {
+          balance?: number | null
+          created_at?: string
+          credit_limit?: number | null
+          id?: string
+          month: string
+          payment?: number | null
+          status_code?: string | null
+          tradeline_id: string
+        }
+        Update: {
+          balance?: number | null
+          created_at?: string
+          credit_limit?: number | null
+          id?: string
+          month?: string
+          payment?: number | null
+          status_code?: string | null
+          tradeline_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_tradeline_history_tradeline_id_fkey"
+            columns: ["tradeline_id"]
+            isOneToOne: false
+            referencedRelation: "round_tradelines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      round_tradelines: {
+        Row: {
+          account_type: string | null
+          account_uid: string
+          balance: number | null
+          bureau: string | null
+          created_at: string
+          credit_limit: number | null
+          credit_round_id: string
+          creditor: string | null
+          date_reported: string | null
+          id: string
+          open_date: string | null
+          past_due: number | null
+          payment_status: string | null
+          remarks: string[] | null
+          status: string | null
+        }
+        Insert: {
+          account_type?: string | null
+          account_uid: string
+          balance?: number | null
+          bureau?: string | null
+          created_at?: string
+          credit_limit?: number | null
+          credit_round_id: string
+          creditor?: string | null
+          date_reported?: string | null
+          id?: string
+          open_date?: string | null
+          past_due?: number | null
+          payment_status?: string | null
+          remarks?: string[] | null
+          status?: string | null
+        }
+        Update: {
+          account_type?: string | null
+          account_uid?: string
+          balance?: number | null
+          bureau?: string | null
+          created_at?: string
+          credit_limit?: number | null
+          credit_round_id?: string
+          creditor?: string | null
+          date_reported?: string | null
+          id?: string
+          open_date?: string | null
+          past_due?: number | null
+          payment_status?: string | null
+          remarks?: string[] | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_tradelines_credit_round_id_fkey"
+            columns: ["credit_round_id"]
+            isOneToOne: false
+            referencedRelation: "credit_rounds"
             referencedColumns: ["id"]
           },
         ]
@@ -2015,6 +2543,7 @@ export type Database = {
       address_type_enum: "current" | "previous"
       app_role: "user" | "admin" | "superadmin"
       bureau_enum: "TransUnion" | "Experian" | "Equifax"
+      customer_role: "owner" | "admin" | "member"
       inquiry_type_enum: "hard" | "soft"
       payment_status_enum: "OK" | "30" | "60" | "90" | "120" | "CO" | "NA"
     }
@@ -2149,6 +2678,7 @@ export const Constants = {
       address_type_enum: ["current", "previous"],
       app_role: ["user", "admin", "superadmin"],
       bureau_enum: ["TransUnion", "Experian", "Equifax"],
+      customer_role: ["owner", "admin", "member"],
       inquiry_type_enum: ["hard", "soft"],
       payment_status_enum: ["OK", "30", "60", "90", "120", "CO", "NA"],
     },

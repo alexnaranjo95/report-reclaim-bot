@@ -5,7 +5,7 @@ import DashboardView from "@/components/DashboardView";
 import { APP_CONFIG, isMockMode } from "@/config";
 import { getRunStatus, startRun, BrowseAiStatus } from "@/lib/browseAi";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+
 
 const Button = (
   {
@@ -121,7 +121,7 @@ const BrowseAiImporter: React.FC<BrowseAiImporterProps> = ({ onImportStart }) =>
     } finally {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
     }
-  }, [canSubmit, mockFlow, password, username, navigate]);
+  }, [canSubmit, mockFlow, password, username]);
 
   const keepPolling = useCallback(async () => {
     if (!runId) return;

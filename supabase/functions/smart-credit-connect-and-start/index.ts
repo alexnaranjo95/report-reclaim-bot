@@ -66,9 +66,11 @@ serve(async (req: Request) => {
       }
     }
     
-    if (!userIdentifier) return json(req, { code: 401, message: "User authentication required" }, 401);
+    const userIdentifier = userId || deviceId || null;
 
-    const { email, password } = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => ({} as any));
+    const email = body?.email || body?.username;
+    const password = body?.password;
     if (!email || !password) return json(req, { code: "E_INPUT", message: "email and password are required" }, 400);
 
     let runId = uuid();
@@ -128,7 +130,7 @@ serve(async (req: Request) => {
       console.log(`BrowseAI task created successfully, taskId: ${runId}`);
     } catch (error) {
       console.error("BrowseAI connection error:", error);
-      return json({ code: "RUN_FAILED", message: "Failed to connect to BrowseAI" }, 500);
+      return json(req, { code: "RUN_FAILED", message: "Failed to connect to BrowseAI" }, 500);
     }
 
     // Record initial import row for UI visibility
@@ -148,3 +150,5 @@ serve(async (req: Request) => {
   } catch (e: any) {
     console.error("smart-credit-connect-and-start error:", e);
     return json(req, { code: "E_UNEXPECTED", message: e?.message || "Unexpected error" }, 500);
+  }
+});

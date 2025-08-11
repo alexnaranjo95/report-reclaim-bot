@@ -94,13 +94,15 @@ serve(async (req: Request) => {
 
     // Create BrowseAI robot task
     try {
-      console.log(`[connect-and-start] Creating BrowseAI task with robot: ${BROWSEAI_ROBOT_ID}`);
+      const originUrl = "https://www.smartcredit.com/ls";
+      console.log(`[connect-and-start] Creating BrowseAI task with robot: ${BROWSEAI_ROBOT_ID}, originUrl: ${originUrl}`);
       
       const robotTaskPayload = {
         inputParameters: {
           "email": email,
+          "username": email,
           "password": password,
-          "originUrl": "https://www.identityiq.com/",
+          "originUrl": originUrl,
           "credit_scores_limit": 10,
           "credit_report_details_limit": 100,
           "credit_report_details_transunion_limit": 50,

@@ -41,7 +41,7 @@ serve(async (req: Request) => {
     });
   }
 
-  // Parse request body for credentials and runId
+  // Parse request body for runId
   let body: any = {};
   try {
     body = await req.json();
@@ -116,14 +116,12 @@ serve(async (req: Request) => {
       };
 
       try {
-        console.log(`[SSE] Starting BrowseAI scrape for runId: ${runId}, user: ${userIdentifier}`);
+        console.log(`[SSE] Starting BrowseAI monitoring for runId: ${runId}, user: ${userIdentifier}`);
         
-        // Step 1: Connecting - acknowledge connection; task should already exist from connect-and-start
+        // Step 1: Connecting
         send({ type: "status", status: "connecting", step: 1, runId });
         
-        console.log(`[SSE] Using existing BrowseAI task for runId: ${runId}`);
-
-        // Step 2: Scraping - Poll for task completion
+        // Step 2: Scraping - Poll BrowseAI for task completion
         send({ type: "status", status: "scraping", step: 2, runId });
         
         let browseAiTaskResult: any = null;
@@ -149,7 +147,7 @@ serve(async (req: Request) => {
                 runId 
               });
               
-              // Send progress updates
+              // Send progress updates every 5 seconds
               if (attempts % 5 === 0) {
                 const progress = Math.min(95, (attempts / maxAttempts) * 100);
                 send({ 
@@ -199,7 +197,7 @@ serve(async (req: Request) => {
           throw new Error("RUN_TIMEOUT: BrowseAI task did not complete within 90 seconds");
         }
 
-        // Step 3: Saving & Rendering
+        // Step 3: Saving & Rendering - Send snapshot event
         send({ type: "snapshot", status: "saving", step: 3, runId });
 
         // Download captured data if available

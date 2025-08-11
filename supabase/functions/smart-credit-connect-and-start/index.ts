@@ -28,7 +28,7 @@ function json(req: Request, res: unknown, status = 200) {
 }
 
 function uuid() {
-  // Simple UUID v4 generator (not cryptographically strong)
+  // Simple UUID v4 generator
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
     const r = (Math.random() * 16) | 0;
     const v = c === "x" ? r : (r & 0x3) | 0x8;
@@ -42,18 +42,32 @@ serve(async (req: Request) => {
   if (req.method !== "POST") return json(req, { code: 405, message: "Method not allowed" }, 405);
 
   try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    // Early configuration validation
     const BROWSEAI_API_KEY = Deno.env.get("BROWSEAI_API_KEY") || Deno.env.get("BROWSE_AI_API_KEY");
     const BROWSEAI_ROBOT_ID = Deno.env.get("BROWSEAI_ROBOT_ID") || Deno.env.get("BROWSE_AI_ROBOT_ID");
     
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return json(req, { code: "E_CONFIG", message: "Missing Supabase config" }, 500);
-    if (!BROWSEAI_API_KEY) return json(req, { code: "AUTH_BAD_KEY", message: "Missing BrowseAI API key" }, 500);
-    if (!BROWSEAI_ROBOT_ID) return json(req, { code: "ROBOT_NOT_FOUND", message: "Missing BrowseAI robot ID" }, 500);
+    if (!BROWSEAI_API_KEY) {
+      console.error("[connect-and-start] Missing BrowseAI API key");
+      return json(req, { code: "AUTH_BAD_KEY", message: "BrowseAI API key not configured" }, 500);
+    }
+    
+    if (!BROWSEAI_ROBOT_ID) {
+      console.error("[connect-and-start] Missing BrowseAI robot ID");
+      return json(req, { code: "ROBOT_NOT_FOUND", message: "BrowseAI robot ID not configured" }, 500);
+    }
+
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return json(req, { code: "E_CONFIG", message: "Missing Supabase config" }, 500);
+    }
 
     const authHeader = req.headers.get("Authorization") || "";
     const deviceId = req.headers.get("x-device-id");
-    const supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: authHeader } } });
+    const supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY, { 
+      global: { headers: { Authorization: authHeader } } 
+    });
 
     // Get user context
     let userId: string | null = null;
@@ -71,24 +85,30 @@ serve(async (req: Request) => {
     const body = await req.json().catch(() => ({} as any));
     const email = body?.email || body?.username;
     const password = body?.password;
-    if (!email || !password) return json(req, { code: "E_INPUT", message: "email and password are required" }, 400);
+    
+    if (!email || !password) {
+      return json(req, { code: "E_INPUT", message: "email and password are required" }, 400);
+    }
 
     let runId = uuid();
 
-    // Test BrowseAI connection by creating a robot task
+    // Create BrowseAI robot task
     try {
+      console.log(`[connect-and-start] Creating BrowseAI task with robot: ${BROWSEAI_ROBOT_ID}`);
+      
       const robotTaskPayload = {
-        id: runId,
-        robotId: BROWSEAI_ROBOT_ID,
         inputParameters: {
-          "Email": email,
-          "Password": password,
+          "email": email,
+          "password": password,
           "originUrl": "https://www.identityiq.com/",
-          "robotSlowMo": 1000,
-          "robotTimeout": 240000,
-          "dataExtractionTimeoutForAnyElement": 10000,
-          "dataExtractionTimeoutForAllElements": 60000
-        }
+          "credit_scores_limit": 10,
+          "credit_report_details_limit": 100,
+          "credit_report_details_transunion_limit": 50,
+          "credit_report_details-experian_limit": 50,
+          "credit_report_details-equifax_limit": 50,
+          "credit_bureaus_comments_limit": 20
+        },
+        recordVideo: false
       };
 
       const createUrl = `https://api.browse.ai/v2/robots/${BROWSEAI_ROBOT_ID}/tasks`;
@@ -103,9 +123,9 @@ serve(async (req: Request) => {
 
       if (!createResponse.ok) {
         const errorText = await createResponse.text();
-        console.error("BrowseAI task creation failed:", errorText);
+        console.error("[connect-and-start] BrowseAI task creation failed:", errorText);
         
-        if (createResponse.status === 401) {
+        if (createResponse.status === 401 || createResponse.status === 403) {
           return json(req, { code: "AUTH_BAD_KEY", message: "Invalid BrowseAI API key" }, 400);
         } else if (createResponse.status === 404) {
           return json(req, { code: "ROBOT_NOT_FOUND", message: "BrowseAI robot not found" }, 400);
@@ -118,37 +138,43 @@ serve(async (req: Request) => {
       let createData: any = null;
       try {
         createData = await createResponse.json();
-      } catch (_) {
-        createData = null;
+      } catch (parseError) {
+        console.warn("[connect-and-start] Could not parse BrowseAI response:", parseError);
       }
+      
       const task = createData?.result || createData?.task || createData;
       const returnedId = task?.id || task?.taskId || task?.data?.id;
       if (returnedId) {
         runId = String(returnedId);
       }
 
-      console.log(`BrowseAI task created successfully, taskId: ${runId}`);
+      console.log(`[connect-and-start] BrowseAI task created successfully, taskId: ${runId}`);
     } catch (error) {
-      console.error("BrowseAI connection error:", error);
-      return json(req, { code: "RUN_FAILED", message: "Failed to connect to BrowseAI" }, 500);
+      console.error("[connect-and-start] BrowseAI connection error:", error);
+      return json(req, { code: "RUN_FAILED", message: "Failed to connect to BrowseAI service" }, 500);
     }
 
-    // Record initial import row for UI visibility
-    try {
-      await supabase.from("normalized_credit_reports").insert({ 
-        run_id: runId, 
-        user_id: userIdentifier, 
-        collected_at: new Date().toISOString(), 
-        version: "v1", 
-        report_json: { status: "starting" } 
-      });
-    } catch (_) {
-      // ignore if table/policy prevents insert here; UI will still proceed
+    // Record initial import status for tracking
+    if (userIdentifier) {
+      try {
+        await supabase.from("normalized_credit_reports").upsert({ 
+          run_id: runId, 
+          user_id: userIdentifier, 
+          collected_at: new Date().toISOString(), 
+          version: "v1", 
+          report_json: { status: "starting", runId } 
+        }, { onConflict: "run_id" });
+        
+        console.log(`[connect-and-start] Initial status recorded for runId: ${runId}`);
+      } catch (dbError) {
+        console.warn("[connect-and-start] Could not record initial status:", dbError);
+        // Continue anyway - this is not critical for the flow
+      }
     }
 
     return json(req, { ok: true, runId });
   } catch (e: any) {
-    console.error("smart-credit-connect-and-start error:", e);
+    console.error("[connect-and-start] Unexpected error:", e);
     return json(req, { code: "E_UNEXPECTED", message: e?.message || "Unexpected error" }, 500);
   }
 });

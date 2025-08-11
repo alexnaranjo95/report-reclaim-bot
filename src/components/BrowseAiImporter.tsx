@@ -27,7 +27,11 @@ const Button = (
   );
 };
 
-const BrowseAiImporter: React.FC = () => {
+interface BrowseAiImporterProps {
+  onImportStart?: (runId: string) => void;
+}
+
+const BrowseAiImporter: React.FC<BrowseAiImporterProps> = ({ onImportStart }) => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [phase, setPhase] = useState<"form" | "loading" | "results" | "error">("form");
@@ -39,7 +43,6 @@ const BrowseAiImporter: React.FC = () => {
   const [debug] = useState<boolean>(() => new URL(window.location.href).searchParams.get("debug") === "1");
 
   const canSubmit = Boolean(username.trim() && password.trim());
-  const navigate = useNavigate();
 
   const intervalRef = useRef<number | null>(null);
   const startTsRef = useRef<number>(0);
@@ -100,14 +103,15 @@ const BrowseAiImporter: React.FC = () => {
       const start = await startRun({ username: username.trim(), password });
       setRunId(start.runId);
 
-      // Immediately redirect to Credit Reports page to show live progress
-      navigate(`/credit-report?runId=${encodeURIComponent(start.runId)}`);
-      
-      toast.success("Import started successfully", {
-        description: "Redirecting to view real-time progress..."
-      });
-      
-      return;
+      // Call parent callback to handle the import start
+      if (onImportStart) {
+        onImportStart(start.runId);
+      } else {
+        // Fallback behavior if no callback provided
+        toast.success("Import started successfully", {
+          description: `Run ID: ${start.runId}`
+        });
+      }
 
     } catch (err: any) {
       const message = err?.message || "Unknown error";

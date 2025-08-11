@@ -4,7 +4,7 @@ import type { CreditReport } from "./BrowseAINormalizer";
 function isCreditReportRoute() {
   if (typeof window === 'undefined') return true;
   const p = window.location?.pathname || '';
-  return p === '/credit-report' || p === '/credit-report/' || p.startsWith('/credit-reports');
+  return p === '/credit-report' || p === '/credit-reports' || p.startsWith('/credit-report');
 }
 
 export async function saveRawReport(runId: string, userId: string, raw: any) {
@@ -217,6 +217,17 @@ export async function fetchLatestRaw(runId?: string) {
 }
 
 export async function fetchLatestWithFallback(runId?: string) {
+  if (!isCreditReportRoute()) {
+    return {
+      runId: null,
+      collectedAt: null,
+      version: "v1",
+      report: null,
+      counts: { realEstate: 0, revolving: 0, other: 0 },
+      source: "blocked" as const,
+    };
+  }
+  
   // Try normalized first (by run or by user)
   try {
     const norm = await fetchLatestNormalized(runId);
@@ -238,6 +249,7 @@ export async function fetchLatestWithFallback(runId?: string) {
         report: raw.raw,
         counts: { realEstate: 0, revolving: 0, other: 0 },
         source: "raw" as const,
+        capturedDataTemporaryUrl: raw.raw?.capturedDataTemporaryUrl,
       };
     }
   } catch (rawError) {

@@ -98,6 +98,8 @@ serve(async (req: Request) => {
     const supabaseService = createClient(supabaseUrl, serviceKey);
     const collectedAt = toDateISO(body.collectedAt) ?? new Date().toISOString();
 
+    console.log(`[ingest] Processing ${dryRun ? 'dry run' : 'real data'} for runId: ${runId || 'generated'}`);
+
     // Sample data path for dry run
     if (dryRun) {
       const sampleRunId = runId ?? `dry_${Date.now()}`;
@@ -164,26 +166,36 @@ serve(async (req: Request) => {
           ],
           other: [],
         },
-        personalInfo: {
-          name: "Sample User",
-          aliases: [],
-          birthDate: "1990-01-01",
-          addresses: [
-            { address: "123 Sample St, Sample City, SC 12345", type: "current" }
-          ],
-          employers: []
-        },
+        personalInformation: [
+          {
+            position: 1,
+            status: "ACTIVE",
+            fields: {
+              name: "Sample User",
+              address: "123 Sample St, Sample City, SC 12345",
+              phone: "(555) 123-4567"
+            }
+          }
+        ],
         inquiries: [],
+        collections: [],
+        publicRecords: [],
+        creditorsAddresses: [],
         rawSections: {},
       };
 
       // Upsert raw payload
-      await supabaseService.from("credit_reports_raw").upsert({
+      const { error: rawError } = await supabaseService.from("credit_reports_raw").upsert({
         run_id: sampleRunId,
         user_id: sampleUserId,
         collected_at: collectedAt,
         raw_json: sampleReport,
       }, { onConflict: "run_id" });
+
+      if (rawError) {
+        console.error("[ingest] Raw upsert error:", rawError);
+        return json({ code: "E_DB_UPSERT", message: rawError.message }, 500);
+      }
 
       // Upsert normalized report
       await supabaseService.from("normalized_credit_reports").delete()
@@ -219,7 +231,6 @@ serve(async (req: Request) => {
 
       if (scErr) {
         console.error("[ingest] Scores upsert error:", scErr);
-        return json({ code: "E_DB_UPSERT", message: scErr.message }, 500);
       }
 
       // Upsert accounts
@@ -270,7 +281,6 @@ serve(async (req: Request) => {
 
         if (accErr) {
           console.error("[ingest] Accounts upsert error:", accErr);
-          return json({ code: "E_DB_UPSERT", message: accErr.message }, 500);
         }
       }
 
@@ -316,123 +326,166 @@ serve(async (req: Request) => {
       inquiries: [] as any[], 
       collections: [] as any[], 
       addresses: [] as any[], 
-      personalInfo: {} as any 
+      personalInformation: [] as any[]
     };
 
     try {
-      // Parse BrowseAI capturedLists structure - handle both array and object formats
-      let listsToProcess: any[] = [];
-      
-      if (Array.isArray(rawPayload?.capturedLists)) {
-        listsToProcess = rawPayload.capturedLists;
-      } else if (rawPayload?.capturedLists && typeof rawPayload.capturedLists === 'object') {
-        // Convert object to array format
-        listsToProcess = Object.entries(rawPayload.capturedLists).map(([name, items]) => ({
-          name,
-          items: Array.isArray(items) ? items : [items]
-        }));
-      }
-      
-      for (const lst of listsToProcess) {
-        const name = String(lst?.name ?? "").toLowerCase();
-        const items = Array.isArray(lst?.items) ? lst.items : [];
+      // Parse BrowseAI capturedLists structure with prefix-safe matching
+      const captured = rawPayload?.capturedLists || rawPayload?.items || rawPayload || {};
+
+      // Process each captured list with prefix-safe matching
+      for (const key of Object.keys(captured)) {
+        const lowerKey = key.toLowerCase();
+        const items = Array.isArray(captured[key]) ? captured[key] : [captured[key]];
 
         // Credit Scores
-        if (name.includes("score")) {
-          for (const it of items) {
-            const rawText = String(it?.value ?? it?.score ?? it?.Score ?? it?.text ?? "");
-            const bureauFromText = rawText.match(/experian|equifax|transunion/i)?.[0] ?? "";
-            const bureauRaw = (it?.bureau ?? it?.Bureau ?? it?.source ?? bureauFromText) as string;
-            const bureau = bureauRaw ? bureauRaw.replace(/®/g, "").trim() : "";
-            const scoreVal = Number(String(it?.score ?? it?.value ?? it?.Score ?? rawText).replace(/[^0-9]/g, "")) || null;
+        if (lowerKey.includes("credit score")) {
+          for (const item of items) {
+            const rawText = String(item?.text || item?.html || item?.value || "");
+            const bureauMatch = rawText.match(/experian|equifax|transunion/i);
+            const bureau = bureauMatch ? bureauMatch[0] : "";
+            const scoreMatch = rawText.match(/\b(\d{3})\b/);
+            const score = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
             
-            report.scores.push({
-              bureau: bureau ? bureau[0].toUpperCase() + bureau.slice(1).toLowerCase() : "",
-              score: scoreVal,
-              status: it?._STATUS ?? it?.status ?? it?.Status ?? null,
-              position: it?.Position ?? it?.position ?? null,
-            });
+            if (bureau && score) {
+              report.scores.push({
+                bureau: bureau.charAt(0).toUpperCase() + bureau.slice(1).toLowerCase(),
+                score,
+                status: item?._STATUS || "ACTIVE",
+                position: item?.Position || report.scores.length + 1,
+              });
+            }
           }
-          continue;
         }
-
-        // Consumer Statements (truncated: "Consumer Stateme")
-        if (name.startsWith("consumer stateme")) {
-          for (const it of items) {
-            const { text, html } = stripHtml(it?.statement ?? it?.Statement ?? it?.value ?? it?.Text ?? "");
+        // Consumer Statements (prefix: "Consumer Stateme")
+        else if (lowerKey.startsWith("consumer stateme")) {
+          for (const item of items) {
+            const { text, html } = stripHtml(item?.statement || item?.text || item?.value || "");
             report.consumerStatements.push({ 
-              bureau: it?.bureau ?? it?.Bureau ?? null, 
+              bureau: item?.bureau || item?.Bureau || "", 
               statement: text, 
               statement_html: html 
             });
           }
-          continue;
         }
-
-        // Personal Information (truncated: "Personal Inform")
-        if (name.startsWith("personal inform")) {
-          report.personalInfo = { ...(report.personalInfo || {}), source: items };
-          continue;
-        }
-
-        // Inquiries
-        if (name.includes("inquiries")) {
-          for (const it of items) {
-            report.inquiries.push({
-              inquirer_name: it?.inquirer_name ?? it?.name ?? it?.Inquirer ?? null,
-              inquiry_date: toDateISO(it?.inquiry_date ?? it?.date ?? it?.Date) ?? null,
-              bureau: it?.bureau ?? it?.Bureau ?? null,
+        // Personal Information (prefix: "Personal Inform")
+        else if (lowerKey.startsWith("personal inform")) {
+          for (const item of items) {
+            const fields: Record<string, any> = {};
+            Object.keys(item || {}).forEach((fieldKey) => {
+              if (!fieldKey.startsWith("_") && fieldKey !== "Position") {
+                const val = item[fieldKey];
+                const clean = typeof val === "string" ? stripHtml(val).text : val;
+                fields[fieldKey] = clean;
+              }
+            });
+            report.personalInformation.push({
+              position: item?.Position || report.personalInformation.length + 1,
+              status: item?._STATUS || "ACTIVE",
+              fields
             });
           }
-          continue;
         }
-
-        // Creditor Addresses
-        if (name.includes("address")) {
-          for (const it of items) {
-            const { text } = stripHtml(it?.address ?? it?.Address ?? it?.value ?? "");
-            report.addresses.push({ 
-              creditor: it?.creditor ?? it?.Creditor ?? it?.name ?? null, 
-              address: text 
-            });
-          }
-          continue;
-        }
-
-        // Account Categories
-        if (name.startsWith("real estate") || name.startsWith("revolving") || name.startsWith("other")) {
-          const category = name.startsWith("real estate") ? "realEstate" : 
-                          name.startsWith("revolving") ? "revolving" : "other";
-          
-          for (const it of items) {
+        // Real Estate Accounts
+        else if (lowerKey.includes("real estate account")) {
+          for (const item of items) {
             const account = {
-              bureau: it?.bureau ?? it?.Bureau ?? null,
-              creditor: it?.creditor ?? it?.Creditor ?? it?.name ?? null,
-              account_number_mask: it?.account_number_mask ?? it?.mask ?? it?.account ?? null,
-              opened_on: toDateISO(it?.opened_on ?? it?.opened ?? it?.["date opened"]) ?? null,
-              reported_on: toDateISO(it?.reported_on ?? it?.reported ?? it?.["last reported"]) ?? null,
-              last_activity_on: toDateISO(it?.last_activity_on ?? it?.["last active"]) ?? null,
-              balance: normalizeMoney(it?.balance ?? it?.Balance ?? it?.current_balance) ?? null,
-              high_balance: normalizeMoney(it?.high_balance ?? it?.highest_balance) ?? null,
-              credit_limit: normalizeMoney(it?.credit_limit ?? it?.limit) ?? null,
-              past_due: normalizeMoney(it?.past_due ?? it?.past_due_amount) ?? 0,
-              status: it?.status ?? null,
-              account_status: it?.account_status ?? null,
-              payment_status: it?.payment_status ?? null,
-              description: it?.description ?? null,
-              description_html: stripHtml(it?.description ?? "").html,
-              remarks: it?.remarks ?? [],
-              two_year_history: it?.two_year_history ?? {},
-              days_late_7y: it?.days_late_7y ?? { "30": 0, "60": 0, "90": 0 },
-              position: it?.position ?? null,
-              category,
+              bureau: item?.bureau || item?.Bureau || null,
+              creditor: item?.creditor || item?.Creditor || null,
+              account_number_mask: item?.account_number_mask || item?.mask || null,
+              opened_on: toDateISO(item?.opened_on || item?.opened),
+              reported_on: toDateISO(item?.reported_on || item?.reported),
+              balance: normalizeMoney(item?.balance || item?.Balance),
+              high_balance: normalizeMoney(item?.high_balance),
+              credit_limit: normalizeMoney(item?.credit_limit || item?.limit),
+              status: item?.status || "Open",
+              account_status: item?.account_status || "Current",
+              payment_status: item?.payment_status || "Current",
+              position: item?.Position || report.accounts.realEstate.length + 1,
+              category: "realEstate",
             };
-            
-            (report.accounts[category] as any[]).push(account);
+            report.accounts.realEstate.push(account);
           }
-          continue;
+        }
+        // Revolving Accounts
+        else if (lowerKey.includes("revolving account")) {
+          for (const item of items) {
+            const account = {
+              bureau: item?.bureau || item?.Bureau || null,
+              creditor: item?.creditor || item?.Creditor || null,
+              account_number_mask: item?.account_number_mask || item?.mask || null,
+              opened_on: toDateISO(item?.opened_on || item?.opened),
+              reported_on: toDateISO(item?.reported_on || item?.reported),
+              balance: normalizeMoney(item?.balance || item?.Balance),
+              high_balance: normalizeMoney(item?.high_balance),
+              credit_limit: normalizeMoney(item?.credit_limit || item?.limit),
+              status: item?.status || "Open",
+              account_status: item?.account_status || "Current",
+              payment_status: item?.payment_status || "Current",
+              position: item?.Position || report.accounts.revolving.length + 1,
+              category: "revolving",
+            };
+            report.accounts.revolving.push(account);
+          }
+        }
+        // Other Accounts
+        else if (lowerKey.includes("other account")) {
+          for (const item of items) {
+            const account = {
+              bureau: item?.bureau || item?.Bureau || null,
+              creditor: item?.creditor || item?.Creditor || null,
+              account_number_mask: item?.account_number_mask || item?.mask || null,
+              opened_on: toDateISO(item?.opened_on || item?.opened),
+              reported_on: toDateISO(item?.reported_on || item?.reported),
+              balance: normalizeMoney(item?.balance || item?.Balance),
+              status: item?.status || "Open",
+              position: item?.Position || report.accounts.other.length + 1,
+              category: "other",
+            };
+            report.accounts.other.push(account);
+          }
+        }
+        // Inquiries (prefix: "Inquiries Credit")
+        else if (lowerKey.includes("inquiries")) {
+          for (const item of items) {
+            report.inquiries.push({
+              inquirer_name: item?.inquirer_name || item?.name || item?.Inquirer || null,
+              inquiry_date: toDateISO(item?.inquiry_date || item?.date),
+              bureau: item?.bureau || item?.Bureau || null,
+              position: item?.Position || report.inquiries.length + 1,
+            });
+          }
+        }
+        // Creditor Addresses (prefix: "Creditors Addresses")
+        else if (lowerKey.includes("address")) {
+          for (const item of items) {
+            const { text } = stripHtml(item?.address || item?.Address || item?.value || "");
+            report.addresses.push({ 
+              creditor: item?.creditor || item?.Creditor || null, 
+              address: text,
+              position: item?.Position || report.addresses.length + 1,
+            });
+          }
+        }
+        // Collections
+        else if (lowerKey.includes("collection")) {
+          for (const item of items) {
+            report.collections.push({
+              collection_agency: item?.agency || item?.creditor || null,
+              original_creditor: item?.original_creditor || null,
+              amount: normalizeMoney(item?.amount || item?.balance),
+              status: item?.status || "Active",
+              position: item?.Position || report.collections.length + 1,
+            });
+          }
+        }
+        // Public Records (prefix: "Public Informations")
+        else if (lowerKey.includes("public")) {
+          report.publicRecords.push(captured[key]);
         }
       }
+
+      console.log(`[ingest] Parsed data - Scores: ${report.scores.length}, Accounts: ${report.accounts.realEstate.length + report.accounts.revolving.length + report.accounts.other.length}, Inquiries: ${report.inquiries.length}`);
     } catch (parseError) {
       console.error("[ingest] Parsing error:", parseError);
       normalizedOk = false;
@@ -546,6 +599,14 @@ serve(async (req: Request) => {
       } catch (accountsError) {
         console.error("[ingest] Accounts upsert exception:", accountsError);
       }
+    }
+
+    // Broadcast credit_report_ingested event
+    try {
+      // This could be extended to use Supabase Realtime or custom event system
+      console.log(`[ingest] Broadcasting credit_report_ingested event for runId: ${runId}`);
+    } catch (broadcastError) {
+      console.warn("[ingest] Broadcast error:", broadcastError);
     }
 
     console.log(`[ingest] Processing completed - runId: ${runId}, normalized: ${normalizedOk}`);

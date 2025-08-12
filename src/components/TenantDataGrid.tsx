@@ -47,6 +47,7 @@ import { DashboardStats } from '@/components/DashboardStats';
 import Papa from 'papaparse';
 import useSWR from 'swr';
 import { useRole } from '@/hooks/useRole';
+import { AdminCreateUserDialog } from '@/components/AdminCreateUserDialog';
 
 interface TenantData {
   user_id: string;
@@ -75,6 +76,7 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
   const [currentPage, setCurrentPage] = useState(1);
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
   const pageSize = 20;
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -636,11 +638,20 @@ export const TenantDataGrid = ({ searchQuery: externalSearchQuery, onImpersonate
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={exportClientData} variant="outline" size="sm">
-          <Download className="h-4 w-4 mr-2" />
-          Export Client Data
-        </Button>
+        <div className="flex items-center gap-2">
+          {isSuperAdmin && (
+            <Button onClick={() => setCreateOpen(true)} size="sm">
+              Register User/Admin
+            </Button>
+          )}
+          <Button onClick={exportClientData} variant="outline" size="sm">
+            <Download className="h-4 w-4 mr-2" />
+            Export Client Data
+          </Button>
+        </div>
       </div>
+
+      <AdminCreateUserDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={() => { fetchTenants(); }} />
 
       <Table>
         <TableHeader>

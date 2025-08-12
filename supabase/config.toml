@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.credit-rounds-delete]
 verify_jwt = true
+
+[functions.admin-create-user]
+verify_jwt = true

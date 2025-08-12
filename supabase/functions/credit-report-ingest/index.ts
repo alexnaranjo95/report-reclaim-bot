@@ -339,17 +339,23 @@ serve(async (req: Request) => {
         // Credit Scores
         if (lowerKey.includes("credit score")) {
           for (const item of items) {
-            const rawText = String(item?.text || item?.html || item?.value || "");
-            const bureauMatch = rawText.match(/experian|equifax|transunion/i);
-            const bureau = bureauMatch ? bureauMatch[0] : "";
-            const scoreMatch = rawText.match(/\b(\d{3})\b/);
-            const score = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
-            
+            const textField = String(
+              item?.text || item?.html || item?.value || item?.["Credit Score per bureau"] || item?.["Credit Scores"] || ""
+            );
+            let bureauRaw = item?.bureau || item?.Bureau || (textField.match(/experian|equifax|transunion/i)?.[0] ?? "");
+            const bureau = bureauRaw
+              ? String(bureauRaw).charAt(0).toUpperCase() + String(bureauRaw).slice(1).toLowerCase()
+              : "";
+            const numericField = (item?.score ?? item?.Score ?? item?.["Score"]) as number | string | undefined;
+            const scoreParsed = typeof numericField === "string" ? parseInt(numericField.replace(/[^0-9]/g, ''), 10) : numericField;
+            const scoreMatch = isNaN(Number(scoreParsed)) ? textField.match(/\b(\d{3})\b/) : null;
+            const score = !isNaN(Number(scoreParsed)) ? Number(scoreParsed) : (scoreMatch ? parseInt(scoreMatch[1], 10) : null);
+
             if (bureau && score) {
               report.scores.push({
-                bureau: bureau.charAt(0).toUpperCase() + bureau.slice(1).toLowerCase(),
+                bureau,
                 score,
-                status: item?._STATUS || "ACTIVE",
+                status: item?._STATUS || item?.Status || "ACTIVE",
                 position: item?.Position || report.scores.length + 1,
               });
             }
@@ -441,6 +447,47 @@ serve(async (req: Request) => {
               category: "other",
             };
             report.accounts.other.push(account);
+          }
+        }
+        // Generic Accounts (e.g., "Credit Report Details - <Bureau>")
+        else if (lowerKey.includes("credit report detail")) {
+          const bureauHint = lowerKey.match(/transunion|experian|equifax/i)?.[0] || null;
+          for (const item of items) {
+            const bureauRaw = item?.bureau || item?.Bureau || bureauHint;
+            const bureau = bureauRaw ? String(bureauRaw).charAt(0).toUpperCase() + String(bureauRaw).slice(1).toLowerCase() : null;
+            const accountType = item?.account_type || item?.AccountType || item?.["Account Type"] || item?.type || item?.Type || "";
+            const category = /real\s*estate|mortgage|home/i.test(String(accountType))
+              ? "realEstate"
+              : /revolving|credit\s*card/i.test(String(accountType))
+              ? "revolving"
+              : "other";
+
+            const pos = category === "realEstate"
+              ? report.accounts.realEstate.length + 1
+              : category === "revolving"
+              ? report.accounts.revolving.length + 1
+              : report.accounts.other.length + 1;
+
+            const acc = {
+              bureau,
+              creditor: item?.creditor || item?.Creditor || item?.["Creditor Name"] || null,
+              account_number_mask: item?.account_number_mask || item?.mask || item?.["Account Number"] || item?.["Acct #"] || null,
+              opened_on: toDateISO(item?.opened_on || item?.opened || item?.["Date Opened"]),
+              reported_on: toDateISO(item?.reported_on || item?.reported || item?.["Date Reported"]),
+              last_activity_on: toDateISO(item?.last_activity_on || item?.["Last Activity"]),
+              balance: normalizeMoney(item?.balance || item?.Balance || item?.["Current Balance"]),
+              high_balance: normalizeMoney(item?.high_balance || item?.["High Balance"]),
+              credit_limit: normalizeMoney(item?.credit_limit || item?.limit || item?.["Credit Limit"]),
+              status: item?.status || item?.Status || "Open",
+              account_status: item?.account_status || item?.["Account Status"] || null,
+              payment_status: item?.payment_status || item?.["Payment Status"] || null,
+              position: item?.Position || pos,
+              category,
+            } as any;
+
+            if (category === "realEstate") report.accounts.realEstate.push(acc);
+            else if (category === "revolving") report.accounts.revolving.push(acc);
+            else report.accounts.other.push(acc);
           }
         }
         // Inquiries (prefix: "Inquiries Credit")

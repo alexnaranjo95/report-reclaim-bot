@@ -195,20 +195,19 @@ serve(async (req: Request) => {
         return json({ code: "E_DB_UPSERT", message: rawError.message }, 500);
       }
 
-      // Upsert normalized report
-      await supabaseService.from("normalized_credit_reports").delete()
-        .eq("run_id", sampleRunId).eq("user_id", sampleUserId);
-      
-      const { error: insRepErr } = await supabaseService.from("normalized_credit_reports").insert({
-        run_id: sampleRunId,
-        user_id: sampleUserId,
-        collected_at: collectedAt,
-        version: "v1",
-        report_json: sampleReport,
-      });
+      // Upsert normalized report (idempotent on run_id)
+      const { error: insRepErr } = await supabaseService
+        .from("normalized_credit_reports")
+        .upsert({
+          run_id: sampleRunId,
+          user_id: sampleUserId,
+          collected_at: collectedAt,
+          version: "v1",
+          report_json: sampleReport,
+        }, { onConflict: "run_id" });
 
       if (insRepErr) {
-        console.error("[ingest] Normalized report insert error:", insRepErr);
+        console.error("[ingest] Normalized report upsert error:", insRepErr);
         return json({ code: "E_DB_UPSERT", message: insRepErr.message }, 500);
       }
 
@@ -324,6 +323,7 @@ serve(async (req: Request) => {
       inquiries: [] as any[], 
       collections: [] as any[], 
       addresses: [] as any[], 
+      publicRecords: [] as any[], 
       personalInformation: [] as any[]
     };
 
@@ -526,7 +526,9 @@ serve(async (req: Request) => {
         }
         // Public Records (prefix: "Public Informations")
         else if (lowerKey.includes("public")) {
-          report.publicRecords.push(captured[key]);
+          for (const item of items) {
+            report.publicRecords.push(item);
+          }
         }
       }
 
@@ -540,28 +542,26 @@ serve(async (req: Request) => {
     console.log(`[ingest] Upserting normalized_credit_reports for run ${runId}`);
     
     try {
-      await supabaseService.from("normalized_credit_reports").delete()
-        .eq("run_id", runId!).eq("user_id", userIdentifier!);
-      
-      const { error } = await supabaseService.from("normalized_credit_reports").insert({
-        run_id: runId!,
-        user_id: userIdentifier!,
-        collected_at: collectedAt,
-        version: "v1",
-        report_json: report,
-      });
+      const { error } = await supabaseService
+        .from("normalized_credit_reports")
+        .upsert({
+          run_id: runId!,
+          user_id: userIdentifier!,
+          collected_at: collectedAt,
+          version: "v1",
+          report_json: report,
+        }, { onConflict: "run_id" });
 
       if (error) {
-        console.error("[ingest] Normalized report insert error:", error);
-        return json({ code: "E_DB_UPSERT", message: error.message }, 500);
+        console.error("[ingest] Normalized report upsert error:", error);
+        normalizedOk = false;
+      } else {
+        console.log("[ingest] Normalized report saved successfully");
       }
-      
-      console.log("[ingest] Normalized report saved successfully");
     } catch (reportError) {
       console.error("[ingest] Report upsert exception:", reportError);
       normalizedOk = false;
     }
-
     // Upsert scores
     if (Array.isArray(report.scores) && report.scores.length) {
       try {

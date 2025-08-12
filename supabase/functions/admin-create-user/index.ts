@@ -73,32 +73,44 @@ serve(async (req: Request) => {
       });
     }
 
-    // Idempotent: check if user already exists
-    const { data: existingUser, error: getUserErr } = await supabaseAdmin.auth.admin.getUserByEmail(email);
-    if (getUserErr && getUserErr.message && !getUserErr.message.includes("User not found")) {
-      console.warn("getUserByEmail warning", getUserErr);
-    }
-
-    let userId: string | null = existingUser?.user?.id ?? null;
+    // Create or find existing user (idempotent)
+    let userId: string | null = null;
     let created = false;
 
-    if (!userId) {
-      // Create the user without sending invite to avoid SMTP dependency
-      const tempPassword = crypto.randomUUID() + "!Aa1"; // temporary strong password
-      const { data: createRes, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password: tempPassword,
-        email_confirm: false,
-        user_metadata: { display_name: displayName ?? null },
-      });
-      if (createErr) {
-        // If create failed but user exists now, proceed (rare race)
-        console.error("createUser error", createErr);
-        return new Response(JSON.stringify({ error: createErr.message }), {
+    const tempPassword = crypto.randomUUID() + "!Aa1"; // temporary strong password
+    const { data: createRes, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password: tempPassword,
+      email_confirm: false,
+      user_metadata: { display_name: displayName ?? null },
+    });
+
+    if (createErr) {
+      console.warn("createUser failed, attempting to find existing user by email", createErr?.message);
+      // The email may already be registered; search via pagination
+      for (let page = 1; page <= 10 && !userId; page++) {
+        const { data: listRes, error: listErr } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 100 });
+        if (listErr) {
+          console.warn("listUsers error", listErr);
+          break;
+        }
+        const users = (listRes as any)?.users || [];
+        const match = users.find((u: any) => (u.email || u.user_metadata?.email) === email);
+        if (match) {
+          userId = match.id;
+          break;
+        }
+        if (!users.length || users.length < 100) {
+          break; // no more pages
+        }
+      }
+      if (!userId) {
+        return new Response(JSON.stringify({ error: createErr.message || "Failed to create or locate user" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
           status: 400,
         });
       }
+    } else {
       userId = createRes.user.id;
       created = true;
     }

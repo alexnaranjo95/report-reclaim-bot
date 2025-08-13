@@ -396,30 +396,20 @@ const CreditReportsPage: React.FC = () => {
   // Fetch and display data
   const fetchData = async (runId?: string) => {
     try {
-      const res: any = await fetchLatestWithFallback(runId);
-      const norm = res?.report || null;
-      const rawData = res?.raw || null;
-      const capUrl = res?.capturedDataTemporaryUrl;
+      const res: any = await fetchLatestWithFallback(undefined, runId);
       
-      console.log(`[CreditReports] Data fetched - Normalized: ${!!norm}, Raw: ${!!rawData}, Source: ${res?.source || 'none'}`);
+      console.log(`[CreditReports] Data fetched:`, res);
       
-      if (norm || rawData) {
-        setNormalized(norm);
-        setRaw(rawData);
-        setCapturedUrl(capUrl);
+      if (res) {
+        setNormalized(res);
         setLoading(false);
         setRenderSuccess(true);
         setSavedAt(new Date().toISOString());
         
         // Log data counts for verification
-        if (norm) {
-          const accounts = norm?.accounts || {};
-          const realEstate = accounts?.realEstate?.length || 0;
-          const revolving = accounts?.revolving?.length || 0;
-          const other = accounts?.other?.length || 0;
-          const scores = norm?.scores?.length || 0;
-          console.log(`Credit Report Data - Scores: ${scores}, Real Estate: ${realEstate}, Revolving: ${revolving}, Other: ${other}`);
-        }
+        const accounts = res?.accounts || [];
+        const scores = res?.creditScores ? Object.keys(res.creditScores).filter(k => res.creditScores[k]).length : 0;
+        console.log(`Credit Report Data - Scores: ${scores}, Accounts: ${accounts.length}`);
       } else {
         setLoading(false);
       }

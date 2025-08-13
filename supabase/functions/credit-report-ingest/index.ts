@@ -54,6 +54,131 @@ function normalizeMoney(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Parse account data from HTML grid structure
+function parseAccountsFromHTML(htmlContent: string): any[] {
+  if (!htmlContent) return [];
+  
+  const accounts: any[] = [];
+  
+  try {
+    // Extract creditor name from h6 strong tag
+    const creditorMatch = htmlContent.match(/<strong>([^<]+)<\/strong>/);
+    const creditorName = creditorMatch ? creditorMatch[1].trim() : null;
+    
+    if (!creditorName) return [];
+    
+    // Find bureau columns (TransUnion, Experian, Equifax)
+    const bureauMatches = htmlContent.match(/data-uw-ignore-translate="true">([^<]+)<sup>/g);
+    const bureaus = bureauMatches ? bureauMatches.map(m => m.match(/data-uw-ignore-translate="true">([^<]+)<sup>/)?.[1]?.toLowerCase()) : [];
+    
+    // Extract data for each bureau
+    for (let bureauIndex = 0; bureauIndex < bureaus.length; bureauIndex++) {
+      const bureau = bureaus[bureauIndex];
+      if (!bureau) continue;
+      
+      // Extract account data from grid cells for this bureau column
+      const account = {
+        bureau: bureau.charAt(0).toUpperCase() + bureau.slice(1),
+        creditor: creditorName,
+        account_number_mask: extractGridValue(htmlContent, "Account #", bureauIndex + 2),
+        high_balance: normalizeMoney(extractGridValue(htmlContent, "High Balance:", bureauIndex + 2)),
+        balance: normalizeMoney(extractGridValue(htmlContent, "Balance Owed:", bureauIndex + 2)),
+        credit_limit: normalizeMoney(extractGridValue(htmlContent, "Credit Limit:", bureauIndex + 2)),
+        opened_on: toDateISO(extractGridValue(htmlContent, "Date Opened:", bureauIndex + 2)),
+        reported_on: toDateISO(extractGridValue(htmlContent, "Date Reported:", bureauIndex + 2)),
+        last_activity_on: toDateISO(extractGridValue(htmlContent, "Date of Last Activity:", bureauIndex + 2)),
+        closed_on: toDateISO(extractGridValue(htmlContent, "Closed Date:", bureauIndex + 2)),
+        account_status: extractGridValue(htmlContent, "Account Status:", bureauIndex + 2),
+        payment_status: extractGridValue(htmlContent, "Payment Status:", bureauIndex + 2),
+        account_type: extractGridValue(htmlContent, "Account Type:", bureauIndex + 2),
+        payment_amount: normalizeMoney(extractGridValue(htmlContent, "Payment Amount:", bureauIndex + 2)),
+        last_payment_on: toDateISO(extractGridValue(htmlContent, "Last Payment:", bureauIndex + 2)),
+        past_due: normalizeMoney(extractGridValue(htmlContent, "Past Due Amount:", bureauIndex + 2)),
+        term_length_months: parseInt(extractGridValue(htmlContent, "Term Length:", bureauIndex + 2)?.replace(/[^0-9]/g, "") || "0") || null,
+        payment_frequency: extractGridValue(htmlContent, "Payment Frequency:", bureauIndex + 2),
+        account_rating: extractGridValue(htmlContent, "Account Rating:", bureauIndex + 2),
+        dispute_status: extractGridValue(htmlContent, "Dispute Status:", bureauIndex + 2),
+        description: extractGridValue(htmlContent, "Account Description:", bureauIndex + 2),
+        status: "Open", // Default status
+      };
+      
+      // Only add if account has meaningful data (not all "--")
+      if (account.account_number_mask && account.account_number_mask !== "--") {
+        accounts.push(account);
+      }
+    }
+  } catch (error) {
+    console.error("[parseAccountsFromHTML] Error parsing HTML:", error);
+  }
+  
+  return accounts;
+}
+
+// Extract value from grid cell by label and column
+function extractGridValue(htmlContent: string, label: string, column: number): string | null {
+  try {
+    // Find the row with the label
+    const labelRegex = new RegExp(`<p[^>]*>${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^<]*</p>`, 'i');
+    const labelMatch = htmlContent.match(labelRegex);
+    if (!labelMatch) return null;
+    
+    // Find the corresponding cell in the target column
+    const labelIndex = htmlContent.indexOf(labelMatch[0]);
+    const rowRegex = new RegExp(`row-start-(\\d+)`, 'g');
+    let match;
+    let targetRow = null;
+    
+    while ((match = rowRegex.exec(labelMatch[0])) !== null) {
+      targetRow = match[1];
+      break;
+    }
+    
+    if (!targetRow) return null;
+    
+    // Find cell in same row but target column
+    const cellRegex = new RegExp(`<p[^>]*col-start-${column}[^>]*row-start-${targetRow}[^>]*>([^<]*)</p>`, 'i');
+    const cellMatch = htmlContent.match(cellRegex);
+    
+    if (cellMatch && cellMatch[1] && cellMatch[1].trim() !== "--") {
+      return cellMatch[1].trim();
+    }
+    
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+// Parse inquiry data from HTML structure
+function parseInquiriesFromHTML(htmlContent: string): any[] {
+  if (!htmlContent) return [];
+  
+  const inquiries: any[] = [];
+  
+  try {
+    // Look for inquiry patterns in HTML
+    const inquiryRegex = /<p[^>]*>([^<]+)\s+(\d{2}\/\d{2}\/\d{4})[^<]*</g;
+    let match;
+    
+    while ((match = inquiryRegex.exec(htmlContent)) !== null) {
+      const inquirer = match[1]?.trim();
+      const date = match[2];
+      
+      if (inquirer && date && inquirer !== "--") {
+        inquiries.push({
+          inquirer_name: inquirer,
+          inquiry_date: toDateISO(date),
+          bureau: null, // Will be determined from context
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[parseInquiriesFromHTML] Error parsing HTML:", error);
+  }
+  
+  return inquiries;
+}
+
 serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -490,15 +615,52 @@ serve(async (req: Request) => {
             else report.accounts.other.push(acc);
           }
         }
+        // Credit Accounts (main accounts from HTML grid)
+        else if (lowerKey.includes("credit account")) {
+          for (const item of items) {
+            const htmlContent = item?.["Creditor Account's"] || item?.html || item?.content || "";
+            const accounts = parseAccountsFromHTML(htmlContent);
+            for (const account of accounts) {
+              const category = /real\s*estate|mortgage|home/i.test(account.account_type || "")
+                ? "realEstate"
+                : /revolving|credit\s*card/i.test(account.account_type || "")
+                ? "revolving"
+                : "other";
+              
+              const accountData = {
+                ...account,
+                category,
+                position: item?.Position || 1,
+              };
+              
+              if (category === "realEstate") report.accounts.realEstate.push(accountData);
+              else if (category === "revolving") report.accounts.revolving.push(accountData);
+              else report.accounts.other.push(accountData);
+            }
+          }
+        }
         // Inquiries (prefix: "Inquiries Credit")
         else if (lowerKey.includes("inquiries")) {
+          // Parse actual inquiry data from HTML or structured format
           for (const item of items) {
-            report.inquiries.push({
-              inquirer_name: item?.inquirer_name || item?.name || item?.Inquirer || null,
-              inquiry_date: toDateISO(item?.inquiry_date || item?.date),
-              bureau: item?.bureau || item?.Bureau || null,
-              position: item?.Position || report.inquiries.length + 1,
-            });
+            const htmlContent = item?.["Inquiry by Creditors:"] || item?.html || "";
+            if (htmlContent) {
+              const inquiries = parseInquiriesFromHTML(htmlContent);
+              for (const inquiry of inquiries) {
+                report.inquiries.push({
+                  ...inquiry,
+                  position: item?.Position || report.inquiries.length + 1,
+                });
+              }
+            } else {
+              // Fallback for structured data
+              report.inquiries.push({
+                inquirer_name: item?.inquirer_name || item?.name || item?.Inquirer || null,
+                inquiry_date: toDateISO(item?.inquiry_date || item?.date),
+                bureau: item?.bureau || item?.Bureau || null,
+                position: item?.Position || report.inquiries.length + 1,
+              });
+            }
           }
         }
         // Creditor Addresses (prefix: "Creditors Addresses")
@@ -589,7 +751,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // Upsert accounts
+    // Store accounts in normalized_credit_accounts table
     const allAccounts: any[] = [
       ...(report.accounts?.realEstate || []),
       ...(report.accounts?.revolving || []),
@@ -598,53 +760,53 @@ serve(async (req: Request) => {
 
     if (allAccounts.length) {
       try {
-        const rows = allAccounts.map((a: any) => ({
+        console.log(`[ingest] Storing ${allAccounts.length} accounts in normalized_credit_accounts`);
+        
+        const accountRows = allAccounts.map((acc: any, index: number) => ({
           user_id: userIdentifier!,
           run_id: runId!,
-          bureau: a.bureau ?? null,
-          creditor: a.creditor ?? null,
-          account_number_mask: a.account_number_mask ?? null,
-          opened_on: a.opened_on ? a.opened_on.substring(0, 10) : null,
-          reported_on: a.reported_on ? a.reported_on.substring(0, 10) : null,
-          last_activity_on: a.last_activity_on ? a.last_activity_on.substring(0, 10) : null,
-          balance: a.balance,
-          high_balance: a.high_balance,
-          credit_limit: a.credit_limit,
-          closed_on: a.closed_on ? a.closed_on.substring(0, 10) : null,
-          account_status: a.account_status,
-          payment_status: a.payment_status,
-          dispute_status: a.dispute_status,
-          past_due: a.past_due,
-          payment_amount: a.payment_amount,
-          last_payment_on: a.last_payment_on ? a.last_payment_on.substring(0, 10) : null,
-          term_length_months: a.term_length_months,
-          account_type: a.account_type,
-          payment_frequency: a.payment_frequency,
-          account_rating: a.account_rating,
-          description: a.description,
-          remarks: a.remarks || [],
-          two_year_history: a.two_year_history || {},
-          days_late_7y: a.days_late_7y || { "30": 0, "60": 0, "90": 0 },
-          status: a.status,
-          position: a.position,
+          bureau: acc.bureau || null,
+          creditor: acc.creditor || null,
+          account_number_mask: acc.account_number_mask || null,
+          category: acc.category || "other",
+          account_type: acc.account_type || null,
+          account_status: acc.account_status || null,
+          payment_status: acc.payment_status || null,
+          dispute_status: acc.dispute_status || null,
+          description: acc.description || null,
+          opened_on: acc.opened_on || null,
+          reported_on: acc.reported_on || null,
+          last_activity_on: acc.last_activity_on || null,
+          closed_on: acc.closed_on || null,
+          balance: acc.balance || null,
+          high_balance: acc.high_balance || null,
+          credit_limit: acc.credit_limit || null,
+          payment_amount: acc.payment_amount || null,
+          last_payment_on: acc.last_payment_on || null,
+          past_due: acc.past_due || null,
+          term_length_months: acc.term_length_months || null,
+          payment_frequency: acc.payment_frequency || null,
+          account_rating: acc.account_rating || null,
+          status: acc.status || "Open",
+          position: acc.position || index + 1,
           collected_at: collectedAt,
-          category: a.category ?? null,
-          payload: a,
+          payload: acc, // Store full account data
         }));
 
-        const { error } = await supabaseService
+        const { error: accountsError } = await supabaseService
           .from("normalized_credit_accounts")
-          .upsert(rows, { onConflict: "user_id,creditor,account_number_mask,bureau,opened_on,category" });
+          .upsert(accountRows, { onConflict: "user_id,run_id,bureau,creditor,account_number_mask" });
 
-        if (error) {
-          console.error("[ingest] Accounts upsert error:", error);
+        if (accountsError) {
+          console.error("[ingest] Accounts upsert error:", accountsError);
         } else {
-          console.log(`[ingest] Accounts upserted successfully: ${rows.length} records`);
+          console.log(`[ingest] Successfully stored ${accountRows.length} accounts`);
         }
       } catch (accountsError) {
         console.error("[ingest] Accounts upsert exception:", accountsError);
       }
     }
+
 
     // Broadcast credit_report_ingested event
     try {

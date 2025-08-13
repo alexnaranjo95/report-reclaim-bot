@@ -1,268 +1,209 @@
-import { supabase } from "@/integrations/supabase/client";
-import type { CreditReport } from "./BrowseAINormalizer";
+import { supabase } from '@/integrations/supabase/client';
 
-function isCreditReportRoute() {
-  if (typeof window === 'undefined') return true;
-  const p = window.location?.pathname || '';
-  return p === '/credit-report' || p === '/credit-reports' || p.startsWith('/credit-report');
-}
-
-export async function saveRawReport(runId: string, userId: string, raw: any) {
-  const { error } = await supabase
-    .from("credit_reports_raw")
-    .upsert({ run_id: runId, user_id: userId, raw_json: raw })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-}
-
-export async function saveNormalizedReport(userId: string, report: CreditReport) {
-  // Upsert main normalized report
-  const { error: repErr } = await supabase
-    .from("normalized_credit_reports")
-    .upsert({
-      run_id: report.runId,
-      user_id: userId,
-      collected_at: report.collectedAt,
-      version: report.version,
-      report_json: report as any,
-    })
-    .select()
-    .single();
-  if (repErr) throw new Error(repErr.message);
-
-  // Upsert scores (unique by user_id, run_id, bureau, position)
-  if (Array.isArray(report.scores)) {
-    const rows = report.scores.map((s) => ({
-      user_id: userId,
-      run_id: report.runId,
-      bureau: s.bureau,
-      score: s.score,
-      status: s.status,
-      position: s.position,
-      collected_at: report.collectedAt,
-    }));
-    if (rows.length) {
-      const { error } = await supabase.from("normalized_credit_scores").upsert(rows);
-      if (error) throw new Error(error.message);
-    }
-  }
-
-  // Upsert accounts across categories
-  const allAccounts = [
-    ...(report.accounts?.realEstate || []).map((a: any) => ({ ...a, category: 'realEstate' })),
-    ...(report.accounts?.revolving || []).map((a: any) => ({ ...a, category: 'revolving' })),
-    ...(report.accounts?.other || []).map((a: any) => ({ ...a, category: 'other' })),
-  ];
-  
-  if (allAccounts.length) {
-    const rows = allAccounts.map((a) => ({
-      user_id: userId,
-      run_id: report.runId,
-      bureau: a.bureau ?? null,
-      creditor: a.creditor ?? null,
-      account_number_mask: a.account_number_mask ?? null,
-      opened_on: a.opened_on ? a.opened_on.substring(0, 10) : null,
-      reported_on: a.reported_on ? a.reported_on.substring(0, 10) : null,
-      last_activity_on: a.last_activity_on ? a.last_activity_on.substring(0, 10) : null,
-      balance: a.balance,
-      high_balance: a.high_balance,
-      credit_limit: a.credit_limit,
-      closed_on: a.closed_on ? a.closed_on.substring(0, 10) : null,
-      account_status: a.account_status,
-      payment_status: a.payment_status,
-      dispute_status: a.dispute_status,
-      past_due: a.past_due,
-      payment_amount: a.payment_amount,
-      last_payment_on: a.last_payment_on ? a.last_payment_on.substring(0, 10) : null,
-      term_length_months: a.term_length_months,
-      account_type: a.account_type,
-      payment_frequency: a.payment_frequency,
-      account_rating: a.account_rating,
-      description: a.description,
-      remarks: a.remarks || [],
-      two_year_history: a.two_year_history || {},
-      days_late_7y: a.days_late_7y || { "30": 0, "60": 0, "90": 0 },
-      status: a.status,
-      position: a.position,
-      collected_at: report.collectedAt,
-      category: a.category ?? null,
-      payload: a,
-    }));
-    const { error } = await supabase.from("normalized_credit_accounts").upsert(rows);
-    if (error) throw new Error(error.message);
-  }
-}
-
-export async function fetchLatestNormalized(runId?: string) {
-  if (!isCreditReportRoute()) {
-    return { runId: null, collectedAt: null, version: "v1", report: null, counts: { realEstate: 0, revolving: 0, other: 0 } };
-  }
-  
-  const payload: any = {};
-  if (runId) payload.runId = runId;
-  
-  const { data, error } = await supabase.functions.invoke("credit-report-latest", {
-    body: payload,
-  });
-  
-  if (error) {
-    const status = (error as any)?.context?.response?.status;
-    const code = (data as any)?.code;
-    
-    if (status === 404 || code === "E_NOT_FOUND") {
-      return {
-        runId: null,
-        collectedAt: null,
-        version: "v1",
-        report: null,
-        counts: { realEstate: 0, revolving: 0, other: 0 },
-      };
-    }
-    
-    const message = ((data as any)?.message || (data as any)?.error || error.message) as string;
-    throw new Error(message);
-  }
-  
-  const rawCounts = (data as any)?.counts;
-  const flattenedCounts = rawCounts?.accounts ? rawCounts.accounts : rawCounts;
-  return { ...(data as any), counts: flattenedCounts } as { 
-    runId: string | null; 
-    collectedAt: string | null; 
-    version: string; 
-    report: any; 
-    counts?: any 
-  };
-}
-
-export async function fetchLatestNormalizedByUser(userId: string) {
-  if (!isCreditReportRoute()) {
-    return { runId: null, collectedAt: null, version: "v1", report: null, counts: { realEstate: 0, revolving: 0, other: 0 } };
-  }
-  
-  const { data, error } = await supabase.functions.invoke("credit-report-latest", {
-    body: { userId },
-  });
-  
-  if (error) {
-    const status = (error as any)?.context?.response?.status;
-    const code = (data as any)?.code;
-    
-    if (status === 404 || code === "E_NOT_FOUND") {
-      return {
-        runId: null,
-        collectedAt: null,
-        version: "v1",
-        report: null,
-        counts: { realEstate: 0, revolving: 0, other: 0 },
-      };
-    }
-    
-    const message = ((data as any)?.message || (data as any)?.error || error.message) as string;
-    throw new Error(message);
-  }
-  
-  const rawCounts = (data as any)?.counts;
-  const flattenedCounts = rawCounts?.accounts ? rawCounts.accounts : rawCounts;
-  return { ...(data as any), counts: flattenedCounts } as { 
-    runId: string | null; 
-    collectedAt: string | null; 
-    version: string; 
-    report: any; 
-    counts?: any 
-  };
-}
-
-export async function fetchAccountsByCategory(category: string, limit = 50, cursor?: string) {
-  if (!isCreditReportRoute()) {
-    return { items: [], nextCursor: null } as { items: any[]; nextCursor?: string | null };
-  }
-  
-  const { data, error } = await supabase.functions.invoke("credit-report-accounts", {
-    body: { category, limit, cursor },
-  });
-  
-  if (error) throw new Error(((data as any)?.error as string) || error.message);
-  return data as { items: any[]; nextCursor?: string | null };
-}
-
-export async function ingestCreditReport(payload: any) {
-  const { data, error } = await supabase.functions.invoke("credit-report-ingest", {
-    body: payload,
-  });
-  
-  if (error) throw new Error(((data as any)?.message as string) || error.message);
-  return data as { ok: boolean; runId: string };
-}
-
-// Enhanced helpers for fail-open rendering
-async function getCurrentUserId(): Promise<string | null> {
-  const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
-}
-
-export async function fetchLatestRaw(runId?: string) {
-  const body: any = {};
-  if (runId) {
-    body.runId = runId;
-  } else {
-    const uid = await getCurrentUserId();
-    if (!uid) return { ok: false } as any;
-    body.userId = uid;
-  }
-  
-  const { data, error } = await supabase.functions.invoke("credit-report-latest-raw", { body });
-  if (error) return { ok: false } as any;
-  return data as any;
-}
-
-export async function fetchLatestWithFallback(runId?: string) {
-  if (!isCreditReportRoute()) {
-    return {
-      runId: null,
-      collectedAt: null,
-      version: "v1",
-      report: null,
-      counts: { realEstate: 0, revolving: 0, other: 0 },
-      source: "blocked" as const,
+export interface NormalizedCreditReport {
+  runId: string;
+  collectedAt: string;
+  version: string;
+  report: {
+    scores: Array<{
+      bureau: string;
+      score: number;
+      status: string;
+      position: number;
+    }>;
+    accounts: {
+      realEstate: Array<any>;
+      revolving: Array<any>;
+      other: Array<any>;
     };
+    inquiries: Array<{
+      inquirer_name: string;
+      inquiry_date: string;
+      bureau: string;
+      position: number;
+    }>;
+    personalInformation: Array<any>;
+    consumerStatements: Array<any>;
+    collections: Array<any>;
+    addresses: Array<any>;
+    publicRecords: Array<any>;
+  };
+  counts: {
+    realEstate: number;
+    revolving: number;
+    other: number;
+  };
+}
+
+export async function fetchLatestNormalized(userId?: string, runId?: string): Promise<NormalizedCreditReport | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('credit-report-latest', {
+      body: { userId, runId }
+    });
+
+    if (error) {
+      console.error('[NormalizedReportService] Error fetching latest report:', error);
+      return null;
+    }
+
+    if (!data || !data.report) {
+      console.log('[NormalizedReportService] No report data found');
+      return null;
+    }
+
+    return {
+      runId: data.runId,
+      collectedAt: data.collectedAt,
+      version: data.version || 'v1',
+      report: data.report,
+      counts: data.counts || { realEstate: 0, revolving: 0, other: 0 }
+    };
+  } catch (error) {
+    console.error('[NormalizedReportService] Exception fetching report:', error);
+    return null;
   }
+}
+
+export async function fetchNormalizedAccounts(userId: string, runId?: string) {
+  try {
+    let query = supabase
+      .from('normalized_credit_accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('position');
+
+    if (runId) {
+      query = query.eq('run_id', runId);
+    } else {
+      // Get latest run for user
+      const { data: latestRun } = await supabase
+        .from('normalized_credit_reports')
+        .select('run_id')
+        .eq('user_id', userId)
+        .order('collected_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (latestRun?.run_id) {
+        query = query.eq('run_id', latestRun.run_id);
+      }
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('[NormalizedReportService] Error fetching accounts:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('[NormalizedReportService] Exception fetching accounts:', error);
+    return [];
+  }
+}
+
+export async function fetchLatestWithFallback(userId?: string, runId?: string) {
+  const normalized = await fetchLatestNormalized(userId, runId);
+  if (normalized) {
+    return await transformNormalizedToReportData(normalized);
+  }
+  return null;
+}
+
+export async function transformNormalizedToReportData(normalized: NormalizedCreditReport) {
+  // Transform the normalized data structure to match the CreditReportData interface
+  const report = normalized.report;
   
-  // Try normalized first (by run or by user)
-  try {
-    const norm = await fetchLatestNormalized(runId);
-    if (norm?.report) {
-      return { ...norm, source: "normalized" as const };
-    }
-  } catch (normError) {
-    console.warn("[NormalizedReportService] Normalized fetch failed:", normError);
-  }
+  // Get additional account details from normalized_credit_accounts
+  const accounts = await fetchNormalizedAccounts('', normalized.runId);
+  
+  // Transform accounts to match expected interface
+  const transformedAccounts = accounts.map((acc: any) => ({
+    id: acc.id,
+    creditor: acc.creditor || 'Unknown',
+    accountNumber: acc.account_number_mask || '****',
+    type: acc.category === 'realEstate' ? 'mortgage' : 
+          acc.category === 'revolving' ? 'revolving' : 'installment',
+    status: acc.account_status?.toLowerCase() === 'open' ? 'open' : 
+           acc.account_status?.toLowerCase() === 'closed' ? 'closed' : 'open',
+    balance: acc.balance || 0,
+    limit: acc.credit_limit,
+    paymentHistory: [], // TODO: Parse payment history from data
+    dateOpened: acc.opened_on || '',
+    lastReported: acc.reported_on || '',
+    lastPayment: acc.last_payment_on,
+    paymentAmount: acc.payment_amount,
+    bureaus: [acc.bureau].filter(Boolean),
+  }));
 
-  // Fallback to raw
-  try {
-    const raw = await fetchLatestRaw(runId);
-    if (raw?.ok && raw?.raw) {
-      return {
-        runId: raw.runId ?? null,
-        collectedAt: raw.collectedAt ?? null,
-        version: "v1",
-        report: raw.raw,
-        counts: { realEstate: 0, revolving: 0, other: 0 },
-        source: "raw" as const,
-        capturedDataTemporaryUrl: raw.raw?.capturedDataTemporaryUrl,
-      };
-    }
-  } catch (rawError) {
-    console.warn("[NormalizedReportService] Raw fetch failed:", rawError);
-  }
+  // Transform scores
+  const creditScores = {
+    transUnion: report.scores.find(s => s.bureau.toLowerCase() === 'transunion'),
+    experian: report.scores.find(s => s.bureau.toLowerCase() === 'experian'),
+    equifax: report.scores.find(s => s.bureau.toLowerCase() === 'equifax'),
+  };
 
-  // Nothing found
+  // Transform inquiries
+  const transformedInquiries = report.inquiries.map((inq: any) => ({
+    id: `${inq.inquirer_name}-${inq.inquiry_date}`,
+    creditor: inq.inquirer_name || 'Unknown',
+    date: inq.inquiry_date || '',
+    type: 'hard' as const,
+    purpose: undefined,
+  }));
+
+  // Calculate account summary
+  const openAccounts = transformedAccounts.filter(acc => acc.status === 'open').length;
+  const closedAccounts = transformedAccounts.filter(acc => acc.status === 'closed').length;
+  const totalBalances = transformedAccounts.reduce((sum, acc) => sum + acc.balance, 0);
+  const monthlyPayments = transformedAccounts.reduce((sum, acc) => sum + (acc.paymentAmount || 0), 0);
+
   return {
-    runId: null,
-    collectedAt: null,
-    version: "v1",
-    report: null,
-    counts: { realEstate: 0, revolving: 0, other: 0 },
-    source: "none" as const,
-  } as const;
+    reportHeader: {
+      referenceNumber: normalized.runId,
+      reportDate: new Date(normalized.collectedAt).toLocaleDateString(),
+      alerts: [], // TODO: Parse alerts from data
+    },
+    personalInfo: {
+      name: report.personalInformation[0]?.fields?.Name || 'Unknown',
+      aliases: [],
+      birthDate: report.personalInformation[0]?.fields?.['Date of Birth'] || '',
+      addresses: report.addresses.map((addr: any) => ({
+        address: addr.address || '',
+        type: 'current' as const,
+        dates: '',
+      })),
+      employers: [],
+    },
+    creditScores: {
+      transUnion: creditScores.transUnion ? {
+        score: creditScores.transUnion.score,
+        rank: 'Good', // TODO: Calculate rank based on score
+        factors: [],
+      } : undefined,
+      experian: creditScores.experian ? {
+        score: creditScores.experian.score,
+        rank: 'Good',
+        factors: [],
+      } : undefined,
+      equifax: creditScores.equifax ? {
+        score: creditScores.equifax.score,
+        rank: 'Good',
+        factors: [],
+      } : undefined,
+    },
+    accountSummary: {
+      totalAccounts: transformedAccounts.length,
+      openAccounts,
+      closedAccounts,
+      delinquentAccounts: 0, // TODO: Calculate from payment status
+      collectionsAccounts: report.collections.length,
+      totalBalances,
+      monthlyPayments,
+      inquiries2Years: transformedInquiries.length,
+    },
+    accounts: transformedAccounts,
+    inquiries: transformedInquiries,
+  };
 }

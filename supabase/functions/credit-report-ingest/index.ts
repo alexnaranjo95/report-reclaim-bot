@@ -762,40 +762,47 @@ serve(async (req: Request) => {
       try {
         console.log(`[ingest] Storing ${allAccounts.length} accounts in normalized_credit_accounts`);
         
-        const accountRows = allAccounts.map((acc: any, index: number) => ({
-          user_id: userIdentifier!,
-          run_id: runId!,
-          bureau: acc.bureau || null,
-          creditor: acc.creditor || null,
-          account_number_mask: acc.account_number_mask || null,
-          category: acc.category || "other",
-          account_type: acc.account_type || null,
-          account_status: acc.account_status || null,
-          payment_status: acc.payment_status || null,
-          dispute_status: acc.dispute_status || null,
-          description: acc.description || null,
-          opened_on: acc.opened_on || null,
-          reported_on: acc.reported_on || null,
-          last_activity_on: acc.last_activity_on || null,
-          closed_on: acc.closed_on || null,
-          balance: acc.balance || null,
-          high_balance: acc.high_balance || null,
-          credit_limit: acc.credit_limit || null,
-          payment_amount: acc.payment_amount || null,
-          last_payment_on: acc.last_payment_on || null,
-          past_due: acc.past_due || null,
-          term_length_months: acc.term_length_months || null,
-          payment_frequency: acc.payment_frequency || null,
-          account_rating: acc.account_rating || null,
-          status: acc.status || "Open",
-          position: acc.position || index + 1,
-          collected_at: collectedAt,
-          payload: acc, // Store full account data
-        }));
+        const accountRows = allAccounts.map((acc: any, index: number) => {
+          // Ensure required fields for unique constraint are not null
+          const creditor = acc.creditor || `Unknown_${index}`;
+          const accountMask = acc.account_number_mask || `account_${runId}_${index}`;
+          const bureau = acc.bureau || 'unknown';
+          
+          return {
+            user_id: userIdentifier!,
+            run_id: runId!,
+            bureau: bureau,
+            creditor: creditor,
+            account_number_mask: accountMask,
+            category: acc.category || "other",
+            account_type: acc.account_type || null,
+            account_status: acc.account_status || null,
+            payment_status: acc.payment_status || null,
+            dispute_status: acc.dispute_status || null,
+            description: acc.description || null,
+            opened_on: acc.opened_on || null,
+            reported_on: acc.reported_on || null,
+            last_activity_on: acc.last_activity_on || null,
+            closed_on: acc.closed_on || null,
+            balance: acc.balance || null,
+            high_balance: acc.high_balance || null,
+            credit_limit: acc.credit_limit || null,
+            payment_amount: acc.payment_amount || null,
+            last_payment_on: acc.last_payment_on || null,
+            past_due: acc.past_due || null,
+            term_length_months: acc.term_length_months || null,
+            payment_frequency: acc.payment_frequency || null,
+            account_rating: acc.account_rating || null,
+            status: acc.status || "Open",
+            position: acc.position || index + 1,
+            collected_at: collectedAt,
+            payload: acc, // Store full account data
+          };
+        });
 
         const { error: accountsError } = await supabaseService
           .from("normalized_credit_accounts")
-          .upsert(accountRows, { onConflict: "user_id,run_id,bureau,creditor,account_number_mask" });
+          .upsert(accountRows, { onConflict: "user_id,run_id,account_number_mask,creditor,bureau" });
 
         if (accountsError) {
           console.error("[ingest] Accounts upsert error:", accountsError);

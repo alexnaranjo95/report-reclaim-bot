@@ -106,9 +106,33 @@ export async function fetchNormalizedAccounts(userId: string, runId?: string) {
 export async function fetchLatestWithFallback(userId?: string, runId?: string) {
   const normalized = await fetchLatestNormalized(userId, runId);
   if (normalized) {
-    return await transformNormalizedToReportData(normalized);
+    // Also fetch raw data with HTML content
+    const rawData = await fetchRawReportData(runId);
+    const transformed = await transformNormalizedToReportData(normalized);
+    return {
+      ...transformed,
+      rawData: rawData || normalized
+    };
   }
   return null;
+}
+
+export async function fetchRawReportData(runId?: string) {
+  try {
+    const { data, error } = await supabase.functions.invoke('credit-report-latest-raw', {
+      body: { runId }
+    });
+
+    if (error) {
+      console.error('[NormalizedReportService] Error fetching raw report:', error);
+      return null;
+    }
+
+    return data?.raw_json || null;
+  } catch (error) {
+    console.error('[NormalizedReportService] Exception fetching raw report:', error);
+    return null;
+  }
 }
 
 export async function transformNormalizedToReportData(normalized: NormalizedCreditReport) {

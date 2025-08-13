@@ -16,6 +16,7 @@ import { InquiriesTimeline } from './InquiriesTimeline';
 import { PersonalInfoCard } from './PersonalInfoCard';
 import { TriBureauReportViewer } from './TriBureauReportViewer';
 import { auditCreditData } from '@/utils/CreditDataAudit';
+import HtmlBlock from './HtmlBlock';
 
 export interface CreditReportData {
   reportHeader: {
@@ -82,6 +83,8 @@ export interface CreditReportData {
     type: 'hard' | 'soft';
     purpose?: string;
   }>;
+  // Add rawData to store the original JSON structure
+  rawData?: any;
 }
 
 interface CreditReportDashboardProps {
@@ -285,7 +288,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
 
       {/* Main Dashboard Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-7">
+        <TabsList className="grid w-full grid-cols-8">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="payment-history">Payment History</TabsTrigger>
@@ -293,6 +296,7 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
           <TabsTrigger value="personal">Personal Info</TabsTrigger>
           <TabsTrigger value="bureau-comparison">Bureau Compare</TabsTrigger>
           <TabsTrigger value="tri-bureau">Tri-Bureau Viewer</TabsTrigger>
+          <TabsTrigger value="raw-html">Raw HTML</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -382,6 +386,132 @@ export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ da
 
         <TabsContent value="tri-bureau">
           <TriBureauReportViewer docsumo={triBureauDocsumo} />
+        </TabsContent>
+
+        <TabsContent value="raw-html" className="space-y-6">
+          {/* Display HTML sections from raw data */}
+          {data.rawData && (
+            <div className="space-y-6">
+              {/* Personal Information HTML */}
+              {data.rawData.personal_information?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Personal Information (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.personal_information.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Account Summary HTML */}
+              {data.rawData.account_summary?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Account Summary (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.account_summary.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Credit Scores HTML */}
+              {data.rawData.credit_scores?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Credit Scores (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.credit_scores.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Accounts HTML */}
+              {data.rawData.accounts?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Accounts (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.accounts.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Inquiries HTML */}
+              {data.rawData.inquiries?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Inquiries (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.inquiries.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Public Records HTML */}
+              {data.rawData.public_records?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Public Records (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.public_records.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Collections HTML */}
+              {data.rawData.collections?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Collections (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.collections.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Any other HTML sections found in rawData */}
+              {Object.entries(data.rawData).map(([key, value]: [string, any]) => {
+                if (value?.html && !['personal_information', 'account_summary', 'credit_scores', 'accounts', 'inquiries', 'public_records', 'collections'].includes(key)) {
+                  return (
+                    <Card key={key}>
+                      <CardHeader>
+                        <CardTitle>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} (Raw HTML)</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <HtmlBlock html={value.html} />
+                      </CardContent>
+                    </Card>
+                  );
+                }
+                return null;
+              })}
+
+              {/* If no HTML sections found */}
+              {!Object.values(data.rawData).some((value: any) => value?.html) && (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <p className="text-muted-foreground">No HTML content found in the raw data.</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* If no rawData */}
+          {!data.rawData && (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-muted-foreground">No raw data available to display HTML content.</p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

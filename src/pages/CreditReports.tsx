@@ -13,7 +13,6 @@ import { Link } from "react-router-dom";
 import HtmlBlock from "@/components/HtmlBlock";
 import VirtualizedHtmlList from "@/components/VirtualizedHtmlList";
 import JsonView from "@/components/JsonView";
-import { CreditReportDashboard } from "@/components/CreditReportDashboard";
 import { fetchLatestWithFallback } from "@/services/NormalizedReportService";
 import { supabase, SUPABASE_URL } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -668,8 +667,6 @@ const CreditReportsPage: React.FC = () => {
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-[320px] w-full" />
               </div>
-            ) : normalized ? (
-              <CreditReportDashboard data={normalized} />
             ) : (
               <Tabs defaultValue="overview" className="w-full">
                 <TabsList>

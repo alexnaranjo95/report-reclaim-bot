@@ -1,9 +1,22 @@
-import React, { useState, useMemo } from 'react';
-import { ChevronRight, Upload, Download, Plus, ArrowUp, Check, TrendingUp, CreditCard, AlertTriangle } from 'lucide-react';
-import { Button } from './ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AlertTriangle, Shield, TrendingUp, TrendingDown, Search, Download, Printer, Filter } from 'lucide-react';
+import { CreditScoreHero } from './CreditScoreHero';
+import { AccountsGrid } from './AccountsGrid';
+import { PaymentHistoryHeatmap } from './PaymentHistoryHeatmap';
+import { CreditUtilizationGauge } from './CreditUtilizationGauge';
+import { BureauComparisonView } from './BureauComparisonView';
+import { CreditChartsOverview } from './CreditChartsOverview';
+import { ActionItemsPanel } from './ActionItemsPanel';
+import { InquiriesTimeline } from './InquiriesTimeline';
+import { PersonalInfoCard } from './PersonalInfoCard';
+import { TriBureauReportViewer } from './TriBureauReportViewer';
+import { auditCreditData } from '@/utils/CreditDataAudit';
+import HtmlBlock from './HtmlBlock';
 
 export interface CreditReportData {
   reportHeader: {
@@ -70,6 +83,7 @@ export interface CreditReportData {
     type: 'hard' | 'soft';
     purpose?: string;
   }>;
+  // Add rawData to store the original JSON structure
   rawData?: any;
 }
 
@@ -78,285 +92,428 @@ interface CreditReportDashboardProps {
 }
 
 export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ data }) => {
-  const [activeTab, setActiveTab] = useState('rounds');
-  const [bureauFilter, setBureauFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterBureau, setFilterBureau] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
 
-  // Calculate average score
-  const averageScore = useMemo(() => {
-    const scores = [
-      data.creditScores.transUnion?.score || 0,
-      data.creditScores.experian?.score || 0,
-      data.creditScores.equifax?.score || 0
-    ].filter(s => s > 0);
-    
-    if (scores.length === 0) return 0;
-    return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-  }, [data.creditScores]);
+  // Log data counts on mount for verification
+  useEffect(() => {
+    console.log(`[CreditReportDashboard] Mounted with data - Accounts: ${data.accounts.length}, Inquiries: ${data.inquiries.length}, Scores: ${Object.keys(data.creditScores).length}`);
+  }, [data]);
 
-  // Count negative items
-  const negativeItems = useMemo(() => {
-    return data.accounts.filter(account => 
-      account.status === 'derogatory' || 
-      account.status === 'collection' ||
-      data.accountSummary.delinquentAccounts > 0
-    ).length + data.accountSummary.collectionsAccounts;
-  }, [data.accounts, data.accountSummary]);
-
-  // Filter accounts by bureau
+  // Filtered accounts based on search and filters
   const filteredAccounts = useMemo(() => {
-    if (bureauFilter === 'all') return data.accounts;
-    return data.accounts.filter(account => 
-      account.bureaus.some(bureau => 
-        bureau.toLowerCase().includes(bureauFilter.toLowerCase())
-      )
-    );
-  }, [data.accounts, bureauFilter]);
+    return data.accounts.filter(account => {
+      const matchesSearch = account.creditor.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           account.accountNumber.includes(searchTerm);
+      const matchesBureau = filterBureau === 'all' || account.bureaus.includes(filterBureau);
+      const matchesStatus = filterStatus === 'all' || account.status === filterStatus;
+      
+      return matchesSearch && matchesBureau && matchesStatus;
+    });
+  }, [data.accounts, searchTerm, filterBureau, filterStatus]);
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'open':
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Positive</Badge>;
-      case 'derogatory':
-      case 'collection':
-        return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Negative</Badge>;
-      case 'closed':
-        return <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-100">Closed</Badge>;
-      default:
-        return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">In Dispute</Badge>;
-    }
-  };
+  // Calculate overall utilization
+  const overallUtilization = useMemo(() => {
+    const revolvingAccounts = data.accounts.filter(acc => acc.type === 'revolving' && acc.status === 'open');
+    const totalBalance = revolvingAccounts.reduce((sum, acc) => sum + acc.balance, 0);
+    const totalLimit = revolvingAccounts.reduce((sum, acc) => sum + (acc.limit || 0), 0);
+    return totalLimit > 0 ? (totalBalance / totalLimit) * 100 : 0;
+  }, [data.accounts]);
 
-  const tabs = [
-    { id: 'rounds', label: 'Rounds', active: true },
-    { id: 'monthly', label: 'Monthly', active: false },
-    { id: 'analysis', label: 'Analysis', active: false },
-    { id: 'reports', label: 'Reports', active: false }
-  ];
+  // Transform data for TriBureauReportViewer
+  const triBureauDocsumo = useMemo(() => {
+    const formatMoney = (n?: number) => (typeof n === 'number' ? `$${n.toLocaleString()}` : '—');
+    const s = data.accountSummary;
+    const summaryLine = `Total Accounts : ${s.totalAccounts} Open Accounts : ${s.openAccounts} Closed Accounts : ${s.closedAccounts} Delinquent : ${s.delinquentAccounts} Derogatory : ${s.collectionsAccounts} Collection : ${s.collectionsAccounts} Balances : ${formatMoney(s.totalBalances)} Payments : ${formatMoney(s.monthlyPayments)} Public Records : 0 Inquiries(2 years) : ${s.inquiries2Years}`;
+
+    const toAddr = (a: { address: string; dates?: string }) => ({
+      'Street Line 1': { value: a.address },
+      'City': { value: '' },
+      'State': { value: '' },
+      'Zip Code': { value: '' },
+      'Date Reported': { value: a.dates || '' },
+    });
+
+    const currentAddrs = (data.personalInfo.addresses || [])
+      .filter(a => a.type === 'current')
+      .map(toAddr);
+    const previousAddrs = (data.personalInfo.addresses || [])
+      .filter(a => a.type === 'previous')
+      .map(toAddr);
+
+    const alertsByBureau: Record<string, any[]> = {
+      'TransUnion Alerts': [],
+      'Experian Alerts': [],
+      'Equifax Alerts': [],
+    };
+    
+    (data.reportHeader.alerts || []).forEach(al => {
+      const key = `${al.bureau ?? 'TransUnion'} Alerts`;
+      if (alertsByBureau[key]) {
+        alertsByBureau[key].push({ text: al.message, type: al.type, severity: al.severity });
+      }
+    });
+
+    return {
+      data: {
+        'Basic Information': {
+          'Report Title': { value: 'Smart Credit Report' },
+          'Report Date': { value: data.reportHeader.reportDate },
+          'Reference Number': { value: data.reportHeader.referenceNumber },
+        },
+        'Personal Information': {
+          'Name': { value: data.personalInfo.name },
+          'Also Known As': { value: (data.personalInfo.aliases || []).join(', ') },
+          'Former Names': { value: '' },
+          'Date of Birth': { value: data.personalInfo.birthDate },
+          'Employers': { value: (data.personalInfo.employers || []).map(e => e.name).join('; ') },
+          'Current Addresses': currentAddrs,
+          'Previous Addresses': previousAddrs,
+        },
+        'Credit Score': {
+          'TransUnion': { value: data.creditScores.transUnion?.score },
+          'Experian': { value: data.creditScores.experian?.score },
+          'Equifax': { value: data.creditScores.equifax?.score },
+        },
+        'Risk Factors': {
+          'TransUnion': { value: (data.creditScores.transUnion?.factors || []).join('; ') },
+          'Experian': { value: (data.creditScores.experian?.factors || []).join('; ') },
+          'Equifax': { value: (data.creditScores.equifax?.factors || []).join('; ') },
+        },
+        'Summary': {
+          'TransUnion': { value: summaryLine },
+          'Experian': { value: summaryLine },
+          'Equifax': { value: summaryLine },
+        },
+        'Public Records': { 'If None': { value: 'No public records reported' } },
+        'Customer Statement': alertsByBureau,
+        'Account History': { 'Two year payment history': [] },
+      }
+    };
+  }, [data]);
+
+  useEffect(() => {
+    auditCreditData(data);
+  }, [data]);
 
   return (
-    <div className="bg-background min-h-screen">
-      <div className="p-8">
-        {/* Header */}
-        <header className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center text-sm text-muted-foreground mb-2">
-                <a href="#" className="hover:underline">Dashboard</a>
-                <ChevronRight className="mx-1 h-4 w-4" />
-                <span className="font-medium text-foreground">Credit Reports</span>
-              </div>
-              <h1 className="text-3xl font-bold text-foreground">Credit Score & Analysis</h1>
-              <p className="text-muted-foreground">Track your credit journey and dispute progress over time.</p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Button variant="outline" className="flex items-center">
-                <Upload className="mr-2 h-4 w-4" />
-                Upload Report
-              </Button>
-              <Button variant="outline" className="flex items-center">
-                <Download className="mr-2 h-4 w-4" />
-                Download
-              </Button>
-              <Button className="flex items-center">
-                <Plus className="mr-2 h-4 w-4" />
-                Generate Dispute
-              </Button>
-            </div>
+    <div className="min-h-screen bg-gradient-dashboard p-6" id="credit-report-root" data-testid="credit-report-root">
+      {/* Alert Bar */}
+      {data.reportHeader.alerts.length > 0 && (
+        <div className="mb-6 space-y-2">
+          {data.reportHeader.alerts.map((alert, index) => (
+            <Card key={index} className={`border-l-4 ${
+              alert.severity === 'high' ? 'border-l-danger bg-danger/5' :
+              alert.severity === 'medium' ? 'border-l-warning bg-warning/5' :
+              'border-l-primary bg-primary/5'
+            }`}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  {alert.type === 'fraud' ? (
+                    <Shield className="h-5 w-5 text-danger" />
+                  ) : (
+                    <AlertTriangle className="h-5 w-5 text-warning" />
+                  )}
+                  <div className="flex-1">
+                    <p className="font-medium">{alert.message}</p>
+                    {alert.bureau && (
+                      <p className="text-sm text-muted-foreground">Bureau: {alert.bureau}</p>
+                    )}
+                  </div>
+                  <Badge variant={alert.severity === 'high' ? 'destructive' : 'secondary'}>
+                    {alert.severity.toUpperCase()}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Credit Scores Hero Section */}
+      <div className="mb-8" data-testid="credit-report-scores">
+        <CreditScoreHero creditScores={data.creditScores} />
+      </div>
+
+      {/* Dashboard Controls */}
+      <div className="mb-6 flex flex-wrap gap-4 items-center justify-between">
+        <div className="flex gap-3 items-center">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search accounts..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 w-64"
+            />
           </div>
           
-          {/* Navigation Tabs */}
-          <div className="mt-6 flex space-x-2">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
-                  activeTab === tab.id
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </header>
+          <select
+            value={filterBureau}
+            onChange={(e) => setFilterBureau(e.target.value)}
+            className="px-3 py-2 border border-border rounded-md bg-background"
+          >
+            <option value="all">All Bureaus</option>
+            <option value="TransUnion">TransUnion</option>
+            <option value="Experian">Experian</option>
+            <option value="Equifax">Equifax</option>
+          </select>
 
-        <main>
-          {/* Hero Section with Score and Stats */}
-          <section className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-            <Card className="col-span-1 lg:col-span-2 flex items-center justify-between p-6">
-              <div>
-                <h2 className="text-lg font-semibold text-foreground mb-1">Overall Credit Score</h2>
-                <p className="text-5xl font-bold text-green-500">{averageScore}</p>
-                <div className="flex items-center text-green-600 mt-2">
-                  <ArrowUp className="h-4 w-4" />
-                  <p className="ml-1 text-sm font-medium">Good standing</p>
-                </div>
-              </div>
-              <div className="w-1/2 flex justify-center">
-                <div className="w-24 h-24 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center">
-                  <TrendingUp className="h-12 w-12 text-white" />
-                </div>
-              </div>
-            </Card>
-            
-            <Card className="p-6">
-              <h3 className="font-semibold text-foreground mb-2">Negative Items</h3>
-              <p className="text-3xl font-bold text-red-500">{negativeItems}</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {data.accountSummary.collectionsAccounts > 0 ? 'Collections present' : 'Good standing'}
-              </p>
-            </Card>
-            
-            <Card className="p-6">
-              <h3 className="font-semibold text-foreground mb-2">Total Accounts</h3>
-              <p className="text-3xl font-bold text-foreground">{data.accountSummary.totalAccounts}</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {data.accountSummary.openAccounts} open accounts
-              </p>
-            </Card>
-          </section>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-3 py-2 border border-border rounded-md bg-background"
+          >
+            <option value="all">All Status</option>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+            <option value="derogatory">Derogatory</option>
+            <option value="collection">Collection</option>
+          </select>
+        </div>
 
-          {/* Dispute Progress Timeline */}
-          <section className="mb-8">
-            <h2 className="text-2xl font-bold text-foreground mb-4">Dispute Round Progress</h2>
-            <div className="relative">
-              <div className="absolute top-1/2 left-0 w-full h-1 bg-muted -translate-y-1/2"></div>
-              <div className="absolute top-1/2 left-0 w-1/12 h-1 bg-primary -translate-y-1/2"></div>
-              <div className="relative flex justify-between items-start">
-                <div className="text-center w-1/12">
-                  <div className="mx-auto w-10 h-10 flex items-center justify-center bg-primary text-primary-foreground rounded-full border-4 border-background shadow-md">
-                    <Check className="h-4 w-4" />
-                  </div>
-                  <p className="mt-2 text-sm font-semibold text-primary">Round 1</p>
-                  <p className="text-xs text-muted-foreground">Complete</p>
-                </div>
-                <div className="text-center w-1/12">
-                  <div className="mx-auto w-10 h-10 flex items-center justify-center bg-background text-primary rounded-full border-4 border-primary shadow-md">
-                    <p className="font-bold">2</p>
-                  </div>
-                  <p className="mt-2 text-sm font-semibold text-primary">Round 2</p>
-                  <p className="text-xs text-muted-foreground">Current</p>
-                </div>
-                {[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(num => (
-                  <div key={num} className="text-center w-1/12">
-                    <div className="mx-auto w-10 h-10 flex items-center justify-center bg-muted text-muted-foreground rounded-full border-4 border-background">
-                      <p className="font-bold">{num}</p>
-                    </div>
-                    <p className="mt-2 text-sm font-semibold text-muted-foreground">Round {num}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* Account Details Table */}
-          <Card>
-            <CardHeader>
-              <div className="flex justify-between items-center">
-                <div>
-                  <CardTitle className="text-xl font-bold text-foreground">Account Details</CardTitle>
-                  <p className="text-sm text-muted-foreground">Overview of all your accounts and their status.</p>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="flex items-center space-x-1 border rounded-lg p-1 bg-muted">
-                    <button
-                      onClick={() => setBureauFilter('all')}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                        bureauFilter === 'all' 
-                          ? 'bg-background shadow-sm text-primary' 
-                          : 'text-muted-foreground hover:bg-background/50'
-                      }`}
-                    >
-                      All ({data.accountSummary.totalAccounts})
-                    </button>
-                    <button
-                      onClick={() => setBureauFilter('equifax')}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                        bureauFilter === 'equifax' 
-                          ? 'bg-background shadow-sm text-primary' 
-                          : 'text-muted-foreground hover:bg-background/50'
-                      }`}
-                    >
-                      Equifax
-                    </button>
-                    <button
-                      onClick={() => setBureauFilter('experian')}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                        bureauFilter === 'experian' 
-                          ? 'bg-background shadow-sm text-primary' 
-                          : 'text-muted-foreground hover:bg-background/50'
-                      }`}
-                    >
-                      Experian
-                    </button>
-                    <button
-                      onClick={() => setBureauFilter('transunion')}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                        bureauFilter === 'transunion' 
-                          ? 'bg-background shadow-sm text-primary' 
-                          : 'text-muted-foreground hover:bg-background/50'
-                      }`}
-                    >
-                      TransUnion
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Account Name</TableHead>
-                      <TableHead>Bureau</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last Reported</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredAccounts.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                          {data.accounts.length === 0 ? 'No credit accounts found' : 'No accounts match the selected filter'}
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredAccounts.slice(0, 10).map((account) => (
-                        <TableRow key={account.id} className="hover:bg-muted/50">
-                          <TableCell className="font-medium">{account.creditor}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {account.bureaus.join(', ')}
-                          </TableCell>
-                          <TableCell>{getStatusBadge(account.status)}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {account.lastReported || 'N/A'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end space-x-2">
-                              {(account.status === 'derogatory' || account.status === 'collection') && (
-                                <Button variant="link" size="sm" className="text-primary hover:text-primary/80">
-                                  Dispute
-                                </Button>
-                              )}
-                              <Button variant="link" size="sm" className="text-primary hover:text-primary/80">
-                                View
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </main>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm">
+            <Printer className="h-4 w-4 mr-2" />
+            Print
+          </Button>
+          <Button variant="outline" size="sm">
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+        </div>
       </div>
+
+      {/* Main Dashboard Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="grid w-full grid-cols-8">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="accounts">Accounts</TabsTrigger>
+          <TabsTrigger value="payment-history">Payment History</TabsTrigger>
+          <TabsTrigger value="inquiries">Inquiries</TabsTrigger>
+          <TabsTrigger value="personal">Personal Info</TabsTrigger>
+          <TabsTrigger value="bureau-comparison">Bureau Compare</TabsTrigger>
+          <TabsTrigger value="tri-bureau">Tri-Bureau Viewer</TabsTrigger>
+          <TabsTrigger value="raw-html">Raw HTML</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
+          {/* Account Summary Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card className="shadow-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Accounts</CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4">
+                <div className="text-2xl font-bold">{data.accountSummary.totalAccounts}</div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>{data.accountSummary.openAccounts} open</span>
+                  <span>•</span>
+                  <span>{data.accountSummary.closedAccounts} closed</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Balances</CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4">
+                <div className="text-2xl font-bold">${data.accountSummary.totalBalances.toLocaleString()}</div>
+                <div className="text-sm text-muted-foreground">
+                  ${data.accountSummary.monthlyPayments.toLocaleString()} monthly payments
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Credit Utilization</CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4">
+                <div className="text-2xl font-bold">{overallUtilization.toFixed(1)}%</div>
+                <div className={`text-sm ${overallUtilization > 30 ? 'text-warning' : 'text-success'}`}>
+                  {overallUtilization > 30 ? 'High utilization' : 'Good utilization'}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Recent Inquiries</CardTitle>
+              </CardHeader>
+              <CardContent className="pb-4">
+                <div className="text-2xl font-bold">{data.accountSummary.inquiries2Years}</div>
+                <div className="text-sm text-muted-foreground">Last 24 months</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Credit Utilization Gauge */}
+          <CreditUtilizationGauge 
+            accounts={data.accounts} 
+            overallUtilization={overallUtilization} 
+          />
+
+          {/* Charts Overview */}
+          <CreditChartsOverview data={data} />
+
+          {/* Action Items Panel */}
+          <ActionItemsPanel creditScores={data.creditScores} accounts={data.accounts} />
+        </TabsContent>
+
+        <TabsContent value="accounts" data-testid="credit-report-accounts">
+          <AccountsGrid accounts={filteredAccounts} />
+        </TabsContent>
+
+        <TabsContent value="payment-history">
+          <PaymentHistoryHeatmap accounts={data.accounts} />
+        </TabsContent>
+
+        <TabsContent value="inquiries" data-testid="credit-report-inquiries">
+          <InquiriesTimeline inquiries={data.inquiries} />
+        </TabsContent>
+
+        <TabsContent value="personal">
+          <PersonalInfoCard personalInfo={data.personalInfo} />
+        </TabsContent>
+
+        <TabsContent value="bureau-comparison">
+          <BureauComparisonView data={data} />
+        </TabsContent>
+
+        <TabsContent value="tri-bureau">
+          <TriBureauReportViewer docsumo={triBureauDocsumo} />
+        </TabsContent>
+
+        <TabsContent value="raw-html" className="space-y-6">
+          {/* Display HTML sections from raw data */}
+          {data.rawData && (
+            <div className="space-y-6">
+              {/* Personal Information HTML */}
+              {data.rawData.personal_information?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Personal Information (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.personal_information.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Account Summary HTML */}
+              {data.rawData.account_summary?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Account Summary (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.account_summary.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Credit Scores HTML */}
+              {data.rawData.credit_scores?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Credit Scores (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.credit_scores.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Accounts HTML */}
+              {data.rawData.accounts?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Accounts (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.accounts.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Inquiries HTML */}
+              {data.rawData.inquiries?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Inquiries (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.inquiries.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Public Records HTML */}
+              {data.rawData.public_records?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Public Records (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.public_records.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Collections HTML */}
+              {data.rawData.collections?.html && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Collections (Raw HTML)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <HtmlBlock html={data.rawData.collections.html} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Any other HTML sections found in rawData */}
+              {Object.entries(data.rawData).map(([key, value]: [string, any]) => {
+                if (value?.html && !['personal_information', 'account_summary', 'credit_scores', 'accounts', 'inquiries', 'public_records', 'collections'].includes(key)) {
+                  return (
+                    <Card key={key}>
+                      <CardHeader>
+                        <CardTitle>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} (Raw HTML)</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <HtmlBlock html={value.html} />
+                      </CardContent>
+                    </Card>
+                  );
+                }
+                return null;
+              })}
+
+              {/* If no HTML sections found */}
+              {!Object.values(data.rawData).some((value: any) => value?.html) && (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <p className="text-muted-foreground">No HTML content found in the raw data.</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* If no rawData */}
+          {!data.rawData && (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-muted-foreground">No raw data available to display HTML content.</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

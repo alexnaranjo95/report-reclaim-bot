@@ -43,7 +43,7 @@ const parseSummary = (s?: string) => {
     'Total Accounts', 'Open Accounts', 'Closed Accounts', 'Delinquent', 'Derogatory', 'Collection', 'Balances', 'Payments', 'Public Records', 'Inquiries(2 years)'
   ];
   labels.forEach(label => {
-    const re = new RegExp(`${label}\s*:\s*([^$]+|\$?[\d,]+(?:\.\d{2})?)`);
+    const re = new RegExp(`${label}\\s*:\\s*([^$]+|\\$?[\\d,]+(?:\\.\\d{2})?)`);
     const m = s.match(re);
     if (m) result[label] = m[1].trim();
   });

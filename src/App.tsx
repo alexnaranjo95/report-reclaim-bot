@@ -10,6 +10,7 @@ import Auth from "./pages/Auth";
 import Admin from "./pages/Admin";
 import TemplateEditorPage from "./pages/TemplateEditor";
 import CreditReports from "./pages/CreditReports";
+import CreditReportDashboard from "./components/CreditReportDashboard";
 import NotFound from "./pages/NotFound";
 import { useAuth } from "@/hooks/useAuth";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
@@ -71,6 +72,13 @@ const App = () => {
                 <ProtectedRoute>
                   <div className="min-h-screen w-full">
                     <CreditReports />
+                  </div>
+                </ProtectedRoute>
+              } />
+              <Route path="/credit-report-dashboard" element={
+                <ProtectedRoute>
+                  <div className="min-h-screen w-full">
+                    <CreditReportDashboard />
                   </div>
                 </ProtectedRoute>
               } />

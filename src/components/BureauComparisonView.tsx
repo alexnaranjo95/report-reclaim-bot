@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AlertTriangle, CheckCircle, Minus, Eye, EyeOff } from 'lucide-react';
-import { CreditReportData } from './CreditReportDashboard';
+import { CreditReportData } from '../types/CreditTypes';
 
 interface BureauComparisonViewProps {
   data: CreditReportData;

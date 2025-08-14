@@ -1,22 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertTriangle, Shield, TrendingUp, TrendingDown, Search, Download, Printer, Filter } from 'lucide-react';
-import { CreditScoreHero } from './CreditScoreHero';
-import { AccountsGrid } from './AccountsGrid';
-import { PaymentHistoryHeatmap } from './PaymentHistoryHeatmap';
-import { CreditUtilizationGauge } from './CreditUtilizationGauge';
-import { BureauComparisonView } from './BureauComparisonView';
-import { CreditChartsOverview } from './CreditChartsOverview';
-import { ActionItemsPanel } from './ActionItemsPanel';
-import { InquiriesTimeline } from './InquiriesTimeline';
-import { PersonalInfoCard } from './PersonalInfoCard';
-import { TriBureauReportViewer } from './TriBureauReportViewer';
-import { auditCreditData } from '@/utils/CreditDataAudit';
-import HtmlBlock from './HtmlBlock';
+import React from 'react';
+import { AlertTriangle, Shield } from 'lucide-react';
 
 export interface CreditReportData {
   reportHeader: {
@@ -92,428 +75,313 @@ interface CreditReportDashboardProps {
 }
 
 export const CreditReportDashboard: React.FC<CreditReportDashboardProps> = ({ data }) => {
-  const [activeTab, setActiveTab] = useState('overview');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterBureau, setFilterBureau] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  // Transform credit scores to array format for the template
+  const creditScores = [
+    data.creditScores.transUnion && { bureau: 'TransUnion', score: data.creditScores.transUnion.score, date: data.reportHeader.reportDate },
+    data.creditScores.experian && { bureau: 'Experian', score: data.creditScores.experian.score, date: data.reportHeader.reportDate },
+    data.creditScores.equifax && { bureau: 'Equifax', score: data.creditScores.equifax.score, date: data.reportHeader.reportDate }
+  ].filter(Boolean);
 
-  // Log data counts on mount for verification
-  useEffect(() => {
-    console.log(`[CreditReportDashboard] Mounted with data - Accounts: ${data.accounts.length}, Inquiries: ${data.inquiries.length}, Scores: ${Object.keys(data.creditScores).length}`);
-  }, [data]);
+  // Transform addresses format
+  const addresses = data.personalInfo.addresses?.map(addr => ({
+    street: addr.address,
+    city: '',
+    state: '',
+    postalCode: '',
+    type: addr.type,
+    dates: addr.dates
+  })) || [];
 
-  // Filtered accounts based on search and filters
-  const filteredAccounts = useMemo(() => {
-    return data.accounts.filter(account => {
-      const matchesSearch = account.creditor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           account.accountNumber.includes(searchTerm);
-      const matchesBureau = filterBureau === 'all' || account.bureaus.includes(filterBureau);
-      const matchesStatus = filterStatus === 'all' || account.status === filterStatus;
-      
-      return matchesSearch && matchesBureau && matchesStatus;
-    });
-  }, [data.accounts, searchTerm, filterBureau, filterStatus]);
-
-  // Calculate overall utilization
-  const overallUtilization = useMemo(() => {
-    const revolvingAccounts = data.accounts.filter(acc => acc.type === 'revolving' && acc.status === 'open');
-    const totalBalance = revolvingAccounts.reduce((sum, acc) => sum + acc.balance, 0);
-    const totalLimit = revolvingAccounts.reduce((sum, acc) => sum + (acc.limit || 0), 0);
-    return totalLimit > 0 ? (totalBalance / totalLimit) * 100 : 0;
-  }, [data.accounts]);
-
-  // Transform data for TriBureauReportViewer
-  const triBureauDocsumo = useMemo(() => {
-    const formatMoney = (n?: number) => (typeof n === 'number' ? `$${n.toLocaleString()}` : '—');
-    const s = data.accountSummary;
-    const summaryLine = `Total Accounts : ${s.totalAccounts} Open Accounts : ${s.openAccounts} Closed Accounts : ${s.closedAccounts} Delinquent : ${s.delinquentAccounts} Derogatory : ${s.collectionsAccounts} Collection : ${s.collectionsAccounts} Balances : ${formatMoney(s.totalBalances)} Payments : ${formatMoney(s.monthlyPayments)} Public Records : 0 Inquiries(2 years) : ${s.inquiries2Years}`;
-
-    const toAddr = (a: { address: string; dates?: string }) => ({
-      'Street Line 1': { value: a.address },
-      'City': { value: '' },
-      'State': { value: '' },
-      'Zip Code': { value: '' },
-      'Date Reported': { value: a.dates || '' },
-    });
-
-    const currentAddrs = (data.personalInfo.addresses || [])
-      .filter(a => a.type === 'current')
-      .map(toAddr);
-    const previousAddrs = (data.personalInfo.addresses || [])
-      .filter(a => a.type === 'previous')
-      .map(toAddr);
-
-    const alertsByBureau: Record<string, any[]> = {
-      'TransUnion Alerts': [],
-      'Experian Alerts': [],
-      'Equifax Alerts': [],
-    };
-    
-    (data.reportHeader.alerts || []).forEach(al => {
-      const key = `${al.bureau ?? 'TransUnion'} Alerts`;
-      if (alertsByBureau[key]) {
-        alertsByBureau[key].push({ text: al.message, type: al.type, severity: al.severity });
-      }
-    });
-
-    return {
-      data: {
-        'Basic Information': {
-          'Report Title': { value: 'Smart Credit Report' },
-          'Report Date': { value: data.reportHeader.reportDate },
-          'Reference Number': { value: data.reportHeader.referenceNumber },
-        },
-        'Personal Information': {
-          'Name': { value: data.personalInfo.name },
-          'Also Known As': { value: (data.personalInfo.aliases || []).join(', ') },
-          'Former Names': { value: '' },
-          'Date of Birth': { value: data.personalInfo.birthDate },
-          'Employers': { value: (data.personalInfo.employers || []).map(e => e.name).join('; ') },
-          'Current Addresses': currentAddrs,
-          'Previous Addresses': previousAddrs,
-        },
-        'Credit Score': {
-          'TransUnion': { value: data.creditScores.transUnion?.score },
-          'Experian': { value: data.creditScores.experian?.score },
-          'Equifax': { value: data.creditScores.equifax?.score },
-        },
-        'Risk Factors': {
-          'TransUnion': { value: (data.creditScores.transUnion?.factors || []).join('; ') },
-          'Experian': { value: (data.creditScores.experian?.factors || []).join('; ') },
-          'Equifax': { value: (data.creditScores.equifax?.factors || []).join('; ') },
-        },
-        'Summary': {
-          'TransUnion': { value: summaryLine },
-          'Experian': { value: summaryLine },
-          'Equifax': { value: summaryLine },
-        },
-        'Public Records': { 'If None': { value: 'No public records reported' } },
-        'Customer Statement': alertsByBureau,
-        'Account History': { 'Two year payment history': [] },
-      }
-    };
-  }, [data]);
-
-  useEffect(() => {
-    auditCreditData(data);
-  }, [data]);
+  // Transform account details
+  const accountDetails = data.accounts.map(account => ({
+    creditorName: account.creditor,
+    accountType: account.type,
+    balance: `$${account.balance.toLocaleString()}`,
+    status: account.status,
+    lastPaymentDate: account.lastPayment || account.lastReported,
+    paymentHistory: account.paymentHistory
+  }));
 
   return (
-    <div className="min-h-screen bg-gradient-dashboard p-6" id="credit-report-root" data-testid="credit-report-root">
-      {/* Alert Bar */}
-      {data.reportHeader.alerts.length > 0 && (
-        <div className="mb-6 space-y-2">
-          {data.reportHeader.alerts.map((alert, index) => (
-            <Card key={index} className={`border-l-4 ${
-              alert.severity === 'high' ? 'border-l-danger bg-danger/5' :
-              alert.severity === 'medium' ? 'border-l-warning bg-warning/5' :
-              'border-l-primary bg-primary/5'
-            }`}>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  {alert.type === 'fraud' ? (
-                    <Shield className="h-5 w-5 text-danger" />
-                  ) : (
-                    <AlertTriangle className="h-5 w-5 text-warning" />
-                  )}
-                  <div className="flex-1">
-                    <p className="font-medium">{alert.message}</p>
-                    {alert.bureau && (
-                      <p className="text-sm text-muted-foreground">Bureau: {alert.bureau}</p>
+    <main className="min-h-screen bg-gradient-dashboard p-6" id="credit-report-root" data-testid="credit-report-root">
+      <article className="max-w-6xl mx-auto space-y-8">
+        <header className="bg-card rounded-lg shadow-card p-6">
+          <h1 className="text-3xl font-bold text-foreground mb-2">Credit Report Analysis</h1>
+          <p className="text-muted-foreground">Report Date: {data.reportHeader.reportDate}</p>
+          <p className="text-sm text-muted-foreground">Reference: {data.reportHeader.referenceNumber}</p>
+        </header>
+
+        {/* Alerts Section */}
+        {data.reportHeader.alerts.length > 0 && (
+          <section aria-labelledby="alerts-header" className="space-y-4">
+            <h2 id="alerts-header" className="text-2xl font-semibold text-foreground">Credit Alerts</h2>
+            <div className="space-y-3">
+              {data.reportHeader.alerts.map((alert, index) => (
+                <div 
+                  key={index} 
+                  className={`p-4 border-l-4 rounded-lg ${
+                    alert.severity === 'high' ? 'border-l-danger bg-danger/5' :
+                    alert.severity === 'medium' ? 'border-l-warning bg-warning/5' :
+                    'border-l-primary bg-primary/5'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    {alert.type === 'fraud' ? (
+                      <Shield className="h-5 w-5 text-danger mt-1" />
+                    ) : (
+                      <AlertTriangle className="h-5 w-5 text-warning mt-1" />
                     )}
+                    <div>
+                      <p className="font-medium text-foreground">{alert.message}</p>
+                      {alert.bureau && (
+                        <p className="text-sm text-muted-foreground">Bureau: {alert.bureau}</p>
+                      )}
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground mt-1">
+                        {alert.severity} Priority
+                      </p>
+                    </div>
                   </div>
-                  <Badge variant={alert.severity === 'high' ? 'destructive' : 'secondary'}>
-                    {alert.severity.toUpperCase()}
-                  </Badge>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+              ))}
+            </div>
+          </section>
+        )}
 
-      {/* Credit Scores Hero Section */}
-      <div className="mb-8" data-testid="credit-report-scores">
-        <CreditScoreHero creditScores={data.creditScores} />
-      </div>
-
-      {/* Dashboard Controls */}
-      <div className="mb-6 flex flex-wrap gap-4 items-center justify-between">
-        <div className="flex gap-3 items-center">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search accounts..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 w-64"
-            />
-          </div>
-          
-          <select
-            value={filterBureau}
-            onChange={(e) => setFilterBureau(e.target.value)}
-            className="px-3 py-2 border border-border rounded-md bg-background"
-          >
-            <option value="all">All Bureaus</option>
-            <option value="TransUnion">TransUnion</option>
-            <option value="Experian">Experian</option>
-            <option value="Equifax">Equifax</option>
-          </select>
-
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-2 border border-border rounded-md bg-background"
-          >
-            <option value="all">All Status</option>
-            <option value="open">Open</option>
-            <option value="closed">Closed</option>
-            <option value="derogatory">Derogatory</option>
-            <option value="collection">Collection</option>
-          </select>
-        </div>
-
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm">
-            <Printer className="h-4 w-4 mr-2" />
-            Print
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Dashboard Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-8">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="accounts">Accounts</TabsTrigger>
-          <TabsTrigger value="payment-history">Payment History</TabsTrigger>
-          <TabsTrigger value="inquiries">Inquiries</TabsTrigger>
-          <TabsTrigger value="personal">Personal Info</TabsTrigger>
-          <TabsTrigger value="bureau-comparison">Bureau Compare</TabsTrigger>
-          <TabsTrigger value="tri-bureau">Tri-Bureau Viewer</TabsTrigger>
-          <TabsTrigger value="raw-html">Raw HTML</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview" className="space-y-6">
-          {/* Account Summary Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="shadow-card">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Accounts</CardTitle>
-              </CardHeader>
-              <CardContent className="pb-4">
-                <div className="text-2xl font-bold">{data.accountSummary.totalAccounts}</div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>{data.accountSummary.openAccounts} open</span>
-                  <span>•</span>
-                  <span>{data.accountSummary.closedAccounts} closed</span>
+        {/* Personal Information Section */}
+        {data.personalInfo && (
+          <section aria-labelledby="personal-info-header" className="bg-card rounded-lg shadow-card p-6">
+            <h2 id="personal-info-header" className="text-2xl font-semibold text-foreground mb-4">Personal Information</h2>
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">Full Name</dt>
+                <dd className="text-base text-foreground">{data.personalInfo.name ?? "N/A"}</dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">Birth Date</dt>
+                <dd className="text-base text-foreground">{data.personalInfo.birthDate ?? "N/A"}</dd>
+              </div>
+              {data.personalInfo.aliases?.length > 0 && (
+                <div className="md:col-span-2">
+                  <dt className="text-sm font-medium text-muted-foreground">Also Known As</dt>
+                  <dd className="text-base text-foreground">{data.personalInfo.aliases.join(', ')}</dd>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Balances</CardTitle>
-              </CardHeader>
-              <CardContent className="pb-4">
-                <div className="text-2xl font-bold">${data.accountSummary.totalBalances.toLocaleString()}</div>
-                <div className="text-sm text-muted-foreground">
-                  ${data.accountSummary.monthlyPayments.toLocaleString()} monthly payments
+              )}
+            </dl>
+            
+            {addresses.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-lg font-medium text-foreground mb-3">Addresses</h3>
+                <div className="space-y-3">
+                  {addresses.map((addr, i) => (
+                    <div key={i} className="p-3 bg-muted/30 rounded-md">
+                      <address className="not-italic">
+                        {addr.type && <strong className="text-primary">{addr.type}: </strong>}
+                        <span className="text-foreground">
+                          {[addr.street, addr.city, addr.state, addr.postalCode]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </span>
+                        {addr.dates && <span className="text-sm text-muted-foreground ml-2">({addr.dates})</span>}
+                      </address>
+                    </div>
+                  ))}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            )}
 
-            <Card className="shadow-card">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Credit Utilization</CardTitle>
-              </CardHeader>
-              <CardContent className="pb-4">
-                <div className="text-2xl font-bold">{overallUtilization.toFixed(1)}%</div>
-                <div className={`text-sm ${overallUtilization > 30 ? 'text-warning' : 'text-success'}`}>
-                  {overallUtilization > 30 ? 'High utilization' : 'Good utilization'}
+            {data.personalInfo.employers?.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-lg font-medium text-foreground mb-3">Employers</h3>
+                <ul className="space-y-2">
+                  {data.personalInfo.employers.map((emp, i) => (
+                    <li key={i} className="p-2 bg-muted/30 rounded-md">
+                      <span className="text-foreground">{emp.name}</span>
+                      {emp.dates && <span className="text-sm text-muted-foreground ml-2">({emp.dates})</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Credit Scores Section */}
+        {creditScores.length > 0 && (
+          <section aria-labelledby="credit-scores-header" className="bg-card rounded-lg shadow-card p-6">
+            <h2 id="credit-scores-header" className="text-2xl font-semibold text-foreground mb-4">Credit Scores</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {creditScores.map((score, i) => (
+                <div key={i} className="text-center p-4 bg-gradient-primary rounded-lg text-primary-foreground">
+                  <h3 className="font-medium text-sm opacity-90">{score.bureau}</h3>
+                  <p className="text-4xl font-bold mt-2">{score.score}</p>
+                  {score.date && <p className="text-xs opacity-75 mt-1">({score.date})</p>}
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-card">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Recent Inquiries</CardTitle>
-              </CardHeader>
-              <CardContent className="pb-4">
-                <div className="text-2xl font-bold">{data.accountSummary.inquiries2Years}</div>
-                <div className="text-sm text-muted-foreground">Last 24 months</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Credit Utilization Gauge */}
-          <CreditUtilizationGauge 
-            accounts={data.accounts} 
-            overallUtilization={overallUtilization} 
-          />
-
-          {/* Charts Overview */}
-          <CreditChartsOverview data={data} />
-
-          {/* Action Items Panel */}
-          <ActionItemsPanel creditScores={data.creditScores} accounts={data.accounts} />
-        </TabsContent>
-
-        <TabsContent value="accounts" data-testid="credit-report-accounts">
-          <AccountsGrid accounts={filteredAccounts} />
-        </TabsContent>
-
-        <TabsContent value="payment-history">
-          <PaymentHistoryHeatmap accounts={data.accounts} />
-        </TabsContent>
-
-        <TabsContent value="inquiries" data-testid="credit-report-inquiries">
-          <InquiriesTimeline inquiries={data.inquiries} />
-        </TabsContent>
-
-        <TabsContent value="personal">
-          <PersonalInfoCard personalInfo={data.personalInfo} />
-        </TabsContent>
-
-        <TabsContent value="bureau-comparison">
-          <BureauComparisonView data={data} />
-        </TabsContent>
-
-        <TabsContent value="tri-bureau">
-          <TriBureauReportViewer docsumo={triBureauDocsumo} />
-        </TabsContent>
-
-        <TabsContent value="raw-html" className="space-y-6">
-          {/* Display HTML sections from raw data */}
-          {data.rawData && (
-            <div className="space-y-6">
-              {/* Personal Information HTML */}
-              {data.rawData.personal_information?.html && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Personal Information (Raw HTML)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HtmlBlock html={data.rawData.personal_information.html} />
-                  </CardContent>
-                </Card>
+              ))}
+            </div>
+            
+            {/* Risk Factors */}
+            <div className="mt-6 space-y-3">
+              <h3 className="text-lg font-medium text-foreground">Risk Factors</h3>
+              {data.creditScores.transUnion?.factors && (
+                <div>
+                  <h4 className="text-sm font-medium text-muted-foreground">TransUnion</h4>
+                  <p className="text-sm text-foreground">{data.creditScores.transUnion.factors.join('; ')}</p>
+                </div>
               )}
-
-              {/* Account Summary HTML */}
-              {data.rawData.account_summary?.html && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Account Summary (Raw HTML)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HtmlBlock html={data.rawData.account_summary.html} />
-                  </CardContent>
-                </Card>
+              {data.creditScores.experian?.factors && (
+                <div>
+                  <h4 className="text-sm font-medium text-muted-foreground">Experian</h4>
+                  <p className="text-sm text-foreground">{data.creditScores.experian.factors.join('; ')}</p>
+                </div>
               )}
-
-              {/* Credit Scores HTML */}
-              {data.rawData.credit_scores?.html && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Credit Scores (Raw HTML)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HtmlBlock html={data.rawData.credit_scores.html} />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Accounts HTML */}
-              {data.rawData.accounts?.html && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Accounts (Raw HTML)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HtmlBlock html={data.rawData.accounts.html} />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Inquiries HTML */}
-              {data.rawData.inquiries?.html && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Inquiries (Raw HTML)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HtmlBlock html={data.rawData.inquiries.html} />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Public Records HTML */}
-              {data.rawData.public_records?.html && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Public Records (Raw HTML)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HtmlBlock html={data.rawData.public_records.html} />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Collections HTML */}
-              {data.rawData.collections?.html && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Collections (Raw HTML)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <HtmlBlock html={data.rawData.collections.html} />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Any other HTML sections found in rawData */}
-              {Object.entries(data.rawData).map(([key, value]: [string, any]) => {
-                if (value?.html && !['personal_information', 'account_summary', 'credit_scores', 'accounts', 'inquiries', 'public_records', 'collections'].includes(key)) {
-                  return (
-                    <Card key={key}>
-                      <CardHeader>
-                        <CardTitle>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} (Raw HTML)</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <HtmlBlock html={value.html} />
-                      </CardContent>
-                    </Card>
-                  );
-                }
-                return null;
-              })}
-
-              {/* If no HTML sections found */}
-              {!Object.values(data.rawData).some((value: any) => value?.html) && (
-                <Card>
-                  <CardContent className="p-8 text-center">
-                    <p className="text-muted-foreground">No HTML content found in the raw data.</p>
-                  </CardContent>
-                </Card>
+              {data.creditScores.equifax?.factors && (
+                <div>
+                  <h4 className="text-sm font-medium text-muted-foreground">Equifax</h4>
+                  <p className="text-sm text-foreground">{data.creditScores.equifax.factors.join('; ')}</p>
+                </div>
               )}
             </div>
-          )}
+          </section>
+        )}
 
-          {/* If no rawData */}
-          {!data.rawData && (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <p className="text-muted-foreground">No raw data available to display HTML content.</p>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-      </Tabs>
-    </div>
+        {/* Account Summary */}
+        {data.accountSummary && (
+          <section aria-labelledby="account-summary-header" className="bg-card rounded-lg shadow-card p-6">
+            <h2 id="account-summary-header" className="text-2xl font-semibold text-foreground mb-4">Account Summary</h2>
+            <dl className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center p-4 bg-muted/30 rounded-lg">
+                <dt className="text-sm font-medium text-muted-foreground">Total Accounts</dt>
+                <dd className="text-2xl font-bold text-foreground mt-1">{data.accountSummary.totalAccounts ?? "N/A"}</dd>
+              </div>
+              <div className="text-center p-4 bg-muted/30 rounded-lg">
+                <dt className="text-sm font-medium text-muted-foreground">Open Accounts</dt>
+                <dd className="text-2xl font-bold text-success mt-1">{data.accountSummary.openAccounts ?? "N/A"}</dd>
+              </div>
+              <div className="text-center p-4 bg-muted/30 rounded-lg">
+                <dt className="text-sm font-medium text-muted-foreground">Closed Accounts</dt>
+                <dd className="text-2xl font-bold text-muted-foreground mt-1">{data.accountSummary.closedAccounts ?? "N/A"}</dd>
+              </div>
+              <div className="text-center p-4 bg-muted/30 rounded-lg">
+                <dt className="text-sm font-medium text-muted-foreground">Delinquent Accounts</dt>
+                <dd className="text-2xl font-bold text-danger mt-1">{data.accountSummary.delinquentAccounts ?? "N/A"}</dd>
+              </div>
+            </dl>
+            
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="text-center p-4 bg-gradient-success rounded-lg text-success-foreground">
+                <dt className="text-sm font-medium opacity-90">Total Balances</dt>
+                <dd className="text-xl font-bold mt-1">${data.accountSummary.totalBalances?.toLocaleString() ?? "N/A"}</dd>
+              </div>
+              <div className="text-center p-4 bg-gradient-primary rounded-lg text-primary-foreground">
+                <dt className="text-sm font-medium opacity-90">Monthly Payments</dt>
+                <dd className="text-xl font-bold mt-1">${data.accountSummary.monthlyPayments?.toLocaleString() ?? "N/A"}</dd>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Account Details */}
+        {accountDetails.length > 0 && (
+          <section aria-labelledby="account-details-header" className="bg-card rounded-lg shadow-card p-6">
+            <h2 id="account-details-header" className="text-2xl font-semibold text-foreground mb-4">Account Details</h2>
+            <div className="space-y-6">
+              {accountDetails.map((account, i) => (
+                <article key={i} className="border border-border rounded-lg p-4 hover:shadow-elevated transition-shadow">
+                  <h3 className="text-lg font-medium text-foreground mb-3">{account.creditorName || "Unknown Creditor"}</h3>
+                  <dl className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <dt className="text-sm font-medium text-muted-foreground">Account Type</dt>
+                      <dd className="text-base text-foreground capitalize">{account.accountType ?? "N/A"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-muted-foreground">Balance</dt>
+                      <dd className="text-base text-foreground font-medium">{account.balance ?? "N/A"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-muted-foreground">Status</dt>
+                      <dd className={`text-base font-medium ${
+                        account.status === 'open' ? 'text-success' :
+                        account.status === 'derogatory' || account.status === 'collection' ? 'text-danger' :
+                        'text-foreground'
+                      }`}>
+                        {account.status ?? "N/A"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-muted-foreground">Last Payment Date</dt>
+                      <dd className="text-base text-foreground">{account.lastPaymentDate ?? "N/A"}</dd>
+                    </div>
+                  </dl>
+                  
+                  {/* Payment History */}
+                  {account.paymentHistory?.length > 0 && (
+                    <section aria-labelledby={`payment-history-${i}`} className="mt-4">
+                      <h4 id={`payment-history-${i}`} className="text-sm font-medium text-muted-foreground mb-2">Payment History</h4>
+                      <div className="flex flex-wrap gap-1">
+                        {account.paymentHistory.slice(0, 24).map((pay, pi) => (
+                          <div 
+                            key={pi} 
+                            className={`w-4 h-4 rounded-sm text-xs flex items-center justify-center ${
+                              pay.status === 'ok' ? 'bg-success text-success-foreground' :
+                              pay.status === 'late30' ? 'bg-warning text-warning-foreground' :
+                              pay.status === 'late60' || pay.status === 'late90' ? 'bg-danger text-danger-foreground' :
+                              pay.status === 'chargeoff' ? 'bg-destructive text-destructive-foreground' :
+                              'bg-muted text-muted-foreground'
+                            }`}
+                            title={`${pay.month}: ${pay.status}`}
+                          >
+                            {pay.status === 'ok' ? '✓' : 
+                             pay.status === 'late30' ? '1' :
+                             pay.status === 'late60' ? '2' :
+                             pay.status === 'late90' ? '3' :
+                             pay.status === 'chargeoff' ? 'X' : '?'}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Last 24 months • ✓ = On Time, 1-3 = Days Late, X = Charge Off
+                      </p>
+                    </section>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Inquiries */}
+        {data.inquiries?.length > 0 && (
+          <section aria-labelledby="inquiries-header" className="bg-card rounded-lg shadow-card p-6">
+            <h2 id="inquiries-header" className="text-2xl font-semibold text-foreground mb-4">Recent Credit Inquiries</h2>
+            <div className="space-y-3">
+              {data.inquiries.map((inq, i) => (
+                <div key={i} className="flex justify-between items-center p-3 bg-muted/30 rounded-lg">
+                  <div>
+                    <p className="font-medium text-foreground">{inq.creditor ?? "Unknown Creditor"}</p>
+                    {inq.purpose && <p className="text-sm text-muted-foreground">{inq.purpose}</p>}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-foreground">{inq.date ?? "N/A"}</p>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      inq.type === 'hard' ? 'bg-danger/20 text-danger' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {inq.type ?? "Unknown"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Public Records */}
+        <section aria-labelledby="public-records-header" className="bg-card rounded-lg shadow-card p-6">
+          <h2 id="public-records-header" className="text-2xl font-semibold text-foreground mb-4">Public Records</h2>
+          <div className="text-center py-8">
+            <p className="text-muted-foreground">No public records reported</p>
+          </div>
+        </section>
+      </article>
+    </main>
   );
 };

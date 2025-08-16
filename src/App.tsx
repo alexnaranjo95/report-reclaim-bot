@@ -10,6 +10,7 @@ import Auth from "./pages/Auth";
 import Admin from "./pages/Admin";
 import TemplateEditorPage from "./pages/TemplateEditor";
 import CreditReports from "./pages/CreditReports";
+import OptimizedCreditReports from "./pages/OptimizedCreditReports";
 import CreditReportDashboard from "./components/CreditReportDashboard";
 import NotFound from "./pages/NotFound";
 import { useAuth } from "@/hooks/useAuth";
@@ -83,6 +84,13 @@ const App = () => {
                 </ProtectedRoute>
               } />
               <Route path="/credit-reports" element={<Navigate to="/credit-report" replace />} />
+              <Route path="/credit-report-optimized" element={
+                <ProtectedRoute>
+                  <div className="min-h-screen w-full">
+                    <OptimizedCreditReports />
+                  </div>
+                </ProtectedRoute>
+              } />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
               </Routes>
